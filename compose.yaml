@@ -1,0 +1,51 @@
+services:
+  database:
+    image: postgres:17.6
+    environment:
+      POSTGRES_USER: qollab
+      POSTGRES_DB: qollab
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U qollab]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  app:
+    image: ${APP_IMAGE:-ghcr.io/luftaquila/qollab:0.1.0}
+    environment:
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:3000}
+      DATABASE_URL: postgres://qollab:${POSTGRES_PASSWORD}@database:5432/qollab
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_WORKSPACE_DOMAIN: ${GOOGLE_WORKSPACE_DOMAIN:-}
+      ACCOUNT_POLICY: ${ACCOUNT_POLICY:-approval}
+      APPROVED_EMAILS: ${APPROVED_EMAILS:-}
+      RENDERER_TOKEN: ${RENDERER_TOKEN:?Set RENDERER_TOKEN}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?Set ADMIN_TOKEN}
+    ports:
+      - 127.0.0.1:${PORT:-3000}:3000
+    volumes:
+      - projects:/data
+    depends_on:
+      database:
+        condition: service_healthy
+    restart: unless-stopped
+  renderer:
+    image: ${RENDER_IMAGE:-ghcr.io/luftaquila/qollab-renderer:0.1.0}
+    environment:
+      APP_URL: http://app:3000
+      RENDERER_TOKEN: ${RENDERER_TOKEN}
+      RENDER_IMAGE: ${RENDER_IMAGE:-ghcr.io/luftaquila/qollab-renderer:0.1.0}
+      RENDERER_NAMESPACE: ${RENDERER_NAMESPACE:-qollab}
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - ${ENGINE_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    depends_on:
+      - app
+    restart: unless-stopped
+volumes:
+  database:
+  projects:

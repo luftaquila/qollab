@@ -1,0 +1,134 @@
+name: Verify and publish
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: qollab
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: qollab_test
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U qollab" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://qollab:test-password@127.0.0.1:5432/qollab_test
+      E2E_DATABASE_URL: postgres://qollab:test-password@127.0.0.1:5432/qollab_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - run: node scripts/bundle-report.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification
+          path: |
+            tmp/*.png
+            tmp/bundle-report.json
+            test-results/
+  images:
+    needs: verify
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: containers/app.Dockerfile
+          load: true
+          tags: ghcr.io/luftaquila/qollab:sha-${{ github.sha }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=app-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=app-${{ matrix.arch }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: containers/renderer.Dockerfile
+          load: true
+          tags: ghcr.io/luftaquila/qollab-renderer:sha-${{ github.sha }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=renderer-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=renderer-${{ matrix.arch }}
+      - name: Render a real PDF and verify isolation
+        run: python3 scripts/container-smoke.py --image ghcr.io/luftaquila/qollab-renderer:sha-${{ github.sha }}-${{ matrix.arch }}
+      - name: Start the production application
+        env:
+          APP_IMAGE: ghcr.io/luftaquila/qollab:sha-${{ github.sha }}-${{ matrix.arch }}
+          RENDER_IMAGE: ghcr.io/luftaquila/qollab-renderer:sha-${{ github.sha }}-${{ matrix.arch }}
+          POSTGRES_PASSWORD: ci-local-database-password
+          RENDERER_TOKEN: ci-renderer-token-at-least-32-characters
+          ADMIN_TOKEN: ci-administration-token-at-least-32-characters
+        run: |
+          docker compose up -d
+          for attempt in $(seq 1 30); do
+            if curl --fail http://localhost:3000/api/health; then break; fi
+            sleep 2
+          done
+          curl --fail http://localhost:3000/api/health
+          curl --fail http://localhost:3000/api/session | python3 -c 'import json,sys; s=json.load(sys.stdin); assert s["user"] is None and not s["oauthConfigured"]'
+      - name: Publish verified platform images
+        run: |
+          docker push ghcr.io/luftaquila/qollab:sha-${{ github.sha }}-${{ matrix.arch }}
+          docker push ghcr.io/luftaquila/qollab-renderer:sha-${{ github.sha }}-${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pdf-${{ matrix.arch }}
+          path: tmp/render-smoke.pdf
+  manifests:
+    needs: images
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Create manifests
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          for image in qollab qollab-renderer; do
+            tags=(--tag "ghcr.io/luftaquila/$image:sha-$COMMIT")
+            if [ "$REF_TYPE" = tag ]; then tags+=(--tag "ghcr.io/luftaquila/$image:${REF_NAME#v}"); fi
+            docker buildx imagetools create "${tags[@]}" "ghcr.io/luftaquila/$image:sha-$COMMIT-amd64" "ghcr.io/luftaquila/$image:sha-$COMMIT-arm64"
+            docker buildx imagetools inspect "ghcr.io/luftaquila/$image:sha-$COMMIT" >> "$GITHUB_STEP_SUMMARY"
+          done
