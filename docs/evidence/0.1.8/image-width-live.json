@@ -1,0 +1,32 @@
+{
+  "samples": [
+    {
+      "name": "80",
+      "sourceWidth": "80%",
+      "pdfWidthPoints": 356,
+      "editorWidthPixels": 407.359375,
+      "visibleMs": 4623,
+      "build": "5f558a3f-3458-4ac1-913e-8281d86127a4"
+    },
+    {
+      "name": "40-drag",
+      "sourceWidth": "40%",
+      "pdfWidthPoints": 178,
+      "editorWidthPixels": 203.671875,
+      "visibleMs": 1019,
+      "build": "0ea123ee-3526-46ff-ac6b-184e410f33bf"
+    },
+    {
+      "name": "25-properties",
+      "sourceWidth": "25%",
+      "pdfWidthPoints": 111,
+      "editorWidthPixels": 127.296875,
+      "visibleMs": 3957,
+      "build": "d2057515-1fd2-41ab-8d91-d5e6b558e560"
+    }
+  ],
+  "previewMatchesDownload": true,
+  "peerSizesMatched": true,
+  "reopenedWidthMatched": true,
+  "errors": []
+}

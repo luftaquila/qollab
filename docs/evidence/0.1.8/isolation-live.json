@@ -1,0 +1,1 @@
+{"userDocuments": 0, "prepared": true, "uid": 10001, "serviceAccountToken": false, "credentials": false, "securityContext": {"allowPrivilegeEscalation": false, "capabilities": {"drop": ["ALL"]}, "readOnlyRootFilesystem": true}, "limits": {"cpu": "1", "memory": "2Gi"}, "serviceAccountMounted": false}

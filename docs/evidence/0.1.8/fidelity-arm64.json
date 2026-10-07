@@ -1,0 +1,83 @@
+[
+  {
+    "case": "text",
+    "milliseconds": 422,
+    "metrics": {
+      "fastPath": 1,
+      "pandocMs": 242,
+      "texMs": 144,
+      "texPasses": 1,
+      "totalMs": 387
+    },
+    "pageHashes": [
+      "e5c201f4844d4f3289ce9c366a7b597fb876ebd3f6dcf2da12eb5ec26a90c3f7"
+    ],
+    "identicalPixels": true
+  },
+  {
+    "case": "image",
+    "milliseconds": 401,
+    "metrics": {
+      "fastPath": 1,
+      "pandocMs": 219,
+      "texMs": 143,
+      "texPasses": 1,
+      "totalMs": 364
+    },
+    "pageHashes": [
+      "3565a744bb40cbcc17a37f876e3fe194e5578bc468d8bce2465c9fa43181c4a5"
+    ],
+    "identicalPixels": true
+  },
+  {
+    "case": "math",
+    "milliseconds": 402,
+    "metrics": {
+      "fastPath": 1,
+      "pandocMs": 219,
+      "texMs": 147,
+      "texPasses": 1,
+      "totalMs": 368
+    },
+    "pageHashes": [
+      "2270dd6cdd4f613c54db3a20337dc43aba974f2c7fc782cb174a0942c4098b5e"
+    ],
+    "identicalPixels": true
+  },
+  {
+    "case": "pages",
+    "milliseconds": 505,
+    "metrics": {
+      "fastPath": 1,
+      "pandocMs": 318,
+      "texMs": 147,
+      "texPasses": 1,
+      "totalMs": 468
+    },
+    "pageHashes": [
+      "fc131c6ddb0e7151f12b284506e0386d82c019e9089db74cb08e2e18b4c712fe",
+      "bc1e824d6d0abdb5668f79a8c03fb1dc34d5ea99f0142252814b77edc58ee14e",
+      "f0f81275d6856f17925a4912e38d704bcc122826fb4655a83c82a66fd9da5145"
+    ],
+    "identicalPixels": true
+  },
+  {
+    "case": "lists",
+    "milliseconds": 407,
+    "metrics": {
+      "fastPath": 1,
+      "pandocMs": 225,
+      "texMs": 143,
+      "texPasses": 1,
+      "totalMs": 370
+    },
+    "pageHashes": [
+      "fd777897b1681af1aa15e11815541d60e336825ff3555c8fbb0919eb69b71bc3"
+    ],
+    "identicalPixels": true
+  },
+  {
+    "case": "changed-table-width",
+    "fallback": true
+  }
+]

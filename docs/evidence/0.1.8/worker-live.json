@@ -1,0 +1,153 @@
+[
+  {
+    "type": "render-timing",
+    "build": "0c0effde-7d6b-46d1-a9ef-150c1958ef72",
+    "createMs": 278,
+    "warmMs": 6172,
+    "executionMs": 7382,
+    "worker": {
+      "prepareMs": 17,
+      "quartoMs": 7334,
+      "texPasses": 2,
+      "texMs": 3975,
+      "reusedAux": 0,
+      "cacheFallback": 0
+    },
+    "succeeded": true
+  },
+  {
+    "type": "render-timing",
+    "build": "9e9d264b-f570-411e-bd15-c833d6c0011e",
+    "createMs": 298,
+    "warmMs": 16882,
+    "executionMs": 530,
+    "worker": {
+      "fastPath": 1,
+      "pandocMs": 341,
+      "texMs": 164,
+      "texPasses": 1,
+      "totalMs": 508
+    },
+    "succeeded": true
+  },
+  {
+    "type": "render-timing",
+    "build": "f5782554-5cf3-4bc4-ae03-ccdd68608722",
+    "createMs": 222,
+    "warmMs": 10181,
+    "executionMs": 529,
+    "worker": {
+      "fastPath": 1,
+      "pandocMs": 347,
+      "texMs": 156,
+      "texPasses": 1,
+      "totalMs": 505
+    },
+    "succeeded": true
+  },
+  {
+    "type": "render-timing",
+    "build": "e162bdec-8a8a-4b90-b6ff-c002cfe50084",
+    "createMs": 221,
+    "warmMs": 10179,
+    "executionMs": 525,
+    "worker": {
+      "fastPath": 1,
+      "pandocMs": 342,
+      "texMs": 158,
+      "texPasses": 1,
+      "totalMs": 503
+    },
+    "succeeded": true
+  },
+  {
+    "type": "render-timing",
+    "build": "d703a282-bc10-4067-b482-4e6a5791e752",
+    "createMs": 401,
+    "warmMs": 7414,
+    "executionMs": 696,
+    "worker": {
+      "fastPath": 1,
+      "pandocMs": 395,
+      "texMs": 267,
+      "texPasses": 1,
+      "totalMs": 664
+    },
+    "succeeded": true
+  },
+  {
+    "type": "render-timing",
+    "build": "a2b919d6-c981-456f-8ad8-0f6a462fed13",
+    "createMs": 268,
+    "warmMs": 747,
+    "executionMs": 3566,
+    "worker": {
+      "fastPath": 1,
+      "pandocMs": 658,
+      "texMs": 1948,
+      "texPasses": 1,
+      "totalMs": 2608
+    },
+    "succeeded": true
+  },
+  {
+    "type": "render-timing",
+    "build": "04d78521-9c9b-4cb7-9755-976d3ba51b7d",
+    "createMs": 196,
+    "warmMs": 3788,
+    "executionMs": 1105,
+    "worker": {
+      "fastPath": 1,
+      "pandocMs": 753,
+      "texMs": 305,
+      "texPasses": 1,
+      "totalMs": 1062
+    },
+    "succeeded": true
+  },
+  {
+    "type": "render-timing",
+    "build": "5f558a3f-3458-4ac1-913e-8281d86127a4",
+    "createMs": 329,
+    "warmMs": 0,
+    "executionMs": 3980,
+    "worker": {
+      "fastPath": 1,
+      "pandocMs": 1005,
+      "texMs": 1545,
+      "texPasses": 1,
+      "totalMs": 2552
+    },
+    "succeeded": true
+  },
+  {
+    "type": "render-timing",
+    "build": "0ea123ee-3526-46ff-ac6b-184e410f33bf",
+    "createMs": 495,
+    "warmMs": 3920,
+    "executionMs": 607,
+    "worker": {
+      "fastPath": 1,
+      "pandocMs": 349,
+      "texMs": 149,
+      "texPasses": 1,
+      "totalMs": 500
+    },
+    "succeeded": true
+  },
+  {
+    "type": "render-timing",
+    "build": "d2057515-1fd2-41ab-8d91-d5e6b558e560",
+    "createMs": 202,
+    "warmMs": 892,
+    "executionMs": 3659,
+    "worker": {
+      "fastPath": 1,
+      "pandocMs": 662,
+      "texMs": 1782,
+      "texPasses": 1,
+      "totalMs": 2446
+    },
+    "succeeded": true
+  }
+]
