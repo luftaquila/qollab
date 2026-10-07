@@ -1,0 +1,6 @@
+# Only the trusted manager needs access to the rootless engine socket.
+# Job containers retain their own isolation settings from the manager.
+services:
+  renderer:
+    security_opt:
+      - label=disable

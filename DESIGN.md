@@ -375,3 +375,53 @@ LuaLaTeX와 한글 폰트를 포함한 기본 템플릿을 검증한다. 한글�
 - 검증 기록에는 자동화 OIDC와 실제 Google 로그인을 구분. 실제 Google 설정 제공 전 실계정 로그인은 미검증.
 
 상세 API·테이블·복구 절차·검증 결과는 프로젝트 DESIGN.md 및 docs/verification.md에서 구현과 함께 관리한다.
+
+## 12. 구현 데이터 구조와 장애 처리
+
+### PostgreSQL
+
+| 테이블 | 핵심 컬럼·제약 |
+|---|---|
+| users | id=Google sub PK, email, name |
+| sessions | SHA-256(token) PK, user_id FK, csrf, expires |
+| oidc_states | SHA-256(state) PK, verifier, nonce, expires; callback에서 일회용 삭제 |
+| projects | UUID PK, name, revision bigint, data JSONB |
+| members | (project_id,user_id) PK, role enum 제약 |
+| invites | SHA-256(token) PK, project FK, 대상 이메일, editor/viewer, expires |
+| document_generations | document UUID PK, 역대 최대 epoch; 삭제·재복원 때 세대 재사용 방지 |
+| updates | (document_id,epoch,message_id) PK, user_id, seq, bytes, created |
+| checkpoints | UUID PK, project FK, revision, label, actor, snapshot JSONB, git_hash |
+| restores | UUID PK, project FK, target, committed/complete, created |
+| builds | UUID PK, project FK, revision, epoch, target, status, input JSONB, lease, lease_until, log, pdf bytea, image |
+| audit | actor, project, event, detail JSONB, created |
+| maintenance | 단일 행, frozen, backup_id |
+
+`projects.data`는 `{files, epoch, target, contentRevision, pdfBuild?, pdfRevision?}`다. 파일은 `{id,path,kind,epoch,source?,state?,preservation?,bytes?,mime?,uploadId?,mode?,rawVersion?,rawOwner?,rawUntil?}`로 저장한다. 이미지 bytes는 base64, Yjs state는 base64 update다. 대형 바이너리 분리는 후속 범위이며 초기 용량 제한을 서버에서 검사한다.
+
+`preservation`은 원문, doc 지문, 최상위 블록별 구조 지문·원문·앞 공백과 마지막 공백을 저장한다. `qollabId`가 같은 문법으로 정규화되는 서로 다른 원문 블록을 구분한다. 브라우저·서버의 스키마가 이 속성을 함께 사용한다. 미지원 인라인은 포함 블록 전체를 `qollab_raw(text*)`로 보존한다. 모든 Quarto 문법에 별도 Visual 노드를 제공하는 것은 아니다.
+
+### 일관성 경계
+
+1. 쓰기는 전역 shared advisory lock과 프로젝트 `FOR UPDATE` 행 잠금을 획득한다.
+2. 인증·역할·기준 revision·문서 epoch·크기 검사를 적용한다.
+3. 원본, 협업 상태, 이력/작업 metadata를 DB에서 원자적으로 확정한다.
+4. 프로젝트 파일 미러는 프로젝트별 직렬 큐에서 현재 DB 상태를 원자적 파일 교체로 반영한다.
+5. Git checkpoint는 별도 index로 해당 snapshot의 tree를 만든다. 체크포인트 UUID trailer로 중단된 commit의 중복 생성을 방지한다.
+6. 파일 오류는 별도 알림이다. 재시작 시 DB에서 재생성하며 실패하면 앱 시작을 완료하지 않는다.
+
+복원은 직전 snapshot과 대상 snapshot·새 epoch·복원 journal을 같은 DB 트랜잭션에서 확정한다. 파일/Git 반영 후 complete로 표시한다. committed 직후 프로세스를 강제 종료하는 테스트에서 시작 시 미러 재생과 복원 완료를 확인한다. 권한·멤버·세션은 프로젝트 snapshot 밖에 있다.
+
+백업 freeze는 전역 exclusive advisory lock으로 진행 중 쓰기를 기다린 뒤 새 쓰기를 거부한다. 미러 큐를 비운 후 DB와 파일을 함께 수집한다. 작업 결과 공개도 freeze를 검사한다. backup/restore 스크립트와 실제 검증은 `docs/operations.md`, `docs/verification.md`를 따른다.
+
+### 초기 구현의 보수적 처리
+
+- 모호한 문법은 단일 사용자 복구 모드. Raw 영역의 경계를 깨는 Visual 업데이트는 저장하지 않는다.
+- `_quarto.yml`은 허용된 PDF metadata만 렌더링한다. 원문 저장과 실행 허용은 별개다.
+- 프로젝트 설정·bibliography·csl·Raw TeX는 원문 보존. 사용자 필터·실행 코드·확장·서버 실행 정책 옵션은 거부한다.
+- 외부 이미지는 다운로드하지 않는다. 브라우저 preview도 프로젝트 내부 이미지 API만 사용한다.
+- 프로젝트 전체 복원으로 문서·이미지·ID 매핑을 함께 되돌린다.
+- 임시 Raw 편집권은 15분, 저장마다 갱신. 다른 사용자와 같은 원문에 동시 저장하지 않는다.
+- 자동 빌드는 영구 큐의 마지막 대기 입력으로 합치며 최초 요청 시각으로 최대 대기 10초를 계산한다.
+- 이미지/문서 크기와 프로젝트 원본 총량, 체크포인트 저장 한도를 검사한다. build/history 보존 전략의 확장은 후속 범위다.
+
+인터페이스 상세는 `docs/api.md`, 운영 계약은 `docs/operations.md`, 검증 증거와 수치는 `docs/verification.md`에 기록한다.

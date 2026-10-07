@@ -1,7 +1,8 @@
-import pg from 'pg';
-import {config} from './config.js';
-export const pool=new pg.Pool({connectionString:config.database,max:10});
-export async function migrate() {await pool.query(`
+import pg from "pg";
+import { config } from "./config.js";
+export const pool = new pg.Pool({ connectionString: config.database, max: 10 });
+export async function migrate() {
+  await pool.query(`
 CREATE TABLE IF NOT EXISTS users(id text PRIMARY KEY, email text NOT NULL, name text NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions(id text PRIMARY KEY,user_id text REFERENCES users(id),csrf text NOT NULL,expires timestamptz NOT NULL);
 CREATE TABLE IF NOT EXISTS oidc_states(id text PRIMARY KEY,verifier text NOT NULL,nonce text NOT NULL,expires timestamptz NOT NULL);
@@ -17,9 +18,38 @@ CREATE INDEX IF NOT EXISTS builds_queue ON builds(status,created);
 CREATE TABLE IF NOT EXISTS audit(id bigserial PRIMARY KEY,project_id uuid,actor text,event text NOT NULL,detail jsonb NOT NULL DEFAULT '{}',created timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS maintenance(singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),frozen boolean NOT NULL DEFAULT false,backup_id text);
 INSERT INTO maintenance(singleton) VALUES(true) ON CONFLICT DO NOTHING;
-`);}
-export async function transaction<T>(fn:(db:pg.PoolClient)=>Promise<T>):Promise<T>{
- const db=await pool.connect();try{await db.query('BEGIN');await db.query('SELECT pg_advisory_xact_lock_shared(917240)');const out=await fn(db);await db.query('COMMIT');return out;}catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}
+`);
 }
-export class Fault extends Error {constructor(public code:string,public status=400,public params:Record<string,unknown>={}){super(code);}}
-export const assert=(condition:unknown,code:string,status=400):asserts condition=>{if(!condition)throw new Fault(code,status);};
+export async function transaction<T>(
+  fn: (db: pg.PoolClient) => Promise<T>,
+): Promise<T> {
+  const db = await pool.connect();
+  try {
+    await db.query("BEGIN");
+    await db.query("SELECT pg_advisory_xact_lock_shared(917240)");
+    const out = await fn(db);
+    await db.query("COMMIT");
+    return out;
+  } catch (e) {
+    await db.query("ROLLBACK");
+    throw e;
+  } finally {
+    db.release();
+  }
+}
+export class Fault extends Error {
+  constructor(
+    public code: string,
+    public status = 400,
+    public params: Record<string, unknown> = {},
+  ) {
+    super(code);
+  }
+}
+export const assert = (
+  condition: unknown,
+  code: string,
+  status = 400,
+): asserts condition => {
+  if (!condition) throw new Fault(code, status);
+};

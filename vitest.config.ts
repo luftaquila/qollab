@@ -1,2 +1,19 @@
-import {defineConfig} from 'vitest/config';
-export default defineConfig({test:{include:['tests/*.test.ts'],fileParallelism:false,testTimeout:30000,hookTimeout:30000,env:{DATABASE_URL:process.env.TEST_DATABASE_URL||'postgres://qollab:qollab-local@127.0.0.1:55432/qollab_test',DATA_DIR:'.data/test',PUBLIC_ORIGIN:'http://127.0.0.1:3100',RENDERER_TOKEN:'test-renderer-token-32-characters-minimum',ADMIN_TOKEN:'test-admin-token-32-characters-minimum',ACCOUNT_POLICY:'all'}}});
+import { defineConfig } from "vitest/config";
+export default defineConfig({
+  test: {
+    include: ["tests/*.test.ts"],
+    fileParallelism: false,
+    testTimeout: 30000,
+    hookTimeout: 30000,
+    env: {
+      DATABASE_URL:
+        process.env.TEST_DATABASE_URL ||
+        "postgres://qollab:qollab-local@127.0.0.1:55432/qollab_test",
+      DATA_DIR: ".data/test",
+      PUBLIC_ORIGIN: "http://127.0.0.1:3100",
+      RENDERER_TOKEN: "test-renderer-token-32-characters-minimum",
+      ADMIN_TOKEN: "test-admin-token-32-characters-minimum",
+      ACCOUNT_POLICY: "all",
+    },
+  },
+});

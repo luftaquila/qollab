@@ -2,7 +2,8 @@ name: Verify and publish
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    paths-ignore: ["**/*.md", "docs/**"]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -17,7 +18,7 @@ jobs:
           POSTGRES_USER: qollab
           POSTGRES_PASSWORD: test-password
           POSTGRES_DB: qollab_test
-        ports: ['5432:5432']
+        ports: ["5432:5432"]
         options: --health-cmd "pg_isready -U qollab" --health-interval 5s --health-timeout 3s --health-retries 20
     env:
       TEST_DATABASE_URL: postgres://qollab:test-password@127.0.0.1:5432/qollab_test
@@ -35,6 +36,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - run: node scripts/bundle-report.mjs
+      - run: node scripts/check-deps.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -42,6 +44,7 @@ jobs:
           path: |
             tmp/*.png
             tmp/bundle-report.json
+            tmp/performance.json
             test-results/
   images:
     needs: verify
@@ -99,6 +102,7 @@ jobs:
           done
           curl --fail http://localhost:3000/api/health
           curl --fail http://localhost:3000/api/session | python3 -c 'import json,sys; s=json.load(sys.stdin); assert s["user"] is None and not s["oauthConfigured"]'
+          node scripts/deployment-smoke.mjs
       - name: Publish verified platform images
         run: |
           docker push ghcr.io/luftaquila/qollab:sha-${{ github.sha }}-${{ matrix.arch }}
@@ -106,7 +110,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: pdf-${{ matrix.arch }}
-          path: tmp/render-smoke.pdf
+          path: |
+            tmp/render-smoke.pdf
+            tmp/deployment-report.json
   manifests:
     needs: images
     runs-on: ubuntu-24.04

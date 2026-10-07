@@ -1,2 +1,27 @@
-import {defineConfig} from '@playwright/test';
-export default defineConfig({testDir:'tests/browser',workers:1,timeout:45000,use:{baseURL:'http://127.0.0.1:3200',viewport:{width:1440,height:1000},trace:'retain-on-failure',screenshot:'only-on-failure'},webServer:{command:'node --import tsx tests/e2e-server.ts',url:'http://127.0.0.1:3200/api/health',reuseExistingServer:false,env:{PUBLIC_ORIGIN:'http://127.0.0.1:3200',DATABASE_URL:process.env.E2E_DATABASE_URL||'postgres://qollab:qollab-local@127.0.0.1:55432/qollab_e2e',DATA_DIR:'.data/e2e',RENDERER_TOKEN:'test-renderer-token-32-characters-minimum',ADMIN_TOKEN:'test-admin-token-32-characters-minimum',ACCOUNT_POLICY:'all'}}});
+import { defineConfig } from "@playwright/test";
+export default defineConfig({
+  testDir: "tests/browser",
+  workers: 1,
+  timeout: 45000,
+  use: {
+    baseURL: "http://127.0.0.1:3200",
+    viewport: { width: 1440, height: 1000 },
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+  },
+  webServer: {
+    command: "node --import tsx tests/e2e-server.ts",
+    url: "http://127.0.0.1:3200/api/health",
+    reuseExistingServer: false,
+    env: {
+      PUBLIC_ORIGIN: "http://127.0.0.1:3200",
+      DATABASE_URL:
+        process.env.E2E_DATABASE_URL ||
+        "postgres://qollab:qollab-local@127.0.0.1:55432/qollab_e2e",
+      DATA_DIR: ".data/e2e",
+      RENDERER_TOKEN: "test-renderer-token-32-characters-minimum",
+      ADMIN_TOKEN: "test-admin-token-32-characters-minimum",
+      ACCOUNT_POLICY: "all",
+    },
+  },
+});

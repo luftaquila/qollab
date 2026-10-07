@@ -44,3 +44,9 @@ try: s.connect(('1.1.1.1',443)); raise AssertionError('network is available')
 except OSError: pass
 print('isolation checks passed')'''
 r=subprocess.run([a.engine,'run',*flags,a.image,'python3','-c',probe],capture_output=True,timeout=15);print(r.stdout.decode());assert r.returncode==0,r.stderr.decode()
+
+job['timeout']=1
+r=subprocess.run([a.engine,'run',*flags,a.image,'python3','/opt/qollab/render.py'],input=json.dumps(job).encode(),capture_output=True,timeout=15)
+assert r.returncode==0,r.stderr.decode()
+assert json.loads(r.stdout).get('log')=='RENDER_TIMEOUT',r.stdout.decode()[:1000]
+print('timeout and disposable container cleanup passed')
