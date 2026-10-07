@@ -10,12 +10,27 @@ import {
 import {
   getDocument,
   GlobalWorkerOptions,
+  PDFWorker,
   type PDFDocumentProxy,
   type RenderTask,
 } from "pdfjs-dist";
 import worker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { t } from "./i18n";
 GlobalWorkerOptions.workerSrc = worker;
+// Document tasks release their own page/font state. Keep the parser worker
+// ready for the next PDF until the panel closes.
+const sharedWorker = new PDFWorker();
+const retiring = new Set<Promise<void>>();
+async function destroy(previous: ReturnType<typeof getDocument> | undefined) {
+  if (!previous) return;
+  const pending = previous.destroy();
+  retiring.add(pending);
+  try {
+    await pending;
+  } finally {
+    retiring.delete(pending);
+  }
+}
 const props = defineProps<{
   project: string;
   build?: string;
@@ -95,19 +110,20 @@ watch(
     loading.value = !!props.build;
     doc.value = undefined;
     pages.value = [];
-    await previous?.destroy();
+    await destroy(previous);
     if (v !== version) return;
     if (!props.build) return;
     let current: ReturnType<typeof getDocument> | undefined;
     try {
       current = getDocument({
+        worker: sharedWorker,
         url: `/api/projects/${props.project}/pdf?build=${props.build}`,
         withCredentials: true,
       });
       task = current;
       const pdf = await current.promise;
       if (v !== version) {
-        await current.destroy();
+        await destroy(current);
         return;
       }
       doc.value = pdf;
@@ -133,7 +149,10 @@ onBeforeUnmount(() => {
   version++;
   observer?.disconnect();
   for (const r of renders) r.cancel();
-  void task?.destroy();
+  void destroy(task)
+    .catch(() => {})
+    .then(() => Promise.allSettled([...retiring]))
+    .finally(() => sharedWorker.destroy());
 });
 </script>
 <template>

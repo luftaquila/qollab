@@ -7,7 +7,7 @@ const exec = promisify(execFile);
 const base = process.env.APP_URL || "http://app:3000",
   secret = process.env.RENDERER_TOKEN;
 const image =
-  process.env.RENDER_IMAGE || "ghcr.io/luftaquila/qollab-renderer:0.1.6";
+  process.env.RENDER_IMAGE || "ghcr.io/luftaquila/qollab-renderer:0.1.7";
 const engine = process.env.CONTAINER_ENGINE || "docker",
   namespace = process.env.RENDERER_NAMESPACE || "qollab";
 if (!secret || secret.length < 32)
@@ -173,5 +173,5 @@ while (!stopped) {
   } catch (e) {
     console.error(String(e));
   }
-  await new Promise((r) => setTimeout(r, workers.warm ? 50 : 1000));
+  await new Promise((r) => setTimeout(r, workers.warm ? 20 : 1000));
 }

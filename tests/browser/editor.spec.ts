@@ -409,14 +409,22 @@ test("shows first-build progress and renders a PDF arriving after the editor ope
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   const name = "First PDF preview " + Date.now();
+  let workers = 0,
+    closedWorkers = 0;
+  page.on("worker", (worker) => {
+    if (!worker.url().includes("pdf.worker")) return;
+    workers++;
+    worker.on("close", () => closedWorkers++);
+  });
   const created = await call(page, user, "/projects", "POST", {
     name,
   });
-  let phase = "queued";
+  let phase = "queued",
+    pdfBuild = "first-pdf";
   await page.route(`**/api/projects/${created.id}`, async (route) => {
     const response = await route.fetch();
     const p = await response.json();
-    if (phase === "succeeded") p.data.pdfBuild = "first-pdf";
+    if (phase === "succeeded") p.data.pdfBuild = pdfBuild;
     await route.fulfill({ response, json: p });
   });
   await page.route(`**/api/projects/${created.id}/builds`, (route) =>
@@ -459,6 +467,21 @@ test("shows first-build progress and renders a PDF arriving after the editor ope
     )
     .toBe(true);
   await expect(page.locator(".pdf-empty")).toHaveCount(0);
+  pdfBuild = "second-pdf";
+  const updated = page.waitForResponse((r) =>
+    r.url().includes("/pdf?build=second-pdf"),
+  );
+  await notify("succeeded");
+  await updated;
+  await expect(page.locator(".pdf-page canvas")).toBeVisible();
+  await expect(page.locator(".pdf-empty")).toHaveCount(0);
+  expect(workers).toBe(1);
+  await page
+    .locator(".workspace-header")
+    .getByRole("button", { name: /PDF/ })
+    .click();
+  await expect(page.locator(".pdf-panel")).toHaveCount(0);
+  await expect.poll(() => closedWorkers).toBe(1);
   expect(errors).toEqual([]);
   await context.close();
 });

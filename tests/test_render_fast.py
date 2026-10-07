@@ -1,12 +1,22 @@
 import pathlib
 import sys
 import unittest
+import subprocess
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'containers'))
-from render_fast import eligible
+from render_fast import eligible, wait
 
 
 class FastEligibility(unittest.TestCase):
+    def test_exit_and_timeout_waits(self):
+        process = subprocess.Popen([sys.executable, '-c', 'pass'])
+        self.assertEqual(wait(process, 3), 0)
+        process = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(10)'])
+        try:
+            with self.assertRaises(subprocess.TimeoutExpired):wait(process, .02)
+        finally:
+            process.kill();process.wait()
+
     def job(self, source):
         return {'target': 'report.qmd', 'files': [
             {'path': 'report.qmd', 'source': source},

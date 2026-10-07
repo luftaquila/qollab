@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import select
 import subprocess
 import time
 from render_cache import capture, restore
@@ -30,6 +31,20 @@ MATH_COMMANDS = set(('frac dfrac tfrac sqrt sum prod int iint iiint oint lim '
                      'overline underline hat widehat bar vec dot ddot '
                      'overbrace underbrace ldots cdots vdots ddots '
                      'quad qquad sin cos tan').split())
+
+
+def wait(process, timeout):
+    """Wait for exit without Popen's up-to-50ms timeout polling delay."""
+    try:
+        fd = os.pidfd_open(process.pid)
+    except (AttributeError, OSError):
+        return process.wait(timeout=timeout)
+    try:
+        if not select.select([fd], [], [], timeout)[0]:
+            raise subprocess.TimeoutExpired(process.args, timeout)
+        return process.wait()
+    finally:
+        os.close(fd)
 
 
 def eligible(job):
@@ -94,6 +109,11 @@ class Prepared:
     def render(self, job):
         if not self.process or not eligible(job) or self.process.poll() is not None:
             return None
+        # A fresh longtable always requires reference widths. Avoid paying for
+        # a trial fast render before the inevitable first full Quarto build.
+        source = (self.root / job['target']).read_text()
+        if '|' in source and not job.get('cache'):
+            return None
         start = time.monotonic()
         context_dir = self.root / '.qollab-pandoc'
         target = job['target']
@@ -106,7 +126,7 @@ class Prepared:
             path.write_text(replace(base64.b64decode(encoded).decode()))
         args = [replace(arg) for arg in self.context['args']]
         input_path = next(Path(arg) for arg in args if arg.endswith('.md'))
-        input_path.write_text((self.root / target).read_text())
+        input_path.write_text(source)
         output_path = self.dir / 'converted.tex'
         args[args.index('--output') + 1] = str(output_path)
         env = {**os.environ, **{k: replace(v) for k, v in self.context['env'].items()}}
@@ -118,8 +138,11 @@ class Prepared:
         binary = binary or Path('/opt/quarto/bin/tools/pandoc')
         log_path = self.dir / 'pandoc.log'
         with log_path.open('wb') as log:
-            result = subprocess.run([str(binary), *args], cwd=self.root, env=env,
-                                    stdout=log, stderr=subprocess.STDOUT, timeout=10)
+            result = subprocess.Popen([str(binary), *args], cwd=self.root, env=env,
+                                      stdout=log, stderr=subprocess.STDOUT)
+            try:wait(result, 10)
+            except BaseException:
+                result.kill();result.wait();raise
         if result.returncode:
             return None
         tex = output_path.read_text()
@@ -148,7 +171,7 @@ class Prepared:
         (self.dir / 'qollab-body.tex').write_text(seed + body)
         self.process.stdin.write(b'G')
         self.process.stdin.close()
-        self.process.wait(timeout=10)
+        wait(self.process, 10)
         end = time.monotonic()
         pdf = self.dir / 'output.pdf'
         if self.process.returncode or not pdf.is_file() or pdf.stat().st_size > 50 * 1024 * 1024:
