@@ -1,0 +1,27 @@
+{
+  "samples": [
+    {
+      "savedMs": 131,
+      "responseMs": 22135,
+      "visibleMs": 22205,
+      "createdToFinishedMs": 21782,
+      "image": "ghcr.io/luftaquila/qollab-renderer@sha256:6ee273416163842f9be9ffdce8df4b5601565ca1f38b8ce9b444f0ac3546aa21"
+    },
+    {
+      "savedMs": 128,
+      "responseMs": 23784,
+      "visibleMs": 23830,
+      "createdToFinishedMs": 23457,
+      "image": "ghcr.io/luftaquila/qollab-renderer@sha256:6ee273416163842f9be9ffdce8df4b5601565ca1f38b8ce9b444f0ac3546aa21"
+    },
+    {
+      "savedMs": 129,
+      "responseMs": 23096,
+      "visibleMs": 23166,
+      "createdToFinishedMs": 22740,
+      "image": "ghcr.io/luftaquila/qollab-renderer@sha256:6ee273416163842f9be9ffdce8df4b5601565ca1f38b8ce9b444f0ac3546aa21"
+    }
+  ],
+  "errors": [],
+  "environment": "Linux ARM64, CPU 1, memory 2GiB, HTTPS"
+}

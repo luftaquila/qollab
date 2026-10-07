@@ -1,0 +1,9 @@
+{
+  "pdf": "tmp/render-smoke.pdf",
+  "seconds": 5.78,
+  "bytes": 19785,
+  "metrics": {
+    "prepareMs": 0,
+    "quartoMs": 4984
+  }
+}

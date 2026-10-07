@@ -1,5 +1,7 @@
 # 0.1.1 PDF 미리보기 수정
 
+후속 빌드 속도 개선과 최신 이미지: [0.1.3 검증](verification-0.1.3.md). 아래는 0.1.1 당시의 기록이다.
+
 - 일자: 2026-10-07.
 - 구현: `ddd46bfd48d6468f14c7179b3856377c6bdb3038`, 태그 `v0.1.1`.
 - [릴리스 CI](https://github.com/luftaquila/qollab/actions/runs/37630062942): 성공.

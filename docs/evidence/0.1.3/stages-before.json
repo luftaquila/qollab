@@ -1,0 +1,57 @@
+{
+  "cacheCopySeconds": 0.03789144475013018,
+  "measurements": [
+    {
+      "case": "first",
+      "quartoSeconds": 17.98709646333009,
+      "engine": [
+        {
+          "seconds": 7.29511458100751,
+          "args": [
+            "-interaction=batchmode",
+            "-halt-on-error",
+            "-no-shell-escape",
+            "report.tex"
+          ]
+        },
+        {
+          "seconds": 7.24324521003291,
+          "args": [
+            "-interaction=batchmode",
+            "-halt-on-error",
+            "-no-shell-escape",
+            "report.tex"
+          ]
+        }
+      ],
+      "fontDatabaseRebuilt": false
+    },
+    {
+      "case": "one-character",
+      "quartoSeconds": 16.742922793142498,
+      "engine": [
+        {
+          "seconds": 7.224976348690689,
+          "args": [
+            "-interaction=batchmode",
+            "-halt-on-error",
+            "-no-shell-escape",
+            "report.tex"
+          ]
+        },
+        {
+          "seconds": 7.22347654402256,
+          "args": [
+            "-interaction=batchmode",
+            "-halt-on-error",
+            "-no-shell-escape",
+            "report.tex"
+          ]
+        }
+      ],
+      "fontDatabaseRebuilt": false
+    }
+  ],
+  "jobReadySeconds": 2.4242668892256916,
+  "engine": "lualatex"
+}

@@ -2,7 +2,7 @@
 
 ## 1. 목표와 초기 범위
 
-브라우저에서 Quarto 문서(`.qmd`)를 실시간 공동 편집하고, Quarto → Pandoc → LuaLaTeX → PDF 결과를 같은 화면에서 확인하는 오픈소스 기반 self-host 웹 편집기를 구축한다.
+브라우저에서 Quarto 문서(`.qmd`)를 실시간 공동 편집하고, Quarto → Pandoc → XeLaTeX → PDF 결과를 같은 화면에서 확인하는 오픈소스 기반 self-host 웹 편집기를 구축한다.
 
 클라이언트 설치는 필요 없다. 문서 저장·편집·렌더링은 자체 서버에서 수행하며, 인증은 Google에 의존한다. 자체 계정·비밀번호 로그인은 제공하지 않는다. 오픈소스 사용과 별개로 서버·스토리지 운영 비용은 발생한다.
 
@@ -310,7 +310,7 @@ PDF.js는 마지막 정상 PDF를 유지하면서 새 빌드 상태를 표시한
 
 Quarto·번들 Pandoc·TeX 배포판·기본 확장·폰트 버전을 고정하고 렌더 이미지 digest와 함께 빌드 metadata에 기록한다. 빌드 중 패키지 자동 설치는 허용하지 않는다.
 
-LuaLaTeX와 한글 폰트를 포함한 기본 템플릿을 검증한다. 한글·영문·수식·표·이미지 캡션·코드 블록을 실제 PDF로 확인하며, 엔진 지정만으로 한글 조판 검증을 대신하지 않는다. [Quarto PDF 안내](https://quarto.org/docs/output-formats/pdf-basics)
+XeLaTeX와 한글 폰트를 포함한 기본 템플릿을 검증한다. 한글·영문·수식·표·이미지 캡션·코드 블록·목차·문헌·페이지 참조를 실제 PDF로 확인하며, 엔진 지정만으로 한글 조판 검증을 대신하지 않는다. 초기 LuaLaTeX 구성에서 측정한 반복 폰트 로딩 비용을 줄이기 위해 엔진을 변경했다. Quarto의 참조 수렴을 위한 자동 재실행은 유지한다. [Quarto PDF 안내](https://quarto.org/docs/output-formats/pdf-basics), [PDF 엔진](https://quarto.org/docs/output-formats/pdf-engine)
 
 `keep-tex`는 진단이 필요할 때 사용하고 보존 기간을 제한한다. PDF·중간 산출물·캐시는 Git에 넣지 않는다. 입력이 같아도 날짜 등 변동 요소 때문에 PDF 바이트가 항상 같다고 보장하지 않으며, 재현 대상은 입력·도구 환경·문서 내용과 조판 결과로 정의한다.
 
