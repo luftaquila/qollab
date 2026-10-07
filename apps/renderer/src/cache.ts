@@ -7,7 +7,7 @@ export class RenderCache {
   private size = 0;
   constructor(
     private readonly maxBytes = 16 * 1024 * 1024,
-    private readonly ttl = 300_000,
+    private readonly ttl = 3_600_000,
   ) {}
   get(key: string) {
     const e = this.entries.get(key);

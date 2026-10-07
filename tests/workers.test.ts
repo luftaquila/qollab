@@ -43,6 +43,17 @@ if(command==='start'){event('start',id);let data='';process.stdin.on('data',b=>d
     const expired = await pool.run({ hold: true }, 0.1, async () => {});
     expect(expired.result.log).toBe("RENDER_TIMEOUT_OR_OUTPUT_LIMIT");
     await expect.poll(() => pool.warm).toBe(false);
+    const created = (await events()).filter((e) => e.name === "create").length;
+    pool.keepWarm(true);
+    await expect
+      .poll(
+        async () => (await events()).filter((e) => e.name === "start").length,
+      )
+      .toBeGreaterThanOrEqual(created + 2);
+    // Editor activity replaces expired empty workers without sending documents.
+    expect((await events()).filter((e) => e.name === "input")).toHaveLength(3);
+    pool.keepWarm(false);
+    await expect.poll(() => pool.warm).toBe(false);
     await pool.stop();
     const all = await events();
     expect(

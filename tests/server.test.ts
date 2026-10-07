@@ -123,6 +123,25 @@ it("exposes no bypass login and enforces Origin, CSRF and viewer on every write"
     ),
   ).toThrow();
 });
+it("reports editor activity to the authenticated renderer and clears it on close", async () => {
+  const activity = () =>
+    app.inject({
+      url: "/api/renderer/activity",
+      headers: { authorization: "Bearer " + config.rendererToken },
+    });
+  expect((await app.inject("/api/renderer/activity")).statusCode).toBe(403);
+  const p = await project();
+  await pool.query("INSERT INTO members VALUES($1,'viewer','viewer')", [p.id]);
+  const viewer = await ws(p, "viewer");
+  await viewer.take("sync");
+  expect((await activity()).json().editing).toBe(false);
+  const owner = await ws(p);
+  await owner.take("sync");
+  expect((await activity()).json().editing).toBe(true);
+  owner.socket.terminate();
+  await expect.poll(async () => (await activity()).json().editing).toBe(false);
+  viewer.socket.terminate();
+});
 it("persists before ACK, merges two peers, reloads snapshots and revokes existing sockets", async () => {
   const p = await project();
   await pool.query("INSERT INTO members VALUES($1,'editor','editor')", [p.id]);

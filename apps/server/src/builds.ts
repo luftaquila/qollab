@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { config } from "./config.js";
+import { hasActiveEditors } from "./collaboration.js";
 import { identity, mutation, sameSecret } from "./auth.js";
 import { pool, transaction, Fault } from "./db.js";
 import {
@@ -24,6 +25,10 @@ export async function builds(app: FastifyInstance) {
     )
       throw new Fault("FORBIDDEN", 403);
   };
+  app.get("/api/renderer/activity", async (req) => {
+    service(req);
+    return { editing: hasActiveEditors() };
+  });
   app.post("/api/projects/:pid/builds", async (req) => {
     const u = await mutation(req),
       b = z.object({ revision: z.number() }).parse(req.body);

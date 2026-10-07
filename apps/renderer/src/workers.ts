@@ -28,6 +28,7 @@ export class Workers {
   private spare?: Promise<Worker | undefined>;
   private all = new Set<Worker>();
   private stopped = false;
+  private keepUntil = 0;
   constructor(
     private engine: string,
     private args: () => string[],
@@ -38,6 +39,11 @@ export class Workers {
   }
   get warm() {
     return !!this.spare;
+  }
+  /** Renewed only by authenticated editor activity; expires on app failure. */
+  keepWarm(editing: boolean) {
+    this.keepUntil = editing ? Date.now() + 15_000 : 0;
+    if (editing) this.prime();
   }
   private async remove(w: Worker) {
     clearTimeout(w.idle);
@@ -110,7 +116,9 @@ export class Workers {
           w.idle = setTimeout(() => {
             if (w.assigned) return;
             if (this.spare === pending) this.spare = undefined;
-            void this.remove(w);
+            void this.remove(w).then(() => {
+              if (Date.now() < this.keepUntil) this.prime();
+            });
           }, this.warmMs);
         return w;
       })
@@ -182,6 +190,7 @@ export class Workers {
   }
   async stop() {
     this.stopped = true;
+    this.keepUntil = 0;
     await this.spare;
     this.spare = undefined;
     await Promise.all([...this.all].map((w) => this.remove(w)));

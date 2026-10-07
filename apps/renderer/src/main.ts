@@ -7,7 +7,7 @@ const exec = promisify(execFile);
 const base = process.env.APP_URL || "http://app:3000",
   secret = process.env.RENDERER_TOKEN;
 const image =
-  process.env.RENDER_IMAGE || "ghcr.io/luftaquila/qollab-renderer:0.1.4";
+  process.env.RENDER_IMAGE || "ghcr.io/luftaquila/qollab-renderer:0.1.5";
 const engine = process.env.CONTAINER_ENGINE || "docker",
   namespace = process.env.RENDERER_NAMESPACE || "qollab";
 if (!secret || secret.length < 32)
@@ -136,8 +136,17 @@ for (const sig of ["SIGTERM", "SIGINT"])
     void workers.stop().finally(() => process.exit(0));
   });
 await cleanup();
+let activityAt = 0;
 while (!stopped) {
   try {
+    if (Date.now() - activityAt >= 5000) {
+      activityAt = Date.now();
+      try {
+        workers.keepWarm((await request("/activity")).editing === true);
+      } catch {
+        workers.keepWarm(false);
+      }
+    }
     const job = await request("/lease", "POST", {});
     if (job) {
       let result: Result;

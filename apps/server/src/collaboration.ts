@@ -29,9 +29,21 @@ const rooms = new Map<
     user: string;
     clientId: number;
     session: string;
+    editor: boolean;
+    authorized: number;
     state?: unknown;
   }>
 >();
+export function hasActiveEditors() {
+  return [...rooms.values()].some((peers) =>
+    [...peers].some(
+      (peer) =>
+        peer.ws.readyState === 1 &&
+        peer.editor &&
+        Date.now() - peer.authorized < 30_000,
+    ),
+  );
+}
 export function disconnectProject(id: string) {
   for (const [room, sockets] of rooms)
     if (room.startsWith(id + "/"))
@@ -76,7 +88,14 @@ export async function collaboration(app: FastifyInstance) {
         if (!rooms.has(room)) rooms.set(room, new Set());
         if ([...rooms.get(room)!].some((peer) => peer.clientId === q.clientId))
           throw new Fault("CLIENT_ID_CONFLICT", 409);
-        member = { ws, user: u.id, session: u.session, clientId: q.clientId };
+        member = {
+          ws,
+          user: u.id,
+          session: u.session,
+          clientId: q.clientId,
+          editor: p.role !== "viewer",
+          authorized: Date.now(),
+        };
         rooms.get(room)!.add(member);
         send(ws, {
           type: "sync",
@@ -193,6 +212,12 @@ export async function collaboration(app: FastifyInstance) {
       const timer = setInterval(() => {
         void identity(req)
           .then((u) => access(pool, pid, u.id))
+          .then((p) => {
+            if (member) {
+              member.editor = p.role !== "viewer";
+              member.authorized = Date.now();
+            }
+          })
           .catch(() => ws.close(4403));
       }, 15000);
       ws.on("close", () => {
