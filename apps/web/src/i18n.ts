@@ -128,6 +128,7 @@ const words = {
   download: ["다운로드", "Download"],
   target: ["PDF 대상으로 설정", "Set as PDF target"],
   readOnly: ["읽기 전용", "Read only"],
+  resizeImage: ["이미지 너비 조절", "Resize image width"],
   refresh: ["새로고침", "Refresh"],
   outline: ["문서 개요", "Outline"],
   refs: ["참조", "References"],

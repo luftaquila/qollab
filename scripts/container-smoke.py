@@ -56,6 +56,18 @@ job['cache']={**out['cache'],'files':{'.aux':base64.b64encode(b'\\qollabUndefine
 recovered=render(job)
 assert recovered['metrics']['cacheFallback']==1,recovered['metrics']
 job.pop('cache')
+# Changing the serialized Quarto width must change the PDF's image rectangle.
+job['files'][0]['source']=source.replace('width=20%', 'width=40%')
+resized=render(job)
+resized_pdf=dest.with_name('render-resized.pdf');resized_pdf.write_bytes(base64.b64decode(resized['pdf']))
+def image_width(pdf):
+    import xml.etree.ElementTree as ET
+    xml=subprocess.check_output(['pdftohtml','-xml','-stdout','-hidden','-zoom','1',str(pdf)],stderr=subprocess.DEVNULL)
+    images=ET.fromstring(xml).findall('.//image')
+    assert len(images)==1,images
+    return float(images[0].attrib['width'])
+assert 1.9 < image_width(resized_pdf)/image_width(dest) < 2.1
+print('Changing figure width from 20% to 40% doubles its actual PDF rectangle')
 # The engine change must retain references that require more than one TeX pass.
 fidelity='''---
 title: "한글 참조 검증"

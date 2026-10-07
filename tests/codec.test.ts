@@ -14,7 +14,29 @@ import { decode, encode } from "../packages/codec/src/index.js";
 import { renderPolicy } from "../packages/codec/src/render-policy.js";
 import { readZip } from "../apps/server/src/archive.js";
 import { zipSync } from "fflate";
+import { imageWidth } from "../packages/codec/src/image.js";
 beforeAll(initCodec);
+it("exports resized figure width and preserves other Quarto attributes", () => {
+  const rt = getRuntime(),
+    source =
+      '![Caption](assets/a.png){#fig-demo fig-alt="alt" width="80%" fig-align="right"}\n';
+  const d = decode(source, rt),
+    json = d.doc.toJSON();
+  json.content[0].attrs.width = "35%";
+  const output = encode(rt.schema.nodeFromJSON(json), d.preservation, rt);
+  expect(output).toContain('width="35%"');
+  expect(output).toContain('fig-align="right"');
+  expect(output).toContain('fig-alt="alt"');
+  const reopened = decode(output, rt);
+  expect(reopened.doc.firstChild!.attrs.width).toBe("35%");
+  expect(encode(reopened.doc, reopened.preservation, rt)).toBe(output);
+  json.content[0].attrs.width = "80%";
+  json.content[0].attrs.ratio = 0.5;
+  expect(encode(rt.schema.nodeFromJSON(json), d.preservation, rt)).toContain(
+    'width="40%"',
+  );
+  expect(imageWidth({ width: "4in", ratio: 0.5 })).toBe("2in");
+});
 const fixture =
   '---\n# Preserve this comment\ntitle: "한글 문서"\nformat: pdf\n---\n\n# Heading  {#sec-head}\n\nA **bold** paragraph.\n\n::: {.callout-note}\n\nOuter\n\n::: {.inner}\n\nNested [@citation] and @fig-demo.\n\n:::\n\n:::\n\n![Caption](assets/a.png){#fig-demo fig-alt="image" width=80%}\n\n```{python}\n#| echo: false\nprint(1)\n```\n\n\\begin{equation}\nx=2\n\\end{equation}\n';
 describe("source preservation", () => {

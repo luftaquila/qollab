@@ -812,6 +812,58 @@ small {
 .image-preview img {
   max-width: 100%;
 }
+
+.milkdown .qollab-image-block {
+  width: 100%;
+  margin: 20px 0;
+}
+.milkdown .qollab-image-block [hidden] {
+  display: none !important;
+}
+.milkdown .qollab-image-block .image-wrapper {
+  display: block;
+  position: relative;
+  max-width: 100%;
+}
+.milkdown .qollab-image-block.selected .image-wrapper {
+  outline: 2px solid #237f79;
+  outline-offset: 3px;
+}
+.milkdown .qollab-image-block .image-wrapper img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.milkdown .qollab-image-block .image-resize-handle {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 16px;
+  height: 16px;
+  min-width: 0;
+  padding: 0;
+  border: 2px solid white;
+  border-radius: 3px;
+  background: #237f79;
+  cursor: ew-resize;
+  touch-action: none;
+  opacity: 0;
+}
+.milkdown .qollab-image-block:hover .image-resize-handle,
+.milkdown .qollab-image-block.selected .image-resize-handle,
+.milkdown .qollab-image-block:focus-within .image-resize-handle {
+  opacity: 1;
+}
+.ProseMirror[contenteditable="false"] .qollab-image-block .image-resize-handle {
+  display: none;
+}
+.milkdown .qollab-image-block .caption-input {
+  display: block;
+  width: 100%;
+  text-align: center;
+  border: 0;
+  background: transparent;
+}
 .center-empty {
   padding: 80px;
   text-align: center;

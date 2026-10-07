@@ -116,6 +116,7 @@ jobs:
           name: pdf-${{ matrix.arch }}
           path: |
             tmp/render-smoke.pdf
+            tmp/render-resized.pdf
             tmp/render-smoke.json
             tmp/render-references.pdf
             tmp/render-incremental.json

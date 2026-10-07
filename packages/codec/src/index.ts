@@ -2,6 +2,7 @@ import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import type { Node as PMNode, Schema } from "@milkdown/kit/prose/model";
+import { imageWidth } from "./image.js";
 
 export const SCHEMA_VERSION = 1;
 export interface CodecRuntime {
@@ -233,7 +234,8 @@ function render(node: PMNode, rt: CodecRuntime): string {
     let attrs = "";
     if (a.identifier) attrs += ` #${safe(a.identifier)}`;
     if (a.alt) attrs += ` fig-alt="${safe(a.alt)}"`;
-    if (a.width) attrs += ` width="${safe(a.width)}"`;
+    const width = imageWidth(a);
+    if (width) attrs += ` width="${safe(width)}"`;
     if (a.align) attrs += ` fig-align="${safe(a.align)}"`;
     return `![${String(a.caption || "").replaceAll("]", "\\]")}](${a.src})${attrs ? "{" + attrs.trim() + "}" : ""}`;
   }

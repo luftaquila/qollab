@@ -6,6 +6,9 @@ import { listItem } from "@milkdown/crepe/feature/list-item";
 import { linkTooltip } from "@milkdown/crepe/feature/link-tooltip";
 import { cursor } from "@milkdown/crepe/feature/cursor";
 import { imageBlock } from "@milkdown/crepe/feature/image-block";
+import { imageBlockView } from "@milkdown/kit/component/image-block";
+import { quartoImageView } from "./image-view";
+import { imageWidth } from "../../../packages/codec/src/image";
 import { table } from "@milkdown/crepe/feature/table";
 import { codeMirror } from "@milkdown/crepe/feature/code-mirror";
 import { latex } from "@milkdown/crepe/feature/latex";
@@ -149,7 +152,9 @@ onMounted(() => {
     await c.editor.remove(syncHeadingIdPlugin);
     await c.editor.remove(history);
     await c.editor.remove(trailing);
+    await c.editor.remove(imageBlockView);
     c.editor
+      .use(quartoImageView)
       .use(rawNode)
       .use(imageAttributes)
       .use(sourceIds)
@@ -231,7 +236,18 @@ function imageProperties() {
       emit("error", "IMAGE_SELECT");
       return;
     }
-    emit("image", { ...node.attrs, targetId: node.attrs.qollabId });
+    const id = node.attrs.qollabId || "image-" + crypto.randomUUID();
+    if (!node.attrs.qollabId)
+      v.dispatch(
+        v.state.tr.setNodeAttribute(v.state.selection.from, "qollabId", id),
+      );
+    emit("image", {
+      ...node.attrs,
+      width: imageWidth(node.attrs),
+      ratio: 1,
+      qollabId: id,
+      targetId: id,
+    });
   });
 }
 function insertImage(attrs: any) {

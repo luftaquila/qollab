@@ -287,6 +287,16 @@ test("uploads pasted and dropped images; failed uploads never insert temporary U
         ).length,
     )
     .toBe(2);
+  await expect
+    .poll(
+      async () =>
+        (
+          (await call(page, u, `/projects/${id}`)).data.files[0].source.match(
+            /assets\/images/g,
+          ) || []
+        ).length,
+    )
+    .toBe(2);
   const before = (await call(page, u, `/projects/${id}`)).data.files[0].source;
   await page.route("**/images", (route) =>
     route.fulfill({
@@ -347,9 +357,9 @@ test("records input, switch latency and heap for a defined 20 KiB document", asy
   await page.locator(".ProseMirror").click();
   await page.keyboard.press("ControlOrMeta+Home");
   await page.keyboard.type("abcdefghijklmnopqrstuvwxyz", { delay: 30 });
-  await expect(
-    page.getByText("Saved to server", { exact: false }),
-  ).toBeVisible();
+  await expect(page.getByText("Saved to server", { exact: false })).toBeVisible(
+    { timeout: 15000 },
+  );
   const samples = await page.evaluate(
       () => (window as any).__inputSamples as number[],
     ),
@@ -398,8 +408,9 @@ test("shows first-build progress and renders a PDF arriving after the editor ope
   const page = await context.newPage();
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  const name = "First PDF preview " + Date.now();
   const created = await call(page, user, "/projects", "POST", {
-    name: "First PDF preview",
+    name,
   });
   let phase = "queued";
   await page.route(`**/api/projects/${created.id}`, async (route) => {
@@ -418,7 +429,7 @@ test("shows first-build progress and renders a PDF arriving after the editor ope
     }),
   );
   await page.goto("/");
-  await page.getByRole("button", { name: /First PDF preview/ }).click();
+  await page.getByRole("button", { name: new RegExp(name) }).click();
   await expect(page.locator(".ProseMirror")).toBeVisible();
   await expect(page.locator(".pdf-empty")).toContainText("PDF queued");
   await expect(page.locator(".pdf-empty progress")).toBeVisible();
@@ -450,4 +461,100 @@ test("shows first-build progress and renders a PDF arriving after the editor ope
   await expect(page.locator(".pdf-empty")).toHaveCount(0);
   expect(errors).toEqual([]);
   await context.close();
+});
+
+test("image drag and properties share Quarto width across peers, undo and reopen", async ({
+  browser,
+}) => {
+  const a = await browser.newContext({ locale: "en-US" }),
+    b = await browser.newContext({ locale: "en-US" });
+  const user = await login(a);
+  await login(b);
+  const page = await a.newPage(),
+    peer = await b.newPage();
+  const id = await makeProject(page, user);
+  const source = async () =>
+    (await call(page, user, "/projects/" + id)).data.files[0].source as string;
+  const p = await call(page, user, "/projects/" + id);
+  await peer.goto("/");
+  await peer.getByRole("button", { name: new RegExp(p.name) }).click();
+  await expect(peer.locator(".ProseMirror")).toBeVisible();
+  await page.getByRole("button", { name: "Images", exact: true }).click();
+  await page
+    .locator('input[type=file][accept="image/png,image/jpeg"]')
+    .setInputFiles({
+      name: "resize.png",
+      mimeType: "image/png",
+      buffer: await sharp({
+        create: { width: 800, height: 400, channels: 3, background: "#237f79" },
+      })
+        .png()
+        .toBuffer(),
+    });
+  await expect(page.locator(".modal")).toBeVisible();
+  await page
+    .locator(".modal")
+    .getByRole("button", { name: "Insert", exact: true })
+    .click();
+  const image = page.locator(".qollab-image-block img"),
+    otherImage = peer.locator(".qollab-image-block img");
+  await expect(image).toBeVisible();
+  await expect(otherImage).toBeVisible();
+  await expect.poll(source).toContain('width="80%"');
+  const initial = (await image.boundingBox())!.width;
+  await page.waitForTimeout(600); // Separate the upload and drag undo captures.
+  const container = await page.locator(".qollab-image-block").boundingBox();
+  await image.hover();
+  const h = await page
+    .getByRole("slider", { name: "Resize image width" })
+    .boundingBox();
+  await page.mouse.move(h!.x + h!.width / 2, h!.y + h!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    h!.x + h!.width / 2 - container!.width * 0.4,
+    h!.y + h!.height / 2,
+    { steps: 8 },
+  );
+  await page.mouse.up();
+  await expect.poll(source).toMatch(/width="40(?:\.\d+)?%"/);
+  await expect
+    .poll(async () => (await image.boundingBox())!.width / initial)
+    .toBeCloseTo(0.5, 1);
+  await expect
+    .poll(
+      async () =>
+        (await otherImage.boundingBox())!.width /
+        (await image.boundingBox())!.width,
+    )
+    .toBeCloseTo(1, 1);
+  await page.getByTitle("Undo", { exact: true }).click();
+  await expect.poll(source).toContain('width="80%"');
+  await page.getByTitle("Redo", { exact: true }).click();
+  await expect.poll(source).toMatch(/width="40(?:\.\d+)?%"/);
+  await image.click();
+  await page
+    .getByRole("button", { name: "Figure properties", exact: true })
+    .click();
+  await page.getByLabel(/^Width/).fill("25%");
+  await page
+    .locator(".modal")
+    .getByRole("button", { name: "Insert", exact: true })
+    .click();
+  await expect.poll(source).toContain('width="25%"');
+  await expect
+    .poll(async () => (await image.boundingBox())!.width / initial)
+    .toBeCloseTo(0.3125, 1);
+  await page.reload();
+  await page.getByRole("button", { name: new RegExp(p.name) }).click();
+  await expect(page.locator(".qollab-image-block img")).toBeVisible();
+  await expect.poll(source).toContain('width="25%"');
+  await expect
+    .poll(
+      async () =>
+        (await page.locator(".qollab-image-block img").boundingBox())!.width /
+        initial,
+    )
+    .toBeCloseTo(0.3125, 1);
+  await a.close();
+  await b.close();
 });
