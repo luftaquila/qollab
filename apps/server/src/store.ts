@@ -123,6 +123,9 @@ export async function queueBuild(
           bytes: f.bytes,
         })),
         epoch: p.data.epoch,
+        generations: p.data.files
+          .filter((f) => f.kind === "document")
+          .map((f) => [f.id, f.epoch]),
       },
       immediate ? 0 : config.debounce,
       first,

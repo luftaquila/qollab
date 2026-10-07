@@ -6,7 +6,7 @@ COPY apps/server/package.json apps/server/package.json
 COPY apps/renderer/package.json apps/renderer/package.json
 COPY packages/codec/package.json packages/codec/package.json
 RUN npm ci
-COPY apps/renderer/src/main.ts ./main.ts
+COPY apps/renderer/src/ ./
 RUN ./node_modules/.bin/esbuild main.ts --bundle --platform=node --format=esm --outfile=renderer.mjs
 FROM docker:29.2.1-cli AS dockercli
 FROM node:24.15.0-bookworm-slim
@@ -21,7 +21,10 @@ RUN curl -fsSL -o /tmp/quarto.deb https://github.com/quarto-dev/quarto-cli/relea
 COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=build /app/renderer.mjs /opt/qollab/renderer.mjs
 COPY containers/render.py /opt/qollab/render.py
-RUN mkdir -p /work && chown 10001:10001 /work && fc-cache -f && dpkg-query -W > /opt/qollab/packages.txt
+COPY containers/render_cache.py /opt/qollab/render_cache.py
+COPY containers/xelatex.py /opt/qollab/bin/xelatex
+COPY containers/warm-quarto.py /tmp/warm-quarto.py
+RUN mkdir -p /work && chown 10001:10001 /work && chmod 0555 /opt/qollab/bin/xelatex && fc-cache -f && python3 /tmp/warm-quarto.py && rm /tmp/warm-quarto.py && dpkg-query -W > /opt/qollab/packages.txt
 ENV HOME=/work
 WORKDIR /work
 CMD ["node","/opt/qollab/renderer.mjs"]

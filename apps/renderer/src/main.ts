@@ -1,10 +1,13 @@
-import { spawn, execFile } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { randomUUID } from "node:crypto";
+import { RenderCache } from "./cache.js";
+import { Workers, type Result } from "./workers.js";
 const exec = promisify(execFile);
 const base = process.env.APP_URL || "http://app:3000",
   secret = process.env.RENDERER_TOKEN;
 const image =
-  process.env.RENDER_IMAGE || "ghcr.io/luftaquila/qollab-renderer:0.1.3";
+  process.env.RENDER_IMAGE || "ghcr.io/luftaquila/qollab-renderer:0.1.4";
 const engine = process.env.CONTAINER_ENGINE || "docker",
   namespace = process.env.RENDERER_NAMESPACE || "qollab";
 if (!secret || secret.length < 32)
@@ -13,8 +16,8 @@ const headers = {
   Authorization: "Bearer " + secret,
   "Content-Type": "application/json",
 };
-let stopped = false,
-  active: string | undefined;
+let stopped = false;
+const cache = new RenderCache();
 async function request(
   path: string,
   method = "GET",
@@ -53,18 +56,14 @@ async function cleanup() {
   const ids = stdout.trim().split(/\s+/).filter(Boolean);
   for (const id of ids) await exec(engine, ["rm", "-f", id]).catch(() => {});
 }
-async function run(
-  job: any,
-  input: any,
-): Promise<{ pdf?: string; log: string; metrics?: Record<string, number> }> {
-  const started = performance.now();
-  const args = [
+function workerArgs() {
+  return [
     "create",
     "-i",
     "--label",
     `io.qollab.renderer=${namespace}`,
     "--label",
-    `io.qollab.job=${job.id}`,
+    `io.qollab.job=${randomUUID()}`,
     "--network",
     "none",
     "--read-only",
@@ -100,93 +99,48 @@ async function run(
     "python3",
     "/opt/qollab/render.py",
   ];
-  const { stdout } = await exec(engine, args);
-  const created = performance.now();
-  const id = stdout.trim();
-  active = id;
-  try {
-    return await new Promise((resolve, reject) => {
-      const child = spawn(engine, ["start", "-ai", id], {
-          stdio: ["pipe", "pipe", "pipe"],
-        }),
-        out: Buffer[] = [];
-      let size = 0,
-        log = "",
-        expired = false;
-      let cancelling = false;
-      const monitor = setInterval(() => {
-        if (cancelling) return;
-        void request(`/builds/${job.id}/status`, "GET", undefined, {
-          "x-render-lease": job.lease,
-        }).catch(() => {
-          cancelling = true;
-          void exec(engine, ["rm", "-f", id]);
-        });
-      }, 2000);
-      const timer = setTimeout(() => {
-        expired = true;
-        void exec(engine, ["rm", "-f", id]);
-      }, job.timeout * 1000);
-      child.stdout.on("data", (b: Buffer) => {
-        size += b.length;
-        if (size > 72 * 1024 * 1024) {
-          expired = true;
-          void exec(engine, ["rm", "-f", id]);
-        } else out.push(b);
-      });
-      child.stderr.on("data", (b: Buffer) => {
-        log = (log + b.toString()).slice(-60000);
-      });
-      child.on("error", (e) => {
-        clearTimeout(timer);
-        clearInterval(monitor);
-        reject(e);
-      });
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        clearInterval(monitor);
-        if (expired) return resolve({ log: "RENDER_TIMEOUT_OR_OUTPUT_LIMIT" });
-        if (code !== 0) return resolve({ log: log || `Renderer exit ${code}` });
-        try {
-          const result = JSON.parse(Buffer.concat(out).toString());
-          console.info(
-            JSON.stringify({
-              type: "render-timing",
-              build: job.id,
-              createMs: Math.round(created - started),
-              executionMs: Math.round(performance.now() - created),
-              worker: result.metrics,
-              succeeded: !!result.pdf,
-            }),
-          );
-          resolve(result);
-        } catch {
-          resolve({ log: "INVALID_RENDER_OUTPUT\n" + log });
-        }
-      });
-      child.stdin.on("error", () => {});
-      child.stdin.end(
-        JSON.stringify({ ...input, target: job.target, timeout: job.timeout }),
-      );
-    });
-  } finally {
-    await exec(engine, ["rm", "-f", id]).catch(() => {});
-    active = undefined;
-  }
+}
+const workers = new Workers(
+  engine,
+  workerArgs,
+  Number(process.env.RENDER_WARM_MS ?? 30000),
+);
+async function run(job: any, input: any) {
+  const { result, timings } = await workers.run(
+    {
+      ...input,
+      target: job.target,
+      timeout: job.timeout,
+      cache: cache.get(job.cacheKey),
+    },
+    job.timeout,
+    () =>
+      request(`/builds/${job.id}/status`, "GET", undefined, {
+        "x-render-lease": job.lease,
+      }),
+  );
+  console.info(
+    JSON.stringify({
+      type: "render-timing",
+      build: job.id,
+      ...timings,
+      worker: result.metrics,
+      succeeded: !!result.pdf,
+    }),
+  );
+  return result;
 }
 for (const sig of ["SIGTERM", "SIGINT"])
   process.on(sig, () => {
     stopped = true;
-    void (
-      active ? exec(engine, ["rm", "-f", active]) : Promise.resolve()
-    ).finally(() => process.exit(0));
+    void workers.stop().finally(() => process.exit(0));
   });
 await cleanup();
 while (!stopped) {
   try {
     const job = await request("/lease", "POST", {});
     if (job) {
-      let result;
+      let result: Result;
       try {
         const input = await request(
           `/builds/${job.id}/input`,
@@ -198,15 +152,17 @@ while (!stopped) {
       } catch (e) {
         result = { log: String(e).slice(0, 60000) };
       }
+      const { cache: nextCache, ...output } = result;
       await request(`/builds/${job.id}/result`, "POST", {
-        ...result,
+        ...output,
         lease: job.lease,
         image,
       });
+      cache.set(job.cacheKey, result.pdf ? nextCache : undefined);
       continue;
     }
   } catch (e) {
     console.error(String(e));
   }
-  await new Promise((r) => setTimeout(r, 1000));
+  await new Promise((r) => setTimeout(r, workers.warm ? 250 : 1000));
 }

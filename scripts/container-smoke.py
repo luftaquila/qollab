@@ -35,6 +35,27 @@ dest=pathlib.Path(a.output);dest.parent.mkdir(parents=True,exist_ok=True);dest.w
 report={'pdf':str(dest),'seconds':round(time.monotonic()-start,2),'bytes':dest.stat().st_size,'metrics':out.get('metrics')}
 dest.with_suffix('.json').write_text(json.dumps(report,indent=2)+'\n')
 print(json.dumps(report))
+def render(data):
+    result=subprocess.run([a.engine,'run',*flags,a.image,'python3','/opt/qollab/render.py'],input=json.dumps(data).encode(),capture_output=True,timeout=150)
+    assert result.returncode==0,result.stderr.decode()
+    output=json.loads(result.stdout)
+    assert output.get('pdf'),output.get('log')
+    return output
+
+assert out.get('cache'), 'No reference state captured'
+job['cache']=out['cache']
+job['files'][0]['source']=source.replace('확인합니다.','확인합니다!')
+start=time.monotonic();incremental=render(job)
+assert incremental['metrics']['reusedAux']==1,incremental['metrics']
+assert incremental['metrics']['texPasses']==1,incremental['metrics']
+incremental_report={'seconds':round(time.monotonic()-start,2),'metrics':incremental['metrics']}
+dest.with_name('render-incremental.json').write_text(json.dumps(incremental_report,indent=2)+'\n')
+print(json.dumps({'incremental':incremental_report}))
+# A poisoned auxiliary state must fall back to a clean compile.
+job['cache']={**out['cache'],'files':{'.aux':base64.b64encode(b'\\qollabUndefinedCommand\n').decode()}}
+recovered=render(job)
+assert recovered['metrics']['cacheFallback']==1,recovered['metrics']
+job.pop('cache')
 # The engine change must retain references that require more than one TeX pass.
 fidelity='''---
 title: "한글 참조 검증"
@@ -82,6 +103,19 @@ assert '??' not in content,content
 assert re.search(r'Resolved page:\s*[2-9]',content),content
 assert all(s in content for s in ['한글','TeXbook','Figure','Table']),content
 print('Korean, image, math, table, bibliography and resolved page reference passed')
+fidelity_job['files'][0]['source']=fidelity.replace('# 다음 페이지','# 추가 페이지\n\n추가 내용.\n\n```{=latex}\n\\newpage\n```\n\n# 다음 페이지')
+fidelity_job['cache']=fidelity_out['cache']
+changed=render(fidelity_job)
+assert changed['metrics']['reusedAux']==1,changed['metrics']
+assert changed['metrics']['texPasses']>=2,changed['metrics']
+changed_pdf=dest.with_name('render-references-incremental.pdf');changed_pdf.write_bytes(base64.b64decode(changed['pdf']))
+changed_text=subprocess.check_output(['pdftotext',str(changed_pdf),'-']).decode()
+assert re.search(r'Resolved page:\s*3',changed_text),changed_text
+fidelity_job.pop('cache')
+cold=render(fidelity_job)
+cold_pdf=dest.with_name('render-references-cold.pdf');cold_pdf.write_bytes(base64.b64decode(cold['pdf']))
+assert subprocess.check_output(['pdftotext',str(cold_pdf),'-']).decode()==changed_text
+print('Incremental references match cold output after page and TOC changes; invalid state recovers')
 probe='''import os,socket,pathlib
 assert os.getuid()==10001
 assert not any(k in os.environ for k in ['DATABASE_URL','GOOGLE_CLIENT_SECRET','RENDERER_TOKEN','ADMIN_TOKEN'])

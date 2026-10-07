@@ -97,6 +97,37 @@ for (let i = 0; i < 180; i++) {
   await new Promise((r) => setTimeout(r, 1000));
 }
 project = await api(path);
+// The next job must use a distinct, already empty worker and reference cache.
+const previousBuild = project.data.pdfBuild;
+await api(path + "/builds", "POST", { revision: Number(project.revision) });
+for (let i = 0; i < 120; i++) {
+  const b = (await api(path + "/builds"))[0];
+  if (b?.status === "failed") throw new Error(b.log);
+  if (b?.id !== previousBuild && b?.status === "succeeded") break;
+  if (i === 119) throw new Error("Repeated build did not finish");
+  await new Promise((r) => setTimeout(r, 1000));
+}
+const timingLines = await command(engine, [
+  "compose",
+  "logs",
+  "--no-log-prefix",
+  "renderer",
+]);
+const timings = timingLines
+  .split("\n")
+  .filter((s) => s.startsWith('{"type":"render-timing"'))
+  .map((s) => JSON.parse(s));
+const repeated = timings.at(-1);
+if (
+  !repeated?.worker?.reusedAux ||
+  repeated.worker.texPasses !== 1 ||
+  repeated.warmMs <= 0
+)
+  throw new Error(
+    "Repeated build did not reuse reference state and an empty worker: " +
+      JSON.stringify(repeated),
+  );
+project = await api(path);
 await api(path + "/history", "POST", {
   revision: Number(project.revision),
   label: "Deployment checkpoint",
@@ -147,6 +178,7 @@ const report = {
   members: true,
   history: true,
   pdf: true,
+  repeated,
 };
 await writeFile("tmp/deployment-report.json", JSON.stringify(report, null, 2));
 console.log(report);
