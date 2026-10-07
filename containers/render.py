@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Job entry point: bounded JSON stdin, no credentials, one isolated /work."""
-import base64, json, os, pathlib, re, subprocess, sys
+import base64, json, os, pathlib, re, shutil, subprocess, sys
 ROOT=pathlib.Path('/work')
 LIMIT=250*1024*1024
 
@@ -19,6 +19,13 @@ def main():
         dest=ROOT/name;dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(data)
     target=pathlib.PurePosixPath(job['target'])
     if target.is_absolute() or '..' in target.parts or not str(target).endswith('.qmd'):raise ValueError('INVALID_TARGET')
+    # LuaTeX loads its names database from the writable user cache. Seed each
+    # isolated job with trusted, architecture-specific cache built into the image.
+    # No cache produced by a user's document is shared with another job.
+    cache=pathlib.Path('/opt/qollab/tex-cache')
+    os.environ['TEXMFVAR']=str(ROOT/'.texlive')
+    os.environ['TEXMFCACHE']=str(ROOT/'.texlive')
+    if cache.is_dir():shutil.copytree(cache,ROOT/'.texlive',dirs_exist_ok=True)
     cmd=['quarto','render',str(target),'--to','pdf','--no-execute','--no-cache','--output','qollab.pdf','-M','latex-auto-install:false','-M','latex-clean:true','-M','mainfont:Noto Serif CJK KR','-M','sansfont:Noto Sans CJK KR','-M','monofont:DejaVu Sans Mono','--pdf-engine','lualatex','--pdf-engine-opt=-no-shell-escape']
     # Logs go to a bounded tmpfs file, never to an unbounded memory PIPE.
     logfile=ROOT/'render.log'

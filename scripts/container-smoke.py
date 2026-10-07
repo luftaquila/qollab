@@ -30,6 +30,7 @@ start=time.monotonic();r=subprocess.run([a.engine,'run',*flags,a.image,'python3'
 if r.returncode:sys.exit(r.stderr.decode())
 out=json.loads(r.stdout)
 if not out.get('pdf'):sys.exit(out.get('log','No PDF'))
+assert 'Font names database not found' not in out.get('log',''), 'Runtime rebuilt the font cache'
 dest=pathlib.Path(a.output);dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(base64.b64decode(out['pdf']))
 print(json.dumps({'pdf':str(dest),'seconds':round(time.monotonic()-start,2),'bytes':dest.stat().st_size}))
 probe='''import os,socket,pathlib

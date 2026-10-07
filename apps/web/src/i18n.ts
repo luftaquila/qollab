@@ -87,6 +87,10 @@ const words = {
     "문서를 편집하면 PDF가 자동으로 생성됩니다.",
     "Your PDF will build automatically as you write.",
   ],
+  firstPdf: [
+    "완료되면 여기에 자동으로 표시됩니다. 계속 편집할 수 있습니다.",
+    "The preview will appear here when ready. You can keep editing.",
+  ],
   failed: [
     "PDF 생성 실패 · 마지막 정상 결과를 유지합니다.",
     "Build failed · keeping the last successful PDF.",

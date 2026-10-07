@@ -21,7 +21,8 @@ RUN curl -fsSL -o /tmp/quarto.deb https://github.com/quarto-dev/quarto-cli/relea
 COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=build /app/renderer.mjs /opt/qollab/renderer.mjs
 COPY containers/render.py /opt/qollab/render.py
-RUN mkdir -p /work && chown 10001:10001 /work && luaotfload-tool --update && dpkg-query -W > /opt/qollab/packages.txt
+COPY containers/warm-font-cache.py /tmp/warm-font-cache.py
+RUN mkdir -p /work && chown 10001:10001 /work && python3 /tmp/warm-font-cache.py && rm /tmp/warm-font-cache.py && dpkg-query -W > /opt/qollab/packages.txt
 ENV HOME=/work
 WORKDIR /work
 CMD ["node","/opt/qollab/renderer.mjs"]

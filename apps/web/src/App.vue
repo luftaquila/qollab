@@ -697,7 +697,11 @@ onBeforeUnmount(() => stream?.close());
           <summary>{{ t("failed") }}</summary>
           <pre>{{ latestBuild.log }}</pre>
         </details>
-        <Pdf :project="project.id" :build="project.data.pdfBuild" />
+        <Pdf
+          :project="project.id"
+          :build="project.data.pdfBuild"
+          :status="latestBuild?.status"
+        />
       </aside>
     </div>
   </div>

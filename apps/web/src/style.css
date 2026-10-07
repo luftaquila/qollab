@@ -693,6 +693,12 @@ small {
   margin-bottom: 18px;
   color: #9cb39e;
 }
+.pdf-empty progress {
+  width: 160px;
+  height: 5px;
+  margin: 8px 0 16px;
+  accent-color: #237f79;
+}
 .build-error {
   font-size: 11px;
   padding: 10px 15px;

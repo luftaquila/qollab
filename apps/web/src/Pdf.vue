@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { ref, shallowRef, watch, onBeforeUnmount, nextTick } from "vue";
+import {
+  ref,
+  shallowRef,
+  computed,
+  watch,
+  onBeforeUnmount,
+  nextTick,
+} from "vue";
 import {
   getDocument,
   GlobalWorkerOptions,
@@ -9,12 +16,20 @@ import {
 import worker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { t } from "./i18n";
 GlobalWorkerOptions.workerSrc = worker;
-const props = defineProps<{ project: string; build?: string }>();
+const props = defineProps<{
+  project: string;
+  build?: string;
+  status?: string;
+}>();
 const doc = shallowRef<PDFDocumentProxy>();
 const container = ref<HTMLElement>();
 const pages = ref<number[]>([]);
 const zoom = ref(1);
 const error = ref("");
+const loading = ref(false);
+const building = computed(
+  () => props.status === "queued" || props.status === "running",
+);
 let task: ReturnType<typeof getDocument> | undefined,
   observer: IntersectionObserver | undefined,
   version = 0;
@@ -41,7 +56,8 @@ async function paint(page: number, element: HTMLCanvasElement, v: number) {
     await r.promise;
     renders.delete(r);
   } catch (e: any) {
-    if (e.name !== "RenderingCancelledException") error.value = e.message;
+    if (v === version && e.name !== "RenderingCancelledException")
+      error.value = e.message;
   }
 }
 async function observe() {
@@ -65,7 +81,7 @@ async function observe() {
     .forEach((e) => observer!.observe(e));
 }
 watch(
-  () => props.build,
+  () => [props.project, props.build],
   async () => {
     const v = ++version,
       scroll = container.value?.scrollTop || 0;
@@ -74,18 +90,24 @@ watch(
     for (const r of renders) r.cancel();
     renders.clear();
     rendered.clear();
-    await task?.destroy();
+    const previous = task;
+    task = undefined;
+    loading.value = !!props.build;
     doc.value = undefined;
     pages.value = [];
+    await previous?.destroy();
+    if (v !== version) return;
     if (!props.build) return;
+    let current: ReturnType<typeof getDocument> | undefined;
     try {
-      task = getDocument({
+      current = getDocument({
         url: `/api/projects/${props.project}/pdf?build=${props.build}`,
         withCredentials: true,
       });
-      const pdf = await task.promise;
+      task = current;
+      const pdf = await current.promise;
       if (v !== version) {
-        await task.destroy();
+        await current.destroy();
         return;
       }
       doc.value = pdf;
@@ -94,6 +116,8 @@ watch(
       if (container.value) container.value.scrollTop = scroll;
     } catch (e: any) {
       if (v === version) error.value = e.message;
+    } finally {
+      if (v === version) loading.value = false;
     }
   },
   { immediate: true },
@@ -116,10 +140,17 @@ onBeforeUnmount(() => {
   <div class="pdf-panel">
     <div class="pdf-tools">
       <span>{{ t("pdf") }}</span
-      ><span class="spacer" /><button @click="zoom = Math.max(0.4, zoom - 0.1)">
+      ><span class="spacer" /><button
+        :disabled="loading || !doc"
+        @click="zoom = Math.max(0.4, zoom - 0.1)"
+      >
         −</button
       ><span>{{ Math.round(zoom * 100) }}%</span
-      ><button @click="zoom = Math.min(2, zoom + 0.1)">+</button
+      ><button
+        :disabled="loading || !doc"
+        @click="zoom = Math.min(2, zoom + 0.1)"
+      >
+        +</button
       ><a
         v-if="build"
         :href="`/api/projects/${project}/pdf`"
@@ -128,9 +159,24 @@ onBeforeUnmount(() => {
       >
     </div>
     <div ref="container" class="pdf-pages">
-      <div v-if="!build" class="pdf-empty">
+      <div
+        v-if="!build || loading"
+        class="pdf-empty"
+        role="status"
+        aria-live="polite"
+      >
         <div class="paper-icon">PDF</div>
-        <p>{{ t("noPdf") }}</p>
+        <p>
+          {{
+            loading
+              ? t("loading")
+              : building
+                ? t(status === "queued" ? "queued" : "running")
+                : t("noPdf")
+          }}
+        </p>
+        <progress v-if="building || loading" :aria-label="t('running')" />
+        <small v-if="building && !loading">{{ t("firstPdf") }}</small>
       </div>
       <p v-if="error" class="notice">{{ error }}</p>
       <div

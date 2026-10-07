@@ -389,3 +389,65 @@ test("records input, switch latency and heap for a defined 20 KiB document", asy
   );
   await context.close();
 });
+
+test("shows first-build progress and renders a PDF arriving after the editor opened", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ locale: "en-US" });
+  const user = await login(context);
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const created = await call(page, user, "/projects", "POST", {
+    name: "First PDF preview",
+  });
+  let phase = "queued";
+  await page.route(`**/api/projects/${created.id}`, async (route) => {
+    const response = await route.fetch();
+    const p = await response.json();
+    if (phase === "succeeded") p.data.pdfBuild = "first-pdf";
+    await route.fulfill({ response, json: p });
+  });
+  await page.route(`**/api/projects/${created.id}/builds`, (route) =>
+    route.fulfill({ json: [{ id: "first-pdf", status: phase }] }),
+  );
+  await page.route(`**/api/projects/${created.id}/pdf?*`, (route) =>
+    route.fulfill({
+      contentType: "application/pdf",
+      path: "tests/fixtures/preview.pdf",
+    }),
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: /First PDF preview/ }).click();
+  await expect(page.locator(".ProseMirror")).toBeVisible();
+  await expect(page.locator(".pdf-empty")).toContainText("PDF queued");
+  await expect(page.locator(".pdf-empty progress")).toBeVisible();
+  // The real project event stream refreshes the open view as build data changes.
+  async function notify(next: string) {
+    phase = next;
+    const p = await call(page, user, `/projects/${created.id}`);
+    await call(page, user, `/projects/${created.id}/history`, "POST", {
+      revision: Number(p.revision),
+      label: next,
+    });
+  }
+  await notify("running");
+  await expect(page.locator(".pdf-empty")).toContainText("Building PDF");
+  await notify("succeeded");
+  await expect(page.locator(".pdf-page canvas")).toHaveCount(1);
+  await expect
+    .poll(() =>
+      page.locator(".pdf-page canvas").evaluate((canvas: HTMLCanvasElement) => {
+        const pixels = canvas
+          .getContext("2d")!
+          .getImageData(0, 0, canvas.width, canvas.height).data;
+        for (let i = 0; i < pixels.length; i += 4)
+          if (pixels[i + 3] && pixels[i] < 200) return true;
+        return false;
+      }),
+    )
+    .toBe(true);
+  await expect(page.locator(".pdf-empty")).toHaveCount(0);
+  expect(errors).toEqual([]);
+  await context.close();
+});
