@@ -1,0 +1,11 @@
+{
+  "seconds": 3.26,
+  "metrics": {
+    "prepareMs": 0,
+    "quartoMs": 3097,
+    "texPasses": 1,
+    "texMs": 1568,
+    "reusedAux": 1,
+    "cacheFallback": 0
+  }
+}

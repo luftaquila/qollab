@@ -1,0 +1,27 @@
+{
+  "engine": "docker",
+  "renderAndBackupSeconds": 16,
+  "project": "5fa67a7c-b91e-4031-a4d4-791dcc3c09ce",
+  "backup": "tmp/backup-011dd046-b9d0-4153-a616-d4eabe81f414",
+  "document": true,
+  "image": true,
+  "members": true,
+  "history": true,
+  "pdf": true,
+  "repeated": {
+    "type": "render-timing",
+    "build": "5df46fcd-f22d-49df-ad5a-d52f42665fd6",
+    "createMs": 29,
+    "warmMs": 5087,
+    "executionMs": 3088,
+    "worker": {
+      "prepareMs": 1,
+      "quartoMs": 3045,
+      "texPasses": 1,
+      "texMs": 1547,
+      "reusedAux": 1,
+      "cacheFallback": 0
+    },
+    "succeeded": true
+  }
+}

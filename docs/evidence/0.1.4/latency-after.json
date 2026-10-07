@@ -1,0 +1,41 @@
+{
+  "samples": [
+    {
+      "phase": "cold",
+      "savedMs": 224,
+      "responseMs": 12973,
+      "visibleMs": 13020,
+      "createdToFinishedMs": 12568,
+      "image": "ghcr.io/luftaquila/qollab-renderer@sha256:81b6e81e398537f472905d5044999c6adfa30ee2487b3b726e696d5660863aff",
+      "build": "0b0fb283-7d06-4643-84ac-fc220e32f359"
+    },
+    {
+      "phase": "warm",
+      "savedMs": 129,
+      "responseMs": 6136,
+      "visibleMs": 6181,
+      "createdToFinishedMs": 5810,
+      "image": "ghcr.io/luftaquila/qollab-renderer@sha256:81b6e81e398537f472905d5044999c6adfa30ee2487b3b726e696d5660863aff",
+      "build": "a55ba897-6155-4e32-b4b4-4d395a7f16c3"
+    },
+    {
+      "phase": "warm",
+      "savedMs": 127,
+      "responseMs": 6276,
+      "visibleMs": 6316,
+      "createdToFinishedMs": 5883,
+      "image": "ghcr.io/luftaquila/qollab-renderer@sha256:81b6e81e398537f472905d5044999c6adfa30ee2487b3b726e696d5660863aff",
+      "build": "573f4d8f-4625-4c17-9bed-ee20efd60f19"
+    },
+    {
+      "phase": "warm",
+      "savedMs": 127,
+      "responseMs": 6195,
+      "visibleMs": 6232,
+      "createdToFinishedMs": 5882,
+      "image": "ghcr.io/luftaquila/qollab-renderer@sha256:81b6e81e398537f472905d5044999c6adfa30ee2487b3b726e696d5660863aff",
+      "build": "d7af45a6-e014-44a7-b2f5-de41787f8e60"
+    }
+  ],
+  "errors": []
+}

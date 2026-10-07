@@ -1,0 +1,11 @@
+{
+  "empty": {
+    "empty": true,
+    "trustedCodeCache": true,
+    "uid": 10001
+  },
+  "cancelledWorkerRemovedMs": 6243,
+  "lastGoodPdfPreserved": true,
+  "remainingWorkers": 0,
+  "idleExpiry": true
+}
