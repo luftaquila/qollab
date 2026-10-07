@@ -1,0 +1,36 @@
+{
+  "index": {
+    "files": [
+      "index-BYau8I7t.js",
+      "index-B_t-SDQj.css"
+    ],
+    "raw": 110457,
+    "gzip": 40758,
+    "brotli": 36479
+  },
+  "Editor": {
+    "files": [
+      "Editor-BXECkqHv.css",
+      "Editor-JHHbTR0y.js"
+    ],
+    "raw": 1516195,
+    "gzip": 457963,
+    "brotli": 372265
+  },
+  "Pdf": {
+    "files": [
+      "Pdf-Cz3eGXE0.js"
+    ],
+    "raw": 432998,
+    "gzip": 129269,
+    "brotli": 107229
+  },
+  "pdf.worker": {
+    "files": [
+      "pdf.worker.min-CjEcRF4W.mjs"
+    ],
+    "raw": 1264342,
+    "gzip": 376488,
+    "brotli": 307591
+  }
+}

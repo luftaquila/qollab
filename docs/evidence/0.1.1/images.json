@@ -1,0 +1,32 @@
+{
+  "qollab": {
+    "digest": "sha256:2bbcab935bbe982d1859e59e3e651136154fa16a5aef23ac6974ff8c4141d6b3",
+    "platforms": [
+      {
+        "architecture": "amd64",
+        "os": "linux"
+      },
+      {
+        "architecture": "arm64",
+        "os": "linux"
+      }
+    ],
+    "tag": "0.1.1",
+    "anonymous": true
+  },
+  "qollab-renderer": {
+    "digest": "sha256:6ee273416163842f9be9ffdce8df4b5601565ca1f38b8ce9b444f0ac3546aa21",
+    "platforms": [
+      {
+        "architecture": "amd64",
+        "os": "linux"
+      },
+      {
+        "architecture": "arm64",
+        "os": "linux"
+      }
+    ],
+    "tag": "0.1.1",
+    "anonymous": true
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "revision": "3",
+  "image": "ghcr.io/luftaquila/qollab-renderer@sha256:6ee273416163842f9be9ffdce8df4b5601565ca1f38b8ce9b444f0ac3546aa21",
+  "pdfBytes": 15174,
+  "seconds": 24,
+  "queuedThroughFinishedSeconds": 23.564,
+  "runtimeFontCacheRebuilt": false,
+  "firstBuildProgress": true,
+  "automaticPreview": true,
+  "pdfCanvases": 1,
+  "pageErrors": [],
+  "environment": "Linux ARM64, Kubernetes, HTTPS"
+}

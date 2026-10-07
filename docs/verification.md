@@ -1,5 +1,7 @@
 # 0.1.0 검증 기록
 
+최신 PDF 미리보기 수정과 이미지: [0.1.1 검증](verification-0.1.1.md). 아래는 0.1.0 릴리스 당시의 기록이다.
+
 - 일자: 2026-10-07.
 - 구현 commit: `94acf7fea6edef18cd07c40adcd77bd21360040b` (`v0.1.0`). 문서 기록은 이후 commit으로 추가한다.
 - [릴리스 검증 실행](https://github.com/luftaquila/qollab/actions/runs/37622140147): 전체 성공.

@@ -1,0 +1,19 @@
+{
+  "sourceCommit": "ddd46bfd48d6468f14c7179b3856377c6bdb3038",
+  "ci": "https://github.com/luftaquila/qollab/actions/runs/37630062942",
+  "vitest": 32,
+  "playwright": 5,
+  "render": {
+    "amd64": {
+      "seconds": 14.12,
+      "pdfBytes": 22157
+    },
+    "arm64": {
+      "seconds": 11.9,
+      "pdfBytes": 22157
+    }
+  },
+  "runtimeFontCacheRebuilt": false,
+  "isolationPassed": true,
+  "timeoutPassed": true
+}
