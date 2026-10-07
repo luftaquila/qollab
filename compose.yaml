@@ -14,7 +14,7 @@ services:
       retries: 20
     restart: unless-stopped
   app:
-    image: ${APP_IMAGE:-ghcr.io/luftaquila/qollab:0.1.7}
+    image: ${APP_IMAGE:-ghcr.io/luftaquila/qollab:0.1.8}
     environment:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:3000}
       DATABASE_URL: postgres://qollab:${POSTGRES_PASSWORD}@database:5432/qollab
@@ -35,11 +35,11 @@ services:
         condition: service_healthy
     restart: unless-stopped
   renderer:
-    image: ${RENDER_IMAGE:-ghcr.io/luftaquila/qollab-renderer:0.1.7}
+    image: ${RENDER_IMAGE:-ghcr.io/luftaquila/qollab-renderer:0.1.8}
     environment:
       APP_URL: http://app:3000
       RENDERER_TOKEN: ${RENDERER_TOKEN}
-      RENDER_IMAGE: ${RENDER_IMAGE:-ghcr.io/luftaquila/qollab-renderer:0.1.7}
+      RENDER_IMAGE: ${RENDER_IMAGE:-ghcr.io/luftaquila/qollab-renderer:0.1.8}
       RENDERER_NAMESPACE: ${RENDERER_NAMESPACE:-qollab}
       RENDER_WARM_MS: ${RENDER_WARM_MS:-30000}
       DOCKER_HOST: unix:///var/run/docker.sock

@@ -19,7 +19,7 @@ import { t } from "./i18n";
 GlobalWorkerOptions.workerSrc = worker;
 // Document tasks release their own page/font state. Keep the parser worker
 // ready for the next PDF until the panel closes.
-const sharedWorker = new PDFWorker();
+let sharedWorker: PDFWorker | undefined;
 const retiring = new Set<Promise<void>>();
 async function destroy(previous: ReturnType<typeof getDocument> | undefined) {
   if (!previous) return;
@@ -116,7 +116,7 @@ watch(
     let current: ReturnType<typeof getDocument> | undefined;
     try {
       current = getDocument({
-        worker: sharedWorker,
+        worker: (sharedWorker ||= new PDFWorker()),
         url: `/api/projects/${props.project}/pdf?build=${props.build}`,
         withCredentials: true,
       });
@@ -152,7 +152,7 @@ onBeforeUnmount(() => {
   void destroy(task)
     .catch(() => {})
     .then(() => Promise.allSettled([...retiring]))
-    .finally(() => sharedWorker.destroy());
+    .finally(() => sharedWorker?.destroy());
 });
 </script>
 <template>
