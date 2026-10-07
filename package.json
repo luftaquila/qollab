@@ -11,13 +11,13 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "dev": "tsx watch apps/server/src/main.ts",
+    "dev": "node --env-file-if-exists=.env --import tsx --watch apps/server/src/main.ts",
     "dev:web": "npm run dev -w @qollab/web",
     "build": "npm run build -w @qollab/web && tsup apps/server/src/main.ts apps/renderer/src/main.ts --format esm --out-dir dist --sourcemap --external jsdom",
     "check": "tsc --noEmit && vue-tsc --noEmit -p apps/web/tsconfig.json",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "start": "node dist/server/src/main.js"
+    "start": "node --env-file-if-exists=.env dist/server/src/main.js"
   },
   "dependencies": {
     "@fastify/cookie": "11.0.2",

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Exercise the real job image with the production isolation flags."""
-import argparse, base64, json, pathlib, subprocess, sys, time
+import argparse, base64, json, pathlib, subprocess, sys, time, struct, zlib
 p=argparse.ArgumentParser();p.add_argument('--engine',default='docker');p.add_argument('--image',required=True);p.add_argument('--output',default='tmp/render-smoke.pdf');a=p.parse_args()
-flags=['--rm','-i','--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--user','10001:10001','--cpus','1','--memory','2g','--pids-limit','64','--tmpfs','/work:rw,nosuid,nodev,uid=10001,gid=10001,mode=0700,size=512m','--tmpfs','/tmp:rw,nosuid,nodev,uid=10001,gid=10001,mode=0700,size=32m','-e','HOME=/work','-e','TEXMFVAR=/work/.texlive','-e','openin_any=p','-e','openout_any=p','-e','shell_escape=f','-w','/work']
+flags=['--rm','-i','--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--user','10001:10001','--cpus','1','--memory','2g','--pids-limit','64','--tmpfs','/work:rw,nosuid,nodev,mode=1777,size=512m','--tmpfs','/tmp:rw,nosuid,nodev,mode=1777,size=32m','-e','HOME=/work','-e','TEXMFVAR=/work/.texlive','-e','openin_any=p','-e','openout_any=p','-e','shell_escape=f','-w','/work']
 # Tiny valid PNG, also used as an image inclusion assertion in the PDF.
-png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='
+def chunk(kind,data):return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data)&0xffffffff)
+image=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',120,40,8,2,0,0,0))+chunk(b'IDAT',zlib.compress((b'\x00'+bytes([35,127,121])*120)*40))+chunk(b'IEND',b'')
+png=base64.b64encode(image).decode()
 source='''---
 title: "Qollab 렌더링 검증"
 format: pdf

@@ -24,7 +24,7 @@ export class DocumentSession {
    else if(m.type==='presence'){
     if(m.clientId===this.doc.clientID)return;const states=this.awareness.getStates(),existed=states.has(m.clientId);if(m.state)states.set(m.clientId,m.state);else states.delete(m.clientId);
     this.awareness.emit('change',[{added:m.state&&!existed?[m.clientId]:[],updated:m.state&&existed?[m.clientId]:[],removed:!m.state?[m.clientId]:[]},'remote']);
-   }else if(m.type==='error'){this.onStatus?.(m.code);}
+   }else if(m.type==='error'){this.onStatus?.(m.code);if(m.code==='MAINTENANCE')this.timer=setTimeout(()=>{for(const [id,update] of this.outbox)this.send({type:'update',id,update});},2000);}
   };
   this.ws.onclose=e=>{if(this.stopped)return;if(e.code>=4400){this.stopped=true;this.onStatus?.('stale');return;}this.onStatus?.('offline');this.timer=setTimeout(()=>this.connect(),Math.min(1000*2**this.retry++,15000));};
  }

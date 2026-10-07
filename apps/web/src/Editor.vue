@@ -11,12 +11,13 @@ import {codeMirror} from '@milkdown/crepe/feature/code-mirror';
 import {latex} from '@milkdown/crepe/feature/latex';
 import {placeholder} from '@milkdown/crepe/feature/placeholder';
 import {blockEdit} from '@milkdown/crepe/feature/block-edit';
+import {syncHeadingIdPlugin} from '@milkdown/kit/preset/commonmark';
 import {history} from '@milkdown/kit/plugin/history';
 import {trailing} from '@milkdown/kit/plugin/trailing';
 import {collab,collabServiceCtx} from '@milkdown/plugin-collab';
 import {editorViewCtx,parserCtx,serializerCtx,schemaCtx} from '@milkdown/kit/core';
 import {undo,redo} from 'y-prosemirror';
-import {rawNode,imageAttributes} from '../../../packages/codec/src/schema';
+import {rawNode,imageAttributes,sourceIds} from '../../../packages/codec/src/schema';
 import {encode} from '../../../packages/codec/src/index';
 import {DocumentSession} from './session';
 import {api,base64,downloadText} from './api';
@@ -46,7 +47,7 @@ onMounted(()=>{
    .addFeature(table).addFeature(codeMirror,{languages:[],searchPlaceholder:t('search'),copyText:t('copy'),noResultText:t('noResult'),previewToggleText:v=>v?t('edit'):t('hide')})
    .addFeature(latex,{katexOptions:{trust:false,strict:'error'}}).addFeature(placeholder,{text:t('placeholder')})
    .addFeature(blockEdit,{textGroup:{label:t('text'),text:{label:t('text')},h1:{label:`${t('heading')} 1`},h2:{label:`${t('heading')} 2`},h3:{label:`${t('heading')} 3`},h4:{label:`${t('heading')} 4`},h5:{label:`${t('heading')} 5`},h6:{label:`${t('heading')} 6`},quote:{label:t('quote')},divider:{label:t('divider')}},listGroup:{label:t('list'),bulletList:{label:t('bullet')},orderedList:{label:t('ordered')},taskList:{label:t('task')}},advancedGroup:{label:t('advanced'),image:{label:t('images')},codeBlock:{label:t('code')},table:{label:t('table')},math:{label:t('math')}}});
-  await c.editor.remove(history);await c.editor.remove(trailing);c.editor.use(rawNode).use(imageAttributes).use(collab);
+  await c.editor.remove(syncHeadingIdPlugin);await c.editor.remove(history);await c.editor.remove(trailing);c.editor.use(rawNode).use(imageAttributes).use(sourceIds).use(collab);
   try{await c.create();if(disposed){await c.destroy();return;}c.editor.action(ctx=>{ctx.get(collabServiceCtx).bindDoc(s.doc).setAwareness(s.awareness).connect();});c.setReadonly(props.project.role==='viewer');ready.value=true;}catch(e:any){emit('error',e.message);}
  };
  s.connect();window.addEventListener('beforeunload',beforeUnload);

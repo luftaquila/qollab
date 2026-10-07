@@ -16,7 +16,7 @@ export async function initCodec() {
   import('@milkdown/crepe/builder'),import('@milkdown/crepe/feature/code-mirror'),import('@milkdown/crepe/feature/latex'),import('@milkdown/crepe/feature/image-block'),import('@milkdown/kit/core'),import('../../../packages/codec/src/schema.js')]);
  const builder=new CrepeBuilder({root:document.querySelector('#editor')!});
  builder.addFeature(codeMirror,{languages:[]}).addFeature(latex).addFeature(imageBlock);
- builder.editor.use(schema.rawNode).use(schema.imageAttributes);
+ builder.editor.use(schema.rawNode).use(schema.imageAttributes).use(schema.sourceIds);
  await builder.create();
  runtime=builder.editor.action(ctx=>({schema:ctx.get(core.schemaCtx),parse:ctx.get(core.parserCtx),serialize:ctx.get(core.serializerCtx)}));
  return runtime;

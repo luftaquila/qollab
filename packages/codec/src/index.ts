@@ -66,7 +66,7 @@ export function decode(source: string, rt: CodecRuntime): Decoded {
       else if(r.raw) parsed=[rt.schema.nodes.qollab_raw.create(null, text ? rt.schema.text(text) : undefined)];
       else rt.parse(text).forEach(n=>parsed.push(n));
       if(parsed.length!==1) parsed=[rt.schema.nodes.qollab_raw.create(null, text ? rt.schema.text(text) : undefined)];
-      const node=parsed[0]; children.push(node);
+      const first=parsed[0];const node=first.type.create({...first.attrs,qollabId:`source-${r.start}`},first.content,first.marks);children.push(node);
       segments.push({key:key(node),source:text,before:source.slice(end,r.start)});end=r.end;
     }
     const doc=rt.schema.node('doc',null,children.length ? children : [rt.schema.node('paragraph')]);

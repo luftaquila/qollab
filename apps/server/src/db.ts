@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS oidc_states(id text PRIMARY KEY,verifier text NOT NUL
 CREATE TABLE IF NOT EXISTS projects(id uuid PRIMARY KEY,name text NOT NULL,revision bigint NOT NULL DEFAULT 0,data jsonb NOT NULL,created timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS members(project_id uuid REFERENCES projects(id) ON DELETE CASCADE,user_id text REFERENCES users(id),role text NOT NULL CHECK(role IN ('owner','editor','viewer')),PRIMARY KEY(project_id,user_id));
 CREATE TABLE IF NOT EXISTS invites(id text PRIMARY KEY,project_id uuid REFERENCES projects(id) ON DELETE CASCADE,email text NOT NULL,role text NOT NULL CHECK(role IN ('editor','viewer')),expires timestamptz NOT NULL);
+CREATE TABLE IF NOT EXISTS document_generations(id uuid PRIMARY KEY,epoch integer NOT NULL);
 CREATE TABLE IF NOT EXISTS updates(document_id uuid NOT NULL,epoch integer NOT NULL,message_id uuid NOT NULL,user_id text NOT NULL,seq bigserial,bytes bytea NOT NULL,created timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(document_id,epoch,message_id));
 CREATE TABLE IF NOT EXISTS checkpoints(id uuid PRIMARY KEY,project_id uuid REFERENCES projects(id) ON DELETE CASCADE,revision bigint NOT NULL,label text NOT NULL,actor text,snapshot jsonb NOT NULL,git_hash text,created timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS restores(id uuid PRIMARY KEY,project_id uuid REFERENCES projects(id) ON DELETE CASCADE,target uuid NOT NULL,status text NOT NULL,created timestamptz NOT NULL DEFAULT now());

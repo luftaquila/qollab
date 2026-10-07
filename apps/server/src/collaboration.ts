@@ -42,7 +42,7 @@ export async function collaboration(app:FastifyInstance){
     Object.assign(f,next);
     await db.query('INSERT INTO updates(document_id,epoch,message_id,user_id,bytes) VALUES($1,$2,$3,$4,$5)',[fid,epoch,b.id,u.id,bytes]);
     return {duplicate:false};
-   });
+   },{build:true,document:true});
    send(ws,{type:'ack',id:b.id,revision:persisted.revision});
    if(!persisted.result.duplicate)for(const peer of rooms.get(room)||[])if(peer!==member)send(peer.ws,{type:'update',update:b.update,revision:persisted.revision});
   }).catch(e=>{send(ws,{type:'error',code:e.code||'INVALID_UPDATE',params:e.params});if(['STALE_DOCUMENT','FORBIDDEN','UNAUTHENTICATED','NOT_FOUND'].includes(e.code))ws.close(4409,e.code);});});

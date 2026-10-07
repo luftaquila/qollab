@@ -8,7 +8,7 @@ import {access,change,events,queueBuild,writable,mirror} from './store.js';
 import {renderPolicy} from '../../../packages/codec/src/render-policy.js';
 export async function builds(app:FastifyInstance){
  const service=(req:FastifyRequest)=>{if(!sameSecret(String(req.headers.authorization||''),'Bearer '+config.rendererToken)||!config.rendererToken)throw new Fault('FORBIDDEN',403);};
- app.post('/api/projects/:pid/builds',async req=>{const u=await mutation(req),b=z.object({revision:z.number()}).parse(req.body);return change((req.params as any).pid,u,b.revision,'editor',async(p,db)=>{await queueBuild(db,p,true);},{build:false});});
+ app.post('/api/projects/:pid/builds',async req=>{const u=await mutation(req),b=z.object({revision:z.number()}).parse(req.body);return change((req.params as any).pid,u,b.revision,'editor',async(p,db)=>{await queueBuild(db,{...p,revision:p.revision+1},true);},{build:false});});
  app.get('/api/projects/:pid/builds',async req=>{const u=await identity(req),id=(req.params as any).pid;await access(pool,id,u.id);return (await pool.query('SELECT id,revision,epoch,target,status,log,image,created,finished FROM builds WHERE project_id=$1 ORDER BY created DESC LIMIT 30',[id])).rows;});
  app.get('/api/projects/:pid/pdf',async(req,reply)=>{const u=await identity(req),p=await access(pool,(req.params as any).pid,u.id);if(!p.data.pdfBuild)throw new Fault('PDF_UNAVAILABLE',404);const r=await pool.query('SELECT pdf FROM builds WHERE id=$1 AND project_id=$2',[p.data.pdfBuild,p.id]);if(!r.rows[0]?.pdf)throw new Fault('PDF_UNAVAILABLE',404);return reply.type('application/pdf').header('Cache-Control','private, no-cache').header('X-Qollab-Revision',String(p.data.pdfRevision)).send(r.rows[0].pdf);});
  app.post('/api/projects/:pid/builds/:bid/cancel',async req=>{const u=await mutation(req);const b=z.object({revision:z.number()}).parse(req.body);return change((req.params as any).pid,u,b.revision,'editor',async(p,db)=>{await db.query("UPDATE builds SET status='cancelled',finished=now() WHERE id=$1 AND project_id=$2 AND status IN ('queued','running')",[(req.params as any).bid,p.id]);},{build:false});});
@@ -23,6 +23,7 @@ export async function builds(app:FastifyInstance){
    return {id:b.id,lease,target:b.target,revision:Number(b.revision),epoch:b.epoch,timeout:config.buildSeconds};
   });
  });
+ app.get('/api/renderer/builds/:bid/status',async req=>{service(req);const r=await pool.query("SELECT status FROM builds WHERE id=$1 AND lease=$2 AND status='running' AND lease_until>now()",[(req.params as any).bid,String(req.headers['x-render-lease'])]);if(!r.rowCount)throw new Fault('LEASE_EXPIRED',409);return {running:true};});
  app.get('/api/renderer/builds/:bid/input',async req=>{service(req);const r=await pool.query("SELECT input FROM builds WHERE id=$1 AND lease=$2 AND status='running' AND lease_until>now()",[(req.params as any).bid,String(req.headers['x-render-lease'])]);if(!r.rowCount)throw new Fault('LEASE_EXPIRED',409);return r.rows[0].input;});
  app.post('/api/renderer/builds/:bid/result',async req=>{
   service(req);const body=z.object({lease:z.uuid(),pdf:z.string().optional(),log:z.string().max(65536),image:z.string().max(512)}).parse(req.body),id=(req.params as any).bid;

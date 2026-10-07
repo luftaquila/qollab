@@ -15,16 +15,17 @@ export async function access(db:pg.Pool|pg.PoolClient,id:string,user:string,requ
  const p=result.rows[0];if(!p)throw new Fault('NOT_FOUND',404);if(ranks[p.role as Role]<ranks[required])throw new Fault('FORBIDDEN',403);p.revision=Number(p.revision);return p;
 }
 export async function writable(db:pg.PoolClient){const r=await db.query('SELECT frozen FROM maintenance');if(r.rows[0].frozen)throw new Fault('MAINTENANCE',503);}
-export async function change<T>(id:string,user:Identity,revision:number|undefined,role:Role,fn:(p:Project,db:pg.PoolClient)=>Promise<T>,options={build:true}):Promise<{result:T;revision:number}>{
+export async function change<T>(id:string,user:Identity,revision:number|undefined,role:Role,fn:(p:Project,db:pg.PoolClient)=>Promise<T>,options:{build:boolean;document?:boolean}={build:true}):Promise<{result:T;revision:number}>{
  const out=await transaction(async db=>{
   await writable(db);const p=await access(db,id,user.id,role,true);
   if(revision!==undefined&&revision!==p.revision)throw new Fault('REVISION_CONFLICT',409,{revision:p.revision});
   const result=await fn(p,db);validateSize(p.data);p.revision++;
+  for(const f of p.data.files.filter(f=>f.kind==='document'))await db.query('INSERT INTO document_generations VALUES($1,$2) ON CONFLICT(id) DO UPDATE SET epoch=GREATEST(document_generations.epoch,EXCLUDED.epoch)',[f.id,f.epoch]);
   await db.query('UPDATE projects SET data=$2,revision=$3,name=$4 WHERE id=$1',[id,p.data,p.revision,p.name]);
   if(options.build)await queueBuild(db,p);
   return {result,revision:p.revision};
  });
- await mirror(id).catch(()=>events(id,{type:'file-error'}));events(id,{type:'changed',revision:out.revision});return out;
+ await mirror(id).catch(()=>events(id,{type:'file-error'}));events(id,{type:options.document?'document':'changed',revision:out.revision});return out;
 }
 export function validateSize(data:ProjectData){
  const total=data.files.reduce((n,f)=>n+(f.bytes?Buffer.byteLength(f.bytes,'base64'):Buffer.byteLength(f.source||'')),0);
@@ -58,6 +59,8 @@ export function mirror(id:string):Promise<void>{
   for(const f of data.files){const dest=path.join(root,f.path);await mkdir(path.dirname(dest),{recursive:true});await writeFile(dest+'.qollab-tmp',f.bytes?Buffer.from(f.bytes,'base64'):f.source||'',{mode:0o600});await rename(dest+'.qollab-tmp',dest);}
   const cps=await pool.query('SELECT * FROM checkpoints WHERE project_id=$1 AND git_hash IS NULL ORDER BY created',[id]);
   for(const cp of cps.rows){
+   let existing='';try{existing=(await exec('git',['-C',root,'log','--all','--format=%H','--grep',`^Qollab-Checkpoint: ${cp.id}$`,'-1'])).stdout.trim();}catch{}
+   if(existing){await pool.query('UPDATE checkpoints SET git_hash=$2 WHERE id=$1',[cp.id,existing]);continue;}
    // Git commits use a temporary index and write-tree, so a past checkpoint can
    // never overwrite the live worktree while its durable journal is replayed.
    const env={...process.env,GIT_INDEX_FILE:path.join(root,'.git','qollab-index')};

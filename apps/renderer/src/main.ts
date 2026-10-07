@@ -14,14 +14,15 @@ async function request(path:string,method='GET',body?:unknown,extra:Record<strin
 }
 async function cleanup(){const {stdout}=await exec(engine,['ps','-aq','--filter',`label=io.qollab.renderer=${namespace}`]);const ids=stdout.trim().split(/\s+/).filter(Boolean);for(const id of ids)await exec(engine,['rm','-f',id]).catch(()=>{});}
 async function run(job:any,input:any):Promise<{pdf?:string;log:string}> {
- const args=['create','-i','--label',`io.qollab.renderer=${namespace}`,'--label',`io.qollab.job=${job.id}`,'--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--user','10001:10001','--cpus',process.env.RENDER_CPUS||'1','--memory',process.env.RENDER_MEMORY||'2g','--pids-limit',process.env.RENDER_PIDS||'64','--tmpfs',`/work:rw,nosuid,nodev,uid=10001,gid=10001,mode=0700,size=${process.env.RENDER_TMPFS||'512m'}`,'--tmpfs','/tmp:rw,nosuid,nodev,uid=10001,gid=10001,mode=0700,size=32m','--env','HOME=/work','--env','TEXMFVAR=/work/.texlive','--env','openin_any=p','--env','openout_any=p','--env','shell_escape=f','--workdir','/work',image,'python3','/opt/qollab/render.py'];
+ const args=['create','-i','--label',`io.qollab.renderer=${namespace}`,'--label',`io.qollab.job=${job.id}`,'--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--user','10001:10001','--cpus',process.env.RENDER_CPUS||'1','--memory',process.env.RENDER_MEMORY||'2g','--pids-limit',process.env.RENDER_PIDS||'64','--tmpfs',`/work:rw,nosuid,nodev,mode=1777,size=${process.env.RENDER_TMPFS||'512m'}`,'--tmpfs','/tmp:rw,nosuid,nodev,mode=1777,size=32m','--env','HOME=/work','--env','TEXMFVAR=/work/.texlive','--env','openin_any=p','--env','openout_any=p','--env','shell_escape=f','--workdir','/work',image,'python3','/opt/qollab/render.py'];
  const {stdout}=await exec(engine,args);const id=stdout.trim();active=id;
  try{return await new Promise((resolve,reject)=>{
   const child=spawn(engine,['start','-ai',id],{stdio:['pipe','pipe','pipe']}),out:Buffer[]=[];let size=0,log='',expired=false;
+  let cancelling=false;const monitor=setInterval(()=>{if(cancelling)return;void request(`/builds/${job.id}/status`,'GET',undefined,{'x-render-lease':job.lease}).catch(()=>{cancelling=true;void exec(engine,['rm','-f',id]);});},2000);
   const timer=setTimeout(()=>{expired=true;void exec(engine,['rm','-f',id]);},job.timeout*1000);
   child.stdout.on('data',(b:Buffer)=>{size+=b.length;if(size>72*1024*1024){expired=true;void exec(engine,['rm','-f',id]);}else out.push(b);});
-  child.stderr.on('data',(b:Buffer)=>{log=(log+b.toString()).slice(-60000);});child.on('error',e=>{clearTimeout(timer);reject(e);});
-  child.on('close',code=>{clearTimeout(timer);if(expired)return resolve({log:'RENDER_TIMEOUT_OR_OUTPUT_LIMIT'});if(code!==0)return resolve({log:log||`Renderer exit ${code}`});try{resolve(JSON.parse(Buffer.concat(out).toString()));}catch{resolve({log:'INVALID_RENDER_OUTPUT\n'+log});}});
+  child.stderr.on('data',(b:Buffer)=>{log=(log+b.toString()).slice(-60000);});child.on('error',e=>{clearTimeout(timer);clearInterval(monitor);reject(e);});
+  child.on('close',code=>{clearTimeout(timer);clearInterval(monitor);if(expired)return resolve({log:'RENDER_TIMEOUT_OR_OUTPUT_LIMIT'});if(code!==0)return resolve({log:log||`Renderer exit ${code}`});try{resolve(JSON.parse(Buffer.concat(out).toString()));}catch{resolve({log:'INVALID_RENDER_OUTPUT\n'+log});}});
   child.stdin.on('error',()=>{});child.stdin.end(JSON.stringify({...input,target:job.target,timeout:job.timeout}));
  });}finally{await exec(engine,['rm','-f',id]).catch(()=>{});active=undefined;}
 }

@@ -26,3 +26,6 @@ describe('render and archive boundaries',()=>{
  it.each(['../escape.qmd','/tmp/x.qmd','.git/config','_extensions/evil.lua','assets/a.svg'])('rejects ZIP path %s',path=>expect(()=>readZip(Buffer.from(zipSync({[path]:Buffer.from('x')})))).toThrow());
  it('rejects a symlink in the ZIP central directory',()=>{const zip=Buffer.from(zipSync({'a.qmd':Buffer.from('/etc/passwd')}));const at=zip.indexOf(Buffer.from([0x50,0x4b,0x01,0x02]));zip.writeUInt32LE((0xa1ff<<16)>>>0,at+38);expect(()=>readZip(zip)).toThrow();});
 });
+it('keeps source identity for identical paragraphs with different Markdown spelling',()=>{
+ const rt=getRuntime(),source='**same**\n\n__same__\n',d=decode(source,rt),json=d.doc.toJSON();json.content.shift();const out=encode(rt.schema.nodeFromJSON(json),d.preservation,rt);expect(out).toContain('__same__');expect(out).not.toContain('**same**');
+});

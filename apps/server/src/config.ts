@@ -9,6 +9,8 @@ export const config={
  documentBytes:number('MAX_DOCUMENT_BYTES',2*1024*1024),imageBytes:number('MAX_IMAGE_BYTES',10*1024*1024),projectBytes:number('MAX_PROJECT_BYTES',250*1024*1024),pixels:number('MAX_IMAGE_PIXELS',40_000_000),
  sessionHours:number('SESSION_HOURS',168),debounce:number('BUILD_DEBOUNCE_MS',2000),maxWait:number('BUILD_MAX_WAIT_MS',10000),checkpointMs:number('CHECKPOINT_MS',300000),buildSeconds:number('BUILD_TIMEOUT_SECONDS',120)
 };
+if(!['all','approval'].includes(config.admission))throw new Error('ACCOUNT_POLICY must be all or approval');
+if(new URL(config.origin).origin!==config.origin)throw new Error('PUBLIC_ORIGIN must be an origin without a path');
 if(process.env.NODE_ENV==='production') {
  if(!process.env.DATABASE_URL)throw new Error('DATABASE_URL required');
  if(config.rendererToken.length<32 || config.adminToken.length<32)throw new Error('Service tokens must contain at least 32 characters');

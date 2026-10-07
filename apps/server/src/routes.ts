@@ -98,10 +98,10 @@ export async function routes(app:FastifyInstance,disconnect:(project:string)=>vo
    const r=await db.query('SELECT snapshot FROM checkpoints WHERE id=$1 AND project_id=$2',[params(req).cid,id]);if(!r.rowCount)throw new Fault('NOT_FOUND',404);
    await checkpoint(db,p,'Before restore',u.id);
    const data=r.rows[0].snapshot as ProjectData;data.epoch=p.data.epoch+1;delete data.pdfBuild;delete data.pdfRevision;
-   for(const f of data.files){f.epoch=Math.max(f.epoch,p.data.files.find(x=>x.id===f.id)?.epoch||0)+1;delete f.rawOwner;delete f.rawUntil;if(f.kind==='document')Object.assign(f,initialize(f.source||''));}
+   for(const f of data.files){const ledger=await db.query('SELECT epoch FROM document_generations WHERE id=$1',[f.id]);f.epoch=Math.max(f.epoch,p.data.files.find(x=>x.id===f.id)?.epoch||0,ledger.rows[0]?.epoch||0)+1;delete f.rawOwner;delete f.rawUntil;if(f.kind==='document')Object.assign(f,initialize(f.source||''));}
    p.data=data;await checkpoint(db,{...p,revision:p.revision+1},'Restored',u.id);
    await db.query("INSERT INTO restores(id,project_id,target,status) VALUES($1,$2,$3,'committed')",[job,id,params(req).cid]);await audit(db,id,u.id,'restore',{target:params(req).cid,job});return {job};
-  });disconnect(id);await pool.query("UPDATE restores SET status='complete' WHERE id=$1",[job]);events(id,{type:'restored'});return result;
+  });disconnect(id);await mirror(id);await pool.query("UPDATE restores SET status='complete' WHERE id=$1",[job]);events(id,{type:'restored'});return result;
  });
  app.get('/api/projects/:pid/members',async req=>{const u=await identity(req);await access(pool,params(req).pid,u.id);return (await pool.query('SELECT u.id,u.email,u.name,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=$1',[params(req).pid])).rows;});
  app.post('/api/projects/:pid/invites',async req=>{const u=await mutation(req),b=z.object({revision:rev,email:z.email(),role:z.enum(['editor','viewer'])}).parse(req.body);return change(params(req).pid,u,b.revision,'owner',async(p,db)=>{const raw=token();await db.query("INSERT INTO invites VALUES($1,$2,$3,$4,now()+interval '7 days')",[hash(raw),p.id,b.email.toLowerCase(),b.role]);await audit(db,p.id,u.id,'invite',{email:b.email,role:b.role});return {url:config.origin+'/?invite='+raw};},{build:false});});

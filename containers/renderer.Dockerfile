@@ -10,7 +10,6 @@ COPY apps/renderer/src/main.ts ./main.ts
 RUN ./node_modules/.bin/esbuild main.ts --bundle --platform=node --format=esm --outfile=renderer.mjs
 FROM docker:29.2.1-cli AS dockercli
 FROM node:24.15.0-bookworm-slim
-LABEL org.opencontainers.image.source="https://github.com/luftaquila/qollab" org.opencontainers.image.licenses="MIT"
 ARG TARGETARCH
 ARG QUARTO_VERSION=1.10.19
 # Debian snapshot locks TeX Live and font packages together with the base image.
@@ -26,3 +25,5 @@ RUN mkdir -p /work && chown 10001:10001 /work && luaotfload-tool --update && dpk
 ENV HOME=/work
 WORKDIR /work
 CMD ["node","/opt/qollab/renderer.mjs"]
+
+LABEL org.opencontainers.image.source="https://github.com/luftaquila/qollab" org.opencontainers.image.licenses="MIT"

@@ -23,12 +23,15 @@ def main():
     # Logs go to a bounded tmpfs file, never to an unbounded memory PIPE.
     logfile=ROOT/'render.log'
     with logfile.open('wb') as out:
-        try:result=subprocess.run(cmd,cwd=ROOT,stdout=out,stderr=subprocess.STDOUT,timeout=min(int(job['timeout']),120),env={**os.environ,'QUARTO_PRINT_STACK':'false','QUARTO_DISABLE_VERSION_CHECK':'true'})
+        try:result=subprocess.run(cmd,cwd=ROOT,stdout=out,stderr=subprocess.STDOUT,timeout=int(job['timeout']),env={**os.environ,'QUARTO_PRINT_STACK':'false','QUARTO_DISABLE_VERSION_CHECK':'true'})
         except subprocess.TimeoutExpired:return {'log':'RENDER_TIMEOUT'}
     with logfile.open('rb') as log:
         log.seek(max(0,logfile.stat().st_size-60000));text=log.read().decode('utf-8','replace')
     pdf=ROOT/target.parent/'qollab.pdf'
-    if result.returncode or not pdf.is_file():return {'log':text}
+    if result.returncode or not pdf.is_file():
+        detail=ROOT/target.with_suffix('.log')
+        if detail.is_file():text+='\n'+detail.read_text(errors='replace')[-12000:]
+        return {'log':text[-60000:]}
     if pdf.is_symlink() or pdf.stat().st_size>50*1024*1024:raise ValueError('OUTPUT_LIMIT')
     return {'pdf':base64.b64encode(pdf.read_bytes()).decode(),'log':text}
 try:
