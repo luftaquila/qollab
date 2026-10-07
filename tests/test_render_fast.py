@@ -18,13 +18,15 @@ class FastEligibility(unittest.TestCase):
             '# 한글\n\n**Bold** and *italic*, $E=mc^2$.\n\n'
             '| A | B |\n|---|---|\n| 한글 | 표 |\n\n'
             '![그림](assets/figure.png){width=25%}\n')))
+        self.assertTrue(eligible(self.job('$$\\frac{1}{3} + \\int_0^1 x^2 dx$$')))
 
     def test_metadata_raw_references_and_preprocessing_fall_back(self):
         for source in ['---\ntitle: Example\n---\nBody', '\\newpage',
                        'See @fig-example.', '## Heading {#sec-example}',
                        '```{=latex}\ncode\n```', '<div>Raw</div>',
                        '{{< include other.qmd >}}', '::: {.callout-note}\nNote\n:::',
-                       'Footnote[^1]\n\n[^1]: Note', '$\\input{file.tex}$']:
+                       'Footnote[^1]\n\n[^1]: Note', '$\\input{file.tex}$',
+                       '$^^5cinput{file.tex}$', '$\\csname input\\endcsname$']:
             with self.subTest(source=source):
                 self.assertFalse(eligible(self.job(source)))
 

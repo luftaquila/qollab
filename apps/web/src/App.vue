@@ -68,6 +68,16 @@ async function loadProjects() {
 async function refresh() {
   if (!project.value) return;
   const p = await api("/projects/" + project.value.id);
+  if (p.id !== project.value?.id) return;
+  if (
+    p.data.epoch === project.value.data.epoch &&
+    (p.data.pdfRevision ?? -1) < (project.value.data.pdfRevision ?? -1)
+  ) {
+    // A project request begun before a completion event must not roll the
+    // immediately displayed PDF back while the build list refreshes.
+    p.data.pdfBuild = project.value.data.pdfBuild;
+    p.data.pdfRevision = project.value.data.pdfRevision;
+  }
   project.value = p;
   builds.value = await api(`/projects/${p.id}/builds`);
   if (tab.value === "history")

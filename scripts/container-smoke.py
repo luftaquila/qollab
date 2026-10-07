@@ -184,6 +184,7 @@ fast_report=[]
 for name,edited in [
     ('text',fast_source.replace('이미지입니다.','이미지입니다.가')),
     ('image',fast_source.replace('width=30%','width=60%')),
+    ('math',fast_source.replace('E=mc^2',r'E=mc^2 \qquad \int_0^1 x^2 dx=\frac{1}{3}')),
     ('pages',fast_source+'\n\n'.join(['한글 문장이 길게 이어져 여러 페이지의 줄바꿈과 쪽 번호를 검증합니다. '*8]*12)),
     ('lists',fast_source+'\n- First\n- **Second**\n\n1. 하나\n2. 둘\n\n> Quote\n\n[Example](https://example.com)\n'),
 ]:

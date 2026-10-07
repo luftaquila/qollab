@@ -9,9 +9,27 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import time
 from render_cache import capture, restore
+
+MATH_COMMANDS = set(('frac dfrac tfrac sqrt sum prod int iint iiint oint lim '
+                     'sin cos tan log ln exp min max sup inf det '
+                     'left right big Big bigg Bigg '
+                     'alpha beta gamma delta epsilon varepsilon zeta eta theta '
+                     'vartheta iota kappa lambda mu nu xi pi varpi rho varrho '
+                     'sigma varsigma tau upsilon phi varphi chi psi omega '
+                     'Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega '
+                     'infty partial nabla times cdot div pm mp le leq ge geq '
+                     'ne neq approx equiv sim simeq propto in notin subset '
+                     'subseteq supset supseteq cup cap emptyset forall exists '
+                     'to rightarrow leftarrow leftrightarrow Rightarrow '
+                     'Leftarrow Leftrightarrow mapsto '
+                     'mathrm mathbf mathit mathsf mathtt mathbb mathcal text '
+                     'overline underline hat widehat bar vec dot ddot '
+                     'overbrace underbrace ldots cdots vdots ddots '
+                     'quad qquad sin cos tan').split())
 
 
 def eligible(job):
@@ -26,8 +44,11 @@ def eligible(job):
         return False
     # Fail closed around Quarto preprocessing, executable/raw syntax, metadata,
     # references and features whose initialization depends on document analysis.
-    if re.search(r'\\|@|<|`|~~~|\{\{|:::|\[\^|\{#|^\s*(---|\+\+\+)\s*$', source, re.M):
+    if re.search(r'@|<|`|~~~|\^\^|\{\{|:::|\[\^|\{#|^\s*(---|\+\+\+)\s*$', source, re.M):
         return False
+    for command in re.findall(r'\\([a-zA-Z]+|[^\n])', source):
+        if command not in MATH_COMMANDS and command not in ('{', '}', '_', '%', '$', '#', '&', ',', ';', ':', '!', ' '):
+            return False
     return True
 
 
@@ -55,12 +76,14 @@ class Prepared:
             '/usr/bin/xelatex', '-interaction=nonstopmode', '-halt-on-error',
             '-no-shell-escape', '-jobname=output', 'prepared.tex',
         ], cwd=self.dir, stdin=subprocess.PIPE, stdout=self.output,
-            stderr=self.control, env={**os.environ, 'LD_PRELOAD': str(library)})
+            stderr=self.control, start_new_session=True,
+            env={**os.environ, 'LD_PRELOAD': str(library)})
 
     def close(self):
         if self.process:
             if self.process.poll() is None:
-                self.process.kill()
+                try:os.killpg(self.process.pid, signal.SIGKILL)
+                except ProcessLookupError:pass
             self.process.wait()
             self.process.stdin.close()
         if self.output:
