@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Job entry point: bounded JSON stdin, no credentials, one isolated /work."""
-import base64, json, os, pathlib, re, shutil, subprocess, sys
+import base64, json, os, pathlib, re, subprocess, sys, time
 ROOT=pathlib.Path('/work')
 LIMIT=250*1024*1024
 
 def main():
+    started=time.monotonic()
     raw=sys.stdin.buffer.read(360*1024*1024+1)
     if len(raw)>360*1024*1024: raise ValueError('INPUT_LIMIT')
     job=json.loads(raw);total=0
@@ -19,28 +20,27 @@ def main():
         dest=ROOT/name;dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(data)
     target=pathlib.PurePosixPath(job['target'])
     if target.is_absolute() or '..' in target.parts or not str(target).endswith('.qmd'):raise ValueError('INVALID_TARGET')
-    # LuaTeX loads its names database from the writable user cache. Seed each
-    # isolated job with trusted, architecture-specific cache built into the image.
-    # No cache produced by a user's document is shared with another job.
-    cache=pathlib.Path('/opt/qollab/tex-cache')
     os.environ['TEXMFVAR']=str(ROOT/'.texlive')
-    os.environ['TEXMFCACHE']=str(ROOT/'.texlive')
-    if cache.is_dir():shutil.copytree(cache,ROOT/'.texlive',dirs_exist_ok=True)
-    cmd=['quarto','render',str(target),'--to','pdf','--no-execute','--no-cache','--output','qollab.pdf','-M','latex-auto-install:false','-M','latex-clean:true','-M','mainfont:Noto Serif CJK KR','-M','sansfont:Noto Sans CJK KR','-M','monofont:DejaVu Sans Mono','--pdf-engine','lualatex','--pdf-engine-opt=-no-shell-escape']
+    # XeTeX uses the image's fontconfig index without deserializing the large
+    # Lua font tables on every pass. Keep Quarto's automatic reference reruns.
+    cmd=['quarto','render',str(target),'--to','pdf','--no-execute','--no-cache','--output','qollab.pdf','-M','latex-auto-install:false','-M','latex-clean:true','-M','mainfont:Noto Serif CJK KR','-M','sansfont:Noto Sans CJK KR','-M','monofont:DejaVu Sans Mono','--pdf-engine','xelatex','--pdf-engine-opt=-no-shell-escape']
     # Logs go to a bounded tmpfs file, never to an unbounded memory PIPE.
     logfile=ROOT/'render.log'
+    prepared=time.monotonic()
     with logfile.open('wb') as out:
         try:result=subprocess.run(cmd,cwd=ROOT,stdout=out,stderr=subprocess.STDOUT,timeout=int(job['timeout']),env={**os.environ,'QUARTO_PRINT_STACK':'false','QUARTO_DISABLE_VERSION_CHECK':'true'})
         except subprocess.TimeoutExpired:return {'log':'RENDER_TIMEOUT'}
+    rendered=time.monotonic()
+    metrics={'prepareMs':round((prepared-started)*1000),'quartoMs':round((rendered-prepared)*1000)}
     with logfile.open('rb') as log:
         log.seek(max(0,logfile.stat().st_size-60000));text=log.read().decode('utf-8','replace')
     pdf=ROOT/target.parent/'qollab.pdf'
     if result.returncode or not pdf.is_file():
         detail=ROOT/target.with_suffix('.log')
         if detail.is_file():text+='\n'+detail.read_text(errors='replace')[-12000:]
-        return {'log':text[-60000:]}
+        return {'log':text[-60000:],'metrics':metrics}
     if pdf.is_symlink() or pdf.stat().st_size>50*1024*1024:raise ValueError('OUTPUT_LIMIT')
-    return {'pdf':base64.b64encode(pdf.read_bytes()).decode(),'log':text}
+    return {'pdf':base64.b64encode(pdf.read_bytes()).decode(),'log':text,'metrics':metrics}
 try:
     print(json.dumps(main(),ensure_ascii=False))
 except Exception as e:

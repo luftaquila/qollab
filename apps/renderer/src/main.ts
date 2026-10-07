@@ -4,7 +4,7 @@ const exec = promisify(execFile);
 const base = process.env.APP_URL || "http://app:3000",
   secret = process.env.RENDERER_TOKEN;
 const image =
-  process.env.RENDER_IMAGE || "ghcr.io/luftaquila/qollab-renderer:0.1.1";
+  process.env.RENDER_IMAGE || "ghcr.io/luftaquila/qollab-renderer:0.1.2";
 const engine = process.env.CONTAINER_ENGINE || "docker",
   namespace = process.env.RENDERER_NAMESPACE || "qollab";
 if (!secret || secret.length < 32)
@@ -56,7 +56,8 @@ async function cleanup() {
 async function run(
   job: any,
   input: any,
-): Promise<{ pdf?: string; log: string }> {
+): Promise<{ pdf?: string; log: string; metrics?: Record<string, number> }> {
+  const started = performance.now();
   const args = [
     "create",
     "-i",
@@ -100,6 +101,7 @@ async function run(
     "/opt/qollab/render.py",
   ];
   const { stdout } = await exec(engine, args);
+  const created = performance.now();
   const id = stdout.trim();
   active = id;
   try {
@@ -146,7 +148,18 @@ async function run(
         if (expired) return resolve({ log: "RENDER_TIMEOUT_OR_OUTPUT_LIMIT" });
         if (code !== 0) return resolve({ log: log || `Renderer exit ${code}` });
         try {
-          resolve(JSON.parse(Buffer.concat(out).toString()));
+          const result = JSON.parse(Buffer.concat(out).toString());
+          console.info(
+            JSON.stringify({
+              type: "render-timing",
+              build: job.id,
+              createMs: Math.round(created - started),
+              executionMs: Math.round(performance.now() - created),
+              worker: result.metrics,
+              succeeded: !!result.pdf,
+            }),
+          );
+          resolve(result);
         } catch {
           resolve({ log: "INVALID_RENDER_OUTPUT\n" + log });
         }

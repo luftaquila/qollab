@@ -86,7 +86,10 @@ jobs:
           cache-from: type=gha,scope=renderer-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=renderer-${{ matrix.arch }}
       - name: Render a real PDF and verify isolation
-        run: python3 scripts/container-smoke.py --image ghcr.io/luftaquila/qollab-renderer:sha-${{ github.sha }}-${{ matrix.arch }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          python3 scripts/container-smoke.py --image ghcr.io/luftaquila/qollab-renderer:sha-${{ github.sha }}-${{ matrix.arch }}
       - name: Start the production application
         env:
           APP_IMAGE: ghcr.io/luftaquila/qollab:sha-${{ github.sha }}-${{ matrix.arch }}
@@ -112,6 +115,8 @@ jobs:
           name: pdf-${{ matrix.arch }}
           path: |
             tmp/render-smoke.pdf
+            tmp/render-smoke.json
+            tmp/render-references.pdf
             tmp/deployment-report.json
   manifests:
     needs: images

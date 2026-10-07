@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Exercise the real job image with the production isolation flags."""
-import argparse, base64, json, pathlib, subprocess, sys, time, struct, zlib
+import argparse, base64, json, pathlib, subprocess, sys, time, struct, zlib, re
 p=argparse.ArgumentParser();p.add_argument('--engine',default='docker');p.add_argument('--image',required=True);p.add_argument('--output',default='tmp/render-smoke.pdf');a=p.parse_args()
 flags=['--rm','-i','--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges','--user','10001:10001','--cpus','1','--memory','2g','--pids-limit','64','--tmpfs','/work:rw,nosuid,nodev,mode=1777,size=512m','--tmpfs','/tmp:rw,nosuid,nodev,mode=1777,size=32m','-e','HOME=/work','-e','TEXMFVAR=/work/.texlive','-e','openin_any=p','-e','openout_any=p','-e','shell_escape=f','-w','/work']
 # Tiny valid PNG, also used as an image inclusion assertion in the PDF.
@@ -32,7 +32,56 @@ out=json.loads(r.stdout)
 if not out.get('pdf'):sys.exit(out.get('log','No PDF'))
 assert 'Font names database not found' not in out.get('log',''), 'Runtime rebuilt the font cache'
 dest=pathlib.Path(a.output);dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(base64.b64decode(out['pdf']))
-print(json.dumps({'pdf':str(dest),'seconds':round(time.monotonic()-start,2),'bytes':dest.stat().st_size}))
+report={'pdf':str(dest),'seconds':round(time.monotonic()-start,2),'bytes':dest.stat().st_size,'metrics':out.get('metrics')}
+dest.with_suffix('.json').write_text(json.dumps(report,indent=2)+'\n')
+print(json.dumps(report))
+# The engine change must retain references that require more than one TeX pass.
+fidelity='''---
+title: "한글 참조 검증"
+toc: true
+number-sections: true
+bibliography: references.bib
+---
+
+# 한글과 수식 {#sec-check}
+
+**굵은 한글**과 *기울임 English*, `inline code`.
+@fig-check, @tbl-check, @eq-energy, @sec-check, [@knuth1984].
+
+| 항목 | 값 |
+|---|---|
+| 한글 | 검증 |
+
+: 한글 표 {#tbl-check}
+
+$$E=mc^2$$ {#eq-energy}
+
+![한글 그림](assets/pixel.png){#fig-check width=20%}
+
+```{=latex}
+Resolved page: \\pageref{qollab-page}.
+\\newpage
+```
+
+# 다음 페이지
+
+```{=latex}
+\\label{qollab-page}
+```
+
+한글 문장이 여러 줄에 걸쳐 표시되는지 확인합니다. 문장과 공백을 보존하고 표와 수식의 참조를 유지합니다.
+'''
+fidelity_job={'target':'references.qmd','timeout':120,'files':[{'path':'references.qmd','source':fidelity},{'path':'assets/pixel.png','bytes':png},{'path':'references.bib','source':'@book{knuth1984, title={The TeXbook}, author={Donald E. Knuth}, year={1984}, publisher={Addison-Wesley}}'}]}
+r=subprocess.run([a.engine,'run',*flags,a.image,'python3','/opt/qollab/render.py'],input=json.dumps(fidelity_job).encode(),capture_output=True,timeout=150)
+assert r.returncode==0,r.stderr.decode()
+fidelity_out=json.loads(r.stdout)
+assert fidelity_out.get('pdf'),fidelity_out.get('log')
+fidelity_pdf=dest.with_name('render-references.pdf');fidelity_pdf.write_bytes(base64.b64decode(fidelity_out['pdf']))
+content=subprocess.check_output(['pdftotext',str(fidelity_pdf),'-']).decode()
+assert '??' not in content,content
+assert re.search(r'Resolved page:\s*[2-9]',content),content
+assert all(s in content for s in ['한글','TeXbook','Figure','Table']),content
+print('Korean, image, math, table, bibliography and resolved page reference passed')
 probe='''import os,socket,pathlib
 assert os.getuid()==10001
 assert not any(k in os.environ for k in ['DATABASE_URL','GOOGLE_CLIENT_SECRET','RENDERER_TOKEN','ADMIN_TOKEN'])
