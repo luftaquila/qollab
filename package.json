@@ -49,6 +49,7 @@
     "@types/pg": "8.15.6",
     "@types/ws": "8.18.1",
     "@vitejs/plugin-vue": "6.0.4",
+    "jose": "6.2.2",
     "pdfjs-dist": "6.4.299",
     "tsup": "8.5.1",
     "tsx": "4.21.0",
