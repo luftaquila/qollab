@@ -1,0 +1,13 @@
+{
+  "pdf": "tmp/render-smoke.pdf",
+  "seconds": 4.87,
+  "bytes": 19787,
+  "metrics": {
+    "prepareMs": 0,
+    "quartoMs": 4425,
+    "texPasses": 2,
+    "texMs": 2604,
+    "reusedAux": 0,
+    "cacheFallback": 0
+  }
+}

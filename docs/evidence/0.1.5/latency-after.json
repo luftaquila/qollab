@@ -1,0 +1,41 @@
+{
+  "samples": [
+    {
+      "phase": "first-after-manager-restart-and-40s-pause",
+      "savedMs": 131,
+      "responseMs": 8144,
+      "visibleMs": 8213,
+      "createdToFinishedMs": 7740,
+      "image": "ghcr.io/luftaquila/qollab-renderer@sha256:31029547cbd8102a474e594a93e5d2797335f5c2d7613aa362364bd5a1a6f23a",
+      "build": "07c55e00-e584-4a81-bd28-441853137cae"
+    },
+    {
+      "phase": "after-40s-pause",
+      "savedMs": 128,
+      "responseMs": 5831,
+      "visibleMs": 5879,
+      "createdToFinishedMs": 5492,
+      "image": "ghcr.io/luftaquila/qollab-renderer@sha256:31029547cbd8102a474e594a93e5d2797335f5c2d7613aa362364bd5a1a6f23a",
+      "build": "f06350b6-1547-4c4e-9697-19165b3c5c29"
+    },
+    {
+      "phase": "after-40s-pause",
+      "savedMs": 130,
+      "responseMs": 5861,
+      "visibleMs": 5963,
+      "createdToFinishedMs": 5487,
+      "image": "ghcr.io/luftaquila/qollab-renderer@sha256:31029547cbd8102a474e594a93e5d2797335f5c2d7613aa362364bd5a1a6f23a",
+      "build": "a30e9718-b691-46d9-882b-a2cd244508d4"
+    },
+    {
+      "phase": "after-40s-pause",
+      "savedMs": 401,
+      "responseMs": 6408,
+      "visibleMs": 6447,
+      "createdToFinishedMs": 5942,
+      "image": "ghcr.io/luftaquila/qollab-renderer@sha256:31029547cbd8102a474e594a93e5d2797335f5c2d7613aa362364bd5a1a6f23a",
+      "build": "9a38a7e2-1175-4136-9062-a87182d83d2d"
+    }
+  ],
+  "errors": []
+}

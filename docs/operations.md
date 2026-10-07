@@ -4,7 +4,7 @@
 
 - Docker Engine + Compose v2 또는 rootless Podman + Compose 제공자.
 - 전체 호스트 메모리 4GiB 이상 권장. 작업 하나에 최대 2GiB, 앱·DB 메모리는 별도.
-- 공개 이미지의 검증된 digest: [0.1.4 검증](verification-0.1.4.md), `docs/versions.env`.
+- 공개 이미지의 검증된 digest: [0.1.5 검증](verification-0.1.5.md), `docs/versions.env`.
 - 예제 포트는 `127.0.0.1:3000`에만 공개한다. HTTPS 프록시는 배포자가 설정한다.
 
 ```sh

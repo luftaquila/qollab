@@ -1,0 +1,19 @@
+{
+  "browser": "145.0.7632.6",
+  "platform": "linux",
+  "arch": "x64",
+  "documentBytes": 19795,
+  "network": "loopback",
+  "clients": 1,
+  "keyToAnimationFrameP95Ms": 16.39999999999418,
+  "switchMs": [
+    182.60883099999955,
+    195.75827000000027,
+    115.5647200000003,
+    192.79892599999948,
+    117.01679599999989,
+    194.36557100000027
+  ],
+  "heapBefore": 9673948,
+  "heapAfter": 11650288
+}

@@ -1,0 +1,32 @@
+{
+  "samples": [
+    {
+      "phase": "after-40s-pause",
+      "savedMs": 163,
+      "responseMs": 8887,
+      "visibleMs": 8941,
+      "createdToFinishedMs": 8469,
+      "image": "ghcr.io/luftaquila/qollab-renderer@sha256:81b6e81e398537f472905d5044999c6adfa30ee2487b3b726e696d5660863aff",
+      "build": "157779dc-5d77-48e2-b04a-b385f614f0ea"
+    },
+    {
+      "phase": "after-40s-pause",
+      "savedMs": 128,
+      "responseMs": 7837,
+      "visibleMs": 7897,
+      "createdToFinishedMs": 7496,
+      "image": "ghcr.io/luftaquila/qollab-renderer@sha256:81b6e81e398537f472905d5044999c6adfa30ee2487b3b726e696d5660863aff",
+      "build": "66d97b2a-bc88-4a1b-9d68-e22750c73bde"
+    },
+    {
+      "phase": "after-40s-pause",
+      "savedMs": 151,
+      "responseMs": 8028,
+      "visibleMs": 8095,
+      "createdToFinishedMs": 7573,
+      "image": "ghcr.io/luftaquila/qollab-renderer@sha256:81b6e81e398537f472905d5044999c6adfa30ee2487b3b726e696d5660863aff",
+      "build": "f2243623-0437-44b0-9c72-84ce73319da2"
+    }
+  ],
+  "errors": []
+}

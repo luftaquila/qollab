@@ -1,0 +1,114 @@
+[
+  {
+    "type": "render-timing",
+    "build": "07c55e00-e584-4a81-bd28-441853137cae",
+    "createMs": 261,
+    "warmMs": 27743,
+    "executionMs": 6645,
+    "worker": {
+      "prepareMs": 2,
+      "quartoMs": 6621,
+      "texPasses": 2,
+      "texMs": 3958,
+      "reusedAux": 0,
+      "cacheFallback": 0
+    },
+    "succeeded": true
+  },
+  {
+    "type": "render-timing",
+    "build": "f06350b6-1547-4c4e-9697-19165b3c5c29",
+    "createMs": 221,
+    "warmMs": 17587,
+    "executionMs": 4469,
+    "worker": {
+      "prepareMs": 3,
+      "quartoMs": 4444,
+      "texPasses": 1,
+      "texMs": 1997,
+      "reusedAux": 1,
+      "cacheFallback": 0
+    },
+    "succeeded": true
+  },
+  {
+    "type": "render-timing",
+    "build": "a30e9718-b691-46d9-882b-a2cd244508d4",
+    "createMs": 223,
+    "warmMs": 15338,
+    "executionMs": 4452,
+    "worker": {
+      "prepareMs": 1,
+      "quartoMs": 4418,
+      "texPasses": 1,
+      "texMs": 1984,
+      "reusedAux": 1,
+      "cacheFallback": 0
+    },
+    "succeeded": true
+  },
+  {
+    "type": "render-timing",
+    "build": "9a38a7e2-1175-4136-9062-a87182d83d2d",
+    "createMs": 276,
+    "warmMs": 15287,
+    "executionMs": 5015,
+    "worker": {
+      "prepareMs": 1,
+      "quartoMs": 4976,
+      "texPasses": 1,
+      "texMs": 2232,
+      "reusedAux": 1,
+      "cacheFallback": 0
+    },
+    "succeeded": true
+  },
+  {
+    "type": "render-timing",
+    "build": "ca4cbefa-b881-4711-85ae-de48fdc27bf0",
+    "createMs": 308,
+    "warmMs": 14175,
+    "executionMs": 4361,
+    "worker": {
+      "prepareMs": 2,
+      "quartoMs": 4332,
+      "texPasses": 1,
+      "texMs": 1992,
+      "reusedAux": 1,
+      "cacheFallback": 0
+    },
+    "succeeded": true
+  },
+  {
+    "type": "render-timing",
+    "build": "5d9394a9-be96-4561-9c1f-d5610b408407",
+    "createMs": 278,
+    "warmMs": 5801,
+    "executionMs": 4371,
+    "worker": {
+      "prepareMs": 1,
+      "quartoMs": 4349,
+      "texPasses": 1,
+      "texMs": 1990,
+      "reusedAux": 1,
+      "cacheFallback": 0
+    },
+    "succeeded": true
+  },
+  {
+    "type": "render-timing",
+    "build": "fa36f659-911b-496e-b6d3-950190218640",
+    "createMs": 189,
+    "warmMs": 5744,
+    "executionMs": 4541,
+    "worker": {
+      "prepareMs": 1,
+      "quartoMs": 4518,
+      "texPasses": 1,
+      "texMs": 2013,
+      "reusedAux": 1,
+      "cacheFallback": 0
+    },
+    "succeeded": true
+  }
+]

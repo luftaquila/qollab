@@ -1,0 +1,12 @@
+{
+  "empty": {
+    "empty": true,
+    "trustedCodeCache": true,
+    "uid": 10001
+  },
+  "cancelledWorkerRemovedMs": 5044,
+  "lastGoodPdfPreserved": true,
+  "remainingWorkers": 1,
+  "activeEditors": true,
+  "idleExpiry": "not applicable: an authenticated editor remains connected"
+}

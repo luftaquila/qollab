@@ -1,0 +1,14 @@
+[
+  {
+    "arch": "amd64",
+    "width20PercentPoints": 89.0,
+    "width40PercentPoints": 178.0,
+    "ratio": 2.0
+  },
+  {
+    "arch": "arm64",
+    "width20PercentPoints": 89.0,
+    "width40PercentPoints": 178.0,
+    "ratio": 2.0
+  }
+]

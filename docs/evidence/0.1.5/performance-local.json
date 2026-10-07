@@ -1,0 +1,20 @@
+{
+  "browser": "145.0.7632.6",
+  "platform": "darwin",
+  "arch": "arm64",
+  "documentBytes": 19795,
+  "network": "loopback",
+  "clients": 1,
+  "keyToAnimationFrameP95Ms": 16.5,
+  "switchMs": [
+    148.40129199999865,
+    126.4330000000009,
+    145.70654099999956,
+    152.12608300000284,
+    131.38037500000064,
+    156.179500000002
+  ],
+  "heapBefore": 9440784,
+  "heapAfter": 11595244,
+  "database": "isolated remote PostgreSQL via SSH tunnel"
+}
