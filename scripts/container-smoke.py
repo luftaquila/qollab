@@ -146,3 +146,61 @@ r=subprocess.run([a.engine,'run',*flags,a.image,'python3','/opt/qollab/render.py
 assert r.returncode==0,r.stderr.decode()
 assert json.loads(r.stdout).get('log')=='RENDER_TIMEOUT',r.stdout.decode()[:1000]
 print('timeout and disposable container cleanup passed')
+# The warm path must produce the same pages as the complete Quarto pipeline.
+# The extra inert YAML file selects the full pipeline for the reference only.
+import hashlib, tempfile
+fast_source='# 한글 검증\n\n한글 문서와 이미지입니다. **English** and *italic*.\n\n$$E=mc^2$$\n\n| A | B |\n|---|---|\n| 표 | 검증 |\n\n![그림](assets/pixel.png){width=30%}\n'
+fast_job={'target':'report.qmd','timeout':120,'files':[{'path':'report.qmd','source':fast_source},{'path':'assets/pixel.png','bytes':png}]}
+reference=render({**fast_job,'files':[*fast_job['files'],{'path':'reference-only.yml','source':''}]})
+fast_job['cache']=reference['cache']
+
+def warmed(data):
+    container=subprocess.check_output([a.engine,'create',*flags[1:],a.image,'python3','/opt/qollab/render.py']).decode().strip()
+    proc=subprocess.Popen([a.engine,'start','-ai',container],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    try:
+        deadline=time.monotonic()+30
+        while True:
+            check=subprocess.run([a.engine,'exec',container,'cat','/work/.qollab-fast/control.log'],capture_output=True)
+            if b'QOLLAB_READY' in check.stdout:break
+            assert proc.poll() is None, 'Warm worker exited'
+            assert time.monotonic()<deadline, 'Warm worker not ready'
+            time.sleep(.1)
+        started=time.monotonic()
+        stdout,stderr=proc.communicate(json.dumps(data).encode(),timeout=130)
+        assert proc.returncode==0,stderr.decode()
+        output=json.loads(stdout)
+        assert output.get('pdf'),output.get('log')
+        return output,round((time.monotonic()-started)*1000)
+    finally:
+        subprocess.run([a.engine,'rm','-f',container],capture_output=True)
+        if proc.poll() is None:proc.kill();proc.wait()
+
+def page_hashes(pdf):
+    with tempfile.TemporaryDirectory() as folder:
+        subprocess.run(['pdftoppm','-r','120','-png',str(pdf),folder+'/page'],check=True,capture_output=True)
+        return [hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(pathlib.Path(folder).glob('*.png'))]
+
+fast_report=[]
+for name,edited in [
+    ('text',fast_source.replace('이미지입니다.','이미지입니다.가')),
+    ('image',fast_source.replace('width=30%','width=60%')),
+    ('pages',fast_source+'\n\n'.join(['한글 문장이 길게 이어져 여러 페이지의 줄바꿈과 쪽 번호를 검증합니다. '*8]*12)),
+    ('lists',fast_source+'\n- First\n- **Second**\n\n1. 하나\n2. 둘\n\n> Quote\n\n[Example](https://example.com)\n'),
+]:
+    fast_job['files'][0]['source']=edited
+    output,elapsed=warmed(fast_job)
+    assert output['metrics'].get('fastPath')==1,(name,output['metrics'])
+    full=render({**fast_job,'files':[*fast_job['files'],{'path':'reference-only.yml','source':''}]})
+    warm_pdf=dest.with_name('render-fast-'+name+'.pdf');warm_pdf.write_bytes(base64.b64decode(output['pdf']))
+    full_pdf=dest.with_name('render-fast-'+name+'-reference.pdf');full_pdf.write_bytes(base64.b64decode(full['pdf']))
+    hashes=page_hashes(warm_pdf)
+    assert hashes==page_hashes(full_pdf), 'Warm PDF differs: '+name
+    fast_report.append({'case':name,'milliseconds':elapsed,'metrics':output['metrics'],'pageHashes':hashes,'identicalPixels':True})
+    fast_job['cache']=output['cache']
+# A changed table width must trigger the established multi-pass Quarto path.
+fast_job['files'][0]['source']=fast_source.replace('| 표 | 검증 |','| 훨씬 긴 표의 항목 | 검증 |')
+changed_width,_=warmed(fast_job)
+assert not changed_width['metrics'].get('fastPath'),changed_width['metrics']
+fast_report.append({'case':'changed-table-width','fallback':True})
+dest.with_name('render-fast-report.json').write_text(json.dumps(fast_report,indent=2)+'\n')
+print('Warm PDF pages match full Quarto for text, image sizing, lists, links and pagination; changed table widths fall back')

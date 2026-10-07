@@ -9,6 +9,9 @@ RUN npm ci
 COPY apps/renderer/src/ ./
 RUN ./node_modules/.bin/esbuild main.ts --bundle --platform=node --format=esm --outfile=renderer.mjs
 FROM docker:29.2.1-cli AS dockercli
+FROM gcc:12-bookworm AS native
+COPY containers/warm-input.c /tmp/warm-input.c
+RUN gcc -shared -fPIC -O2 -Wall -Wextra -Werror -o /tmp/warm-input.so /tmp/warm-input.c -ldl
 FROM node:24.15.0-bookworm-slim
 ARG TARGETARCH
 ARG QUARTO_VERSION=1.10.19
@@ -22,9 +25,13 @@ COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=build /app/renderer.mjs /opt/qollab/renderer.mjs
 COPY containers/render.py /opt/qollab/render.py
 COPY containers/render_cache.py /opt/qollab/render_cache.py
+COPY containers/render_fast.py /opt/qollab/render_fast.py
+COPY --from=native /tmp/warm-input.so /opt/qollab/warm-input.so
 COPY containers/xelatex.py /opt/qollab/bin/xelatex
 COPY containers/warm-quarto.py /tmp/warm-quarto.py
-RUN mkdir -p /work && chown 10001:10001 /work && chmod 0555 /opt/qollab/bin/xelatex && fc-cache -f && python3 /tmp/warm-quarto.py && rm /tmp/warm-quarto.py && dpkg-query -W > /opt/qollab/packages.txt
+COPY containers/capture-pandoc.py /tmp/capture-pandoc.py
+COPY tests/fixtures/figure.png /tmp/warmup.png
+RUN mkdir -p /work && chown 10001:10001 /work && chmod 0555 /opt/qollab/bin/xelatex /tmp/capture-pandoc.py && fc-cache -f && python3 /tmp/warm-quarto.py && rm /tmp/warm-quarto.py /tmp/capture-pandoc.py /tmp/warmup.png && dpkg-query -W > /opt/qollab/packages.txt
 ENV HOME=/work
 WORKDIR /work
 CMD ["node","/opt/qollab/renderer.mjs"]

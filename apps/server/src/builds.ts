@@ -175,7 +175,7 @@ export async function builds(app: FastifyInstance) {
         !pdf.subarray(0, 5).equals(Buffer.from("%PDF-")))
     )
       throw new Fault("INVALID_PDF");
-    return transaction(async (db) => {
+    const completed = await transaction(async (db) => {
       await writable(db);
       const lookup = await db.query(
         "SELECT project_id FROM builds WHERE id=$1",
@@ -209,9 +209,18 @@ export async function builds(app: FastifyInstance) {
           data,
         ]);
       }
-      events(b.project_id, { type: "build" });
-      return { ok: true };
+      return {
+        project: b.project_id,
+        epoch: data.epoch,
+        pdfBuild: data.pdfBuild,
+        pdfRevision: data.pdfRevision,
+      };
     });
+    // Publish only after COMMIT. The viewer can fetch the completed artifact
+    // immediately, without first downloading the entire project and build list.
+    const { project, ...event } = completed;
+    events(project, { type: "build", ...event });
+    return { ok: true };
   });
   app.post("/api/admin/freeze", async (req) => {
     if (

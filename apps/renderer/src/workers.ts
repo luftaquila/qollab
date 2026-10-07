@@ -185,7 +185,9 @@ export class Workers {
     } finally {
       clearInterval(monitor);
       clearTimeout(timer);
-      await this.remove(worker);
+      // The job process has exited. Publish its result while the engine removes
+      // the stopped container; stop() still awaits all outstanding removals.
+      void this.remove(worker);
     }
   }
   async stop() {

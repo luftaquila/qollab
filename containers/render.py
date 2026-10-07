@@ -2,6 +2,7 @@
 """Job entry point: bounded JSON stdin, no credentials, one isolated /work."""
 import base64, json, os, pathlib, re, shutil, subprocess, sys, time
 from render_cache import capture, validate
+from render_fast import Prepared
 ROOT=pathlib.Path('/work')
 LIMIT=250*1024*1024
 
@@ -12,6 +13,12 @@ def main():
     if trusted.is_dir():shutil.copytree(trusted,ROOT/'.deno',dirs_exist_ok=True)
     os.environ['DENO_DIR']=str(ROOT/'.deno')
     os.environ['PATH']='/opt/qollab/bin:'+os.environ['PATH']
+    os.environ['TEXMFVAR']=str(ROOT/'.texlive')
+    # Only trusted package/font initialization runs before the snapshot arrives.
+    # This process is consumed once, or killed before the regular Quarto path.
+    prepared_engine=None
+    try:prepared_engine=Prepared(ROOT)
+    except (OSError,ValueError):pass
     raw=sys.stdin.buffer.read(360*1024*1024+1)
     started=time.monotonic()
     if len(raw)>360*1024*1024: raise ValueError('INPUT_LIMIT')
@@ -30,6 +37,15 @@ def main():
     os.environ['TEXMFVAR']=str(ROOT/'.texlive')
     cache=validate(job.get('cache'))
     if cache:(ROOT/'.qollab-aux.json').write_text(json.dumps(cache))
+    if prepared_engine:
+        try:
+            if int(job['timeout'])>=20:
+                fast=prepared_engine.render(job)
+                if fast:
+                    fast['metrics']['totalMs']=round((time.monotonic()-started)*1000)
+                    return fast
+        except (OSError,ValueError,subprocess.TimeoutExpired):pass
+        finally:prepared_engine.close()
     # XeTeX uses the image's fontconfig index without deserializing the large
     # Lua font tables on every pass. Keep Quarto's automatic reference reruns.
     cmd=['quarto','render',str(target),'--to','pdf','--no-execute','--no-cache','--output','qollab.pdf','-M','latex-auto-install:false','-M','latex-clean:false','-M','keep-tex:true','-M','mainfont:Noto Serif CJK KR','-M','sansfont:Noto Sans CJK KR','-M','monofont:DejaVu Sans Mono','--pdf-engine','xelatex','--pdf-engine-opt=-no-shell-escape']

@@ -100,6 +100,16 @@ async function openProject(id: string) {
       project.value.data.contentRevision = event.revision;
       return;
     }
+    if (
+      event.type === "build" &&
+      project.value?.id === id &&
+      event.epoch === project.value.data.epoch &&
+      event.pdfBuild &&
+      event.pdfRevision >= (project.value.data.pdfRevision ?? -1)
+    ) {
+      project.value.data.pdfBuild = event.pdfBuild;
+      project.value.data.pdfRevision = event.pdfRevision;
+    }
     clearTimeout(timer);
     timer = setTimeout(
       () =>

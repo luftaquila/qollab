@@ -33,6 +33,7 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: python3 tests/test_render_cache.py
+      - run: python3 tests/test_render_fast.py
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
@@ -122,6 +123,7 @@ jobs:
             tmp/render-incremental.json
             tmp/render-references-incremental.pdf
             tmp/render-references-cold.pdf
+            tmp/render-fast-*
             tmp/deployment-report.json
   manifests:
     needs: images

@@ -7,6 +7,7 @@ import { createApp } from "../apps/server/src/app.js";
 import { pool } from "../apps/server/src/db.js";
 import { token, hash, validateClaims } from "../apps/server/src/auth.js";
 import { config } from "../apps/server/src/config.js";
+import { subscribe } from "../apps/server/src/store.js";
 let app: Awaited<ReturnType<typeof createApp>>;
 const people: any = {};
 const sockets: WebSocket[] = [];
@@ -334,6 +335,16 @@ it("prevents removing last owner; accepts single-use targeted invitations", asyn
 });
 it("keeps last good PDF on failure and rejects stale leased results", async () => {
   const p = await project();
+  const notifications: any[] = [];
+  const committedReads: Promise<string | undefined>[] = [];
+  const unsubscribe = subscribe(p.id, (event: any) => {
+    notifications.push(event);
+    committedReads.push(
+      pool
+        .query("SELECT data FROM projects WHERE id=$1", [p.id])
+        .then((r) => r.rows[0].data.pdfBuild),
+    );
+  });
   const submit = async (pdf?: string) => {
     await pool.query(
       "UPDATE builds SET status='cancelled' WHERE status IN ('queued','running')",
@@ -372,6 +383,12 @@ it("keeps last good PDF on failure and rejects stale leased results", async () =
     payload: { lease: good.lease, log: "late", image: "test" },
   });
   expect(duplicate.statusCode).toBe(409);
+  unsubscribe();
+  expect(notifications).toEqual([
+    { type: "build", epoch: 1, pdfBuild: good.id, pdfRevision: 0 },
+    { type: "build", epoch: 1, pdfBuild: good.id, pdfRevision: 0 },
+  ]);
+  expect(await Promise.all(committedReads)).toEqual([good.id, good.id]);
 });
 it("freezes all writes for a coherent backup and recovers the committed mirror journal", async () => {
   const p = await project();

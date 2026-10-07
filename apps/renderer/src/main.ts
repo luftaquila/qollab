@@ -173,5 +173,5 @@ while (!stopped) {
   } catch (e) {
     console.error(String(e));
   }
-  await new Promise((r) => setTimeout(r, workers.warm ? 250 : 1000));
+  await new Promise((r) => setTimeout(r, workers.warm ? 50 : 1000));
 }
