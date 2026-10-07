@@ -4,7 +4,7 @@ const exec = promisify(execFile);
 const base = process.env.APP_URL || "http://app:3000",
   secret = process.env.RENDERER_TOKEN;
 const image =
-  process.env.RENDER_IMAGE || "ghcr.io/luftaquila/qollab-renderer:0.1.2";
+  process.env.RENDER_IMAGE || "ghcr.io/luftaquila/qollab-renderer:0.1.3";
 const engine = process.env.CONTAINER_ENGINE || "docker",
   namespace = process.env.RENDERER_NAMESPACE || "qollab";
 if (!secret || secret.length < 32)

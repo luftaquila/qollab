@@ -14,7 +14,7 @@ ARG TARGETARCH
 ARG QUARTO_VERSION=1.10.19
 # Debian snapshot locks TeX Live and font packages together with the base image.
 RUN rm /etc/apt/sources.list.d/debian.sources && printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260901T000000Z/ bookworm main\ndeb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260901T000000Z/ bookworm-security main\n' > /etc/apt/sources.list
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 texlive-xetex texlive-latex-extra texlive-fonts-recommended texlive-lang-korean fonts-noto-cjk fonts-dejavu-core lmodern && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 fontconfig texlive-xetex texlive-latex-extra texlive-fonts-recommended texlive-lang-korean fonts-noto-cjk fonts-dejavu-core lmodern && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL -o /tmp/quarto.deb https://github.com/quarto-dev/quarto-cli/releases/download/v${QUARTO_VERSION}/quarto-${QUARTO_VERSION}-linux-${TARGETARCH}.deb && \
     case "$TARGETARCH" in amd64) checksum=7f0c4769e7f0e55f50d922f44b18db5118fb388d2b8fd27291fe1f8beafb43eb ;; arm64) checksum=35bb613052da98bef92ec3b7de77c3405a8e546363c7d2aa3abe15a39efa5045 ;; *) exit 1 ;; esac && \
     echo "$checksum  /tmp/quarto.deb" | sha256sum -c - && dpkg -i /tmp/quarto.deb && rm /tmp/quarto.deb
