@@ -16,6 +16,8 @@ docker compose up -d
 
 Open `http://localhost:3000`. The default port binds to loopback. Configure a Google web OAuth client and `APPROVED_EMAILS` in `.env` to sign in. The callback URI is `${PUBLIC_ORIGIN}/api/auth/callback`. There is no password or development login in production images.
 
+For access from another device, set `BIND_ADDRESS=0.0.0.0` and set `PUBLIC_ORIGIN` to the address used by that device, then run `docker compose up -d app`. See [network access](docs/operations.md#다른-기기에서-접속) for LAN and HTTPS configuration.
+
 For rootless Podman, enable the user engine socket, set `ENGINE_SOCKET`, and use both Compose files:
 
 ```sh

@@ -19,6 +19,26 @@ docker compose logs -f app renderer
 
 `POSTGRES_PASSWORD`는 URL에 안전한 영숫자/hex 값을 사용한다. Google 설정이 없으면 로그인 불가 안내 화면을 제공한다.
 
+### 다른 기기에서 접속
+
+`.env`에서 바인딩 주소와 실제 접속 주소를 함께 지정한 뒤 앱을 다시 생성한다.
+
+```dotenv
+BIND_ADDRESS=0.0.0.0
+PORT=3000
+PUBLIC_ORIGIN=http://192.168.1.100:3000
+```
+
+```sh
+docker compose up -d app
+# Podman: podman compose up -d app
+```
+
+- `192.168.1.100`을 서버의 실제 LAN 주소로 바꾼다. 다른 기기는 그 주소의 3000번 포트로 접속한다.
+- `PUBLIC_ORIGIN`은 브라우저 접속 주소와 일치해야 한다. OAuth callback, 변경 요청의 Origin 검사, WebSocket 연결에 사용한다.
+- 인터넷 도메인은 `PUBLIC_ORIGIN=https://docs.example.com`으로 지정하고 HTTPS 프록시를 연결한다. 같은 호스트의 프록시만 앱에 접근하면 `BIND_ADDRESS=127.0.0.1`을 사용할 수 있다.
+- `.env`의 실제 주소와 인증정보는 Git에 포함하지 않는다. 방화벽·라우터의 경로는 설치 환경에 맞게 설정한다.
+
 ### Google
 
 1. OAuth 웹 클라이언트 생성. 승인된 redirect URI는 `${PUBLIC_ORIGIN}/api/auth/callback`.

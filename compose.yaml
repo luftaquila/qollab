@@ -26,7 +26,7 @@ services:
       RENDERER_TOKEN: ${RENDERER_TOKEN:?Set RENDERER_TOKEN}
       ADMIN_TOKEN: ${ADMIN_TOKEN:?Set ADMIN_TOKEN}
     ports:
-      - 127.0.0.1:${PORT:-3000}:3000
+      - ${BIND_ADDRESS:-127.0.0.1}:${PORT:-3000}:3000
     volumes:
       - projects:/data
     depends_on:
