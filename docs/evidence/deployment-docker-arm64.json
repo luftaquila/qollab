@@ -1,0 +1,11 @@
+{
+  "engine": "docker",
+  "renderAndBackupSeconds": 56,
+  "project": "4114c285-ce08-49c5-9d2b-43affcde3750",
+  "backup": "tmp/backup-ebd1c034-a2f8-4231-a41e-05d960d2c6a7",
+  "document": true,
+  "image": true,
+  "members": true,
+  "history": true,
+  "pdf": true
+}

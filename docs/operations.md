@@ -9,6 +9,7 @@
 
 ```sh
 cp .env.example .env
+cat docs/versions.env >> .env
 # .env의 POSTGRES_PASSWORD, RENDERER_TOKEN, ADMIN_TOKEN을 각각 변경한다.
 # openssl rand -hex 32 로 개별 값을 생성할 수 있다.
 docker compose pull
@@ -33,10 +34,12 @@ Google sub를 사용자 ID로 사용한다. 이메일 변경으로 계정을 합
 ```sh
 systemctl --user enable --now podman.socket
 export ENGINE_SOCKET="$XDG_RUNTIME_DIR/podman/podman.sock"
-podman compose -f compose.yaml -f compose.podman.yaml up -d
+export COMPOSE_ENGINE=podman
+export COMPOSE_FILE=compose.yaml:compose.podman.yaml
+podman compose up -d
 ```
 
-- Compose 제공자(예: Docker Compose v2)가 필요하다.
+- Compose 제공자(예: Docker Compose v2)가 필요하다. 백업·복원 명령에도 위의 `COMPOSE_ENGINE`, `COMPOSE_FILE`, `ENGINE_SOCKET` 환경을 유지한다.
 - SELinux 호스트에서는 엔진 소켓 접근을 위한 관리자 정책을 적용한다. 렌더러 관리 서비스에만 `security_opt: [label=disable]`을 추가할 수 있다. 작업 컨테이너의 나머지 격리 옵션은 유지한다.
 - 관리 서비스는 rootless 엔진의 소켓을 사용한다. 작업은 UID 10001, network=none, read-only, cap-drop=ALL, no-new-privileges로 실행한다.
 - 여러 설치가 같은 엔진을 사용하면 `RENDERER_NAMESPACE`를 각기 다르게 지정한다. 재시작 청소는 해당 namespace의 작업 컨테이너에만 적용한다.

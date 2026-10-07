@@ -8,6 +8,7 @@ Docker Engine and Compose v2:
 
 ```sh
 cp .env.example .env
+cat docs/versions.env >> .env
 # Set separate random POSTGRES_PASSWORD, RENDERER_TOKEN and ADMIN_TOKEN values.
 docker compose pull
 docker compose up -d

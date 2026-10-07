@@ -1,0 +1,9 @@
+{
+  "engine": "rootless Podman ARM64",
+  "images": "docs/evidence/images.json",
+  "restoredPdfIdentical": true,
+  "cancelledStatus": true,
+  "cancelCleanupMs": 11842,
+  "lastGoodPdfUnchanged": true,
+  "restartRemovedOrphan": true
+}

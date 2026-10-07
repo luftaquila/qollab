@@ -1,0 +1,11 @@
+{
+  "engine": "podman",
+  "renderAndBackupSeconds": 44,
+  "project": "e8ff53fe-50f8-4647-b59c-24deacac5673",
+  "backup": "tmp/backup-8993ddd5-f165-4b17-b2e5-7e0d072352c6",
+  "document": true,
+  "image": true,
+  "members": true,
+  "history": true,
+  "pdf": true
+}

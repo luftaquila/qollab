@@ -1,0 +1,19 @@
+{
+  "browser": "145.0.7632.6",
+  "platform": "darwin",
+  "arch": "arm64",
+  "documentBytes": 19795,
+  "network": "loopback",
+  "clients": 1,
+  "keyToAnimationFrameP95Ms": 15.699999809265137,
+  "switchMs": [
+    152.37379099999998,
+    132.72270800000115,
+    146.5971669999999,
+    138.74245800000062,
+    124.67437500000051,
+    120.64820900000086
+  ],
+  "heapBefore": 9819152,
+  "heapAfter": 11761980
+}
