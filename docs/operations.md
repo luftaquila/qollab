@@ -41,7 +41,9 @@ docker compose up -d app
 
 ### Google
 
-1. OAuth 웹 클라이언트 생성. 승인된 redirect URI는 `${PUBLIC_ORIGIN}/api/auth/callback`.
+Google의 [redirect URI 규칙](https://developers.google.com/identity/protocols/oauth2/web-server#uri-validation)은 HTTPS와 도메인을 요구한다. `localhost`만 예외이며, 다른 기기에서 접속하는 LAN IP는 등록할 수 없다. LAN에서 사용하려면 HTTPS 도메인이 서버의 LAN 주소를 가리키도록 DNS와 인증서를 준비한다. 이 Mac에서만 검증하는 경우에는 `PUBLIC_ORIGIN=http://localhost:3000`을 사용할 수 있다.
+
+1. OAuth 웹 클라이언트 생성. 일반 Gmail 계정은 Audience를 **External**로 설정한다. **Internal**은 같은 Google Workspace 조직 사용자만 허용할 때 사용한다. 승인된 redirect URI는 `${PUBLIC_ORIGIN}/api/auth/callback`.
 2. `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `PUBLIC_ORIGIN` 설정.
 3. 기본 `ACCOUNT_POLICY=approval`: `APPROVED_EMAILS`에 쉼표로 구분한 승인 이메일 지정. `all`은 검증된 Google 계정을 허용.
 4. Workspace 제한이 필요하면 `GOOGLE_WORKSPACE_DOMAIN` 지정. 검증된 `hd` claim을 확인한다.
