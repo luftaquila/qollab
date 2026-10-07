@@ -97,7 +97,8 @@ for (let i = 0; i < 180; i++) {
   await new Promise((r) => setTimeout(r, 1000));
 }
 project = await api(path);
-// The next job must use a distinct, already empty worker and reference cache.
+// The next job must use a distinct, already empty worker and either the
+// prepared default engine or the full pipeline's reference cache.
 const previousBuild = project.data.pdfBuild;
 await api(path + "/builds", "POST", { revision: Number(project.revision) });
 for (let i = 0; i < 120; i++) {
@@ -119,12 +120,12 @@ const timings = timingLines
   .map((s) => JSON.parse(s));
 const repeated = timings.at(-1);
 if (
-  !repeated?.worker?.reusedAux ||
+  !(repeated?.worker?.reusedAux || repeated?.worker?.fastPath) ||
   repeated.worker.texPasses !== 1 ||
   repeated.warmMs <= 0
 )
   throw new Error(
-    "Repeated build did not reuse reference state and an empty worker: " +
+    "Repeated build did not use prepared state and an empty worker: " +
       JSON.stringify(repeated),
   );
 project = await api(path);
