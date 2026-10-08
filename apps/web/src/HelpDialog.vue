@@ -2,11 +2,9 @@
 import { ref, computed } from "vue";
 import Dialog from "./ui/Dialog.vue";
 import Icon from "./ui/Icon.vue";
-import { notify } from "./ui/feedback";
-import { helpSections, pick, type HelpEntry } from "./help";
+import { helpSections, pick } from "./help";
 import { t } from "./i18n";
-defineProps<{ canInsert: boolean }>();
-const emit = defineEmits<{ insert: [entry: HelpEntry, text: string]; close: [] }>();
+const emit = defineEmits<{ close: [] }>();
 const section = ref(helpSections[0].id);
 const query = ref("");
 const shown = computed(() => {
@@ -21,14 +19,6 @@ const shown = computed(() => {
     }))
     .filter((s) => s.entries.length);
 });
-async function copy(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    notify(t("copied"));
-  } catch {
-    notify(text);
-  }
-}
 </script>
 <template>
   <Dialog :title="t('helpTitle')" wide @close="emit('close')">
@@ -65,23 +55,6 @@ async function copy(text: string) {
               <pre class="help-syntax">{{ pick(entry.syntax) }}</pre>
               <div class="help-text">
                 <span>{{ pick(entry.text) }}</span>
-                <span class="help-actions">
-                  <button
-                    type="button"
-                    class="btn sm ghost"
-                    @click="copy(pick(entry.syntax))"
-                  >
-                    <Icon name="copy" :size="15" />{{ t("copy") }}
-                  </button>
-                  <button
-                    v-if="canInsert && entry.insert !== 'none'"
-                    type="button"
-                    class="btn sm"
-                    @click="emit('insert', entry, pick(entry.syntax))"
-                  >
-                    <Icon name="plus" :size="15" />{{ t("insert") }}
-                  </button>
-                </span>
               </div>
             </li>
           </ul>
@@ -171,10 +144,6 @@ async function copy(text: string) {
   color: var(--text-2);
   font-size: var(--text-md);
   line-height: 1.5;
-}
-.help-actions {
-  display: flex;
-  gap: 4px;
 }
 @media (max-width: 760px) {
   .help-layout {

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import Icon from "../ui/Icon.vue";
-import Menu, { type MenuEntry } from "../ui/Menu.vue";
 import { t } from "../i18n";
 const props = defineProps<{
   file: any;
@@ -10,15 +9,19 @@ const props = defineProps<{
   rawMine: boolean;
   rawLocked: boolean;
   sourceStatus?: "saved" | "saving" | "dirty" | "error";
+  /** The visual editor is showing and editable. */
+  undoable: boolean;
 }>();
+// Markdown editing starts from the source view; files are renamed in the
+// sidebar. A stale editor offers reopening and the unsent source itself.
 const emit = defineEmits<{
   toggleSource: [];
-  startRaw: [];
   backToVisual: [];
-  reopen: [];
-  downloadPending: [];
-  rename: [];
+  help: [];
+  undo: [];
+  redo: [];
 }>();
+const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
 const statusWord = {
   saved: "sourceSaved",
   saving: "sourceSaving",
@@ -35,28 +38,8 @@ const mode = computed(() => {
       tone: "warning",
     };
   if (!props.editable) return { label: t("readOnly"), tone: "" };
-  return { label: t("visualMode"), tone: "accent" };
-});
-const items = computed<MenuEntry[]>(() => {
-  const list: MenuEntry[] = [];
-  if (props.file.kind === "document" && props.file.mode === "visual") {
-    if (props.editable)
-      list.push({ label: t("editMarkdown"), icon: "fileCode", action: () => emit("startRaw") });
-    list.push(
-      { label: t("reopen"), icon: "refresh", action: () => emit("reopen") },
-      {
-        label: t("downloadPending"),
-        icon: "download",
-        action: () => emit("downloadPending"),
-      },
-    );
-  }
-  if (props.editable)
-    list.push(
-      { separator: true },
-      { label: t("renameFile"), icon: "pencil", action: () => emit("rename") },
-    );
-  return list;
+  // Visual editing is the normal state and needs no badge.
+  return null;
 });
 </script>
 <template>
@@ -71,7 +54,7 @@ const items = computed<MenuEntry[]>(() => {
         <span :class="{ 'doc-name': i === parts.length - 1 }">{{ part }}</span>
       </template>
     </span>
-    <span :class="['badge', mode.tone]">{{ mode.label }}</span>
+    <span v-if="mode" :class="['badge', mode.tone]">{{ mode.label }}</span>
     <span v-if="sourceStatus" :class="['source-status', sourceStatus]" role="status">{{
       t(statusWord[sourceStatus])
     }}</span>
@@ -95,7 +78,40 @@ const items = computed<MenuEntry[]>(() => {
         showSource ? t("backToEditor") : t("viewSource")
       }}
     </button>
-    <Menu v-if="items.length" :label="t('more')" trigger-class="icon-btn sm" :items="items" />
+    <button
+      v-if="file.kind === 'document'"
+      type="button"
+      class="icon-btn sm"
+      :aria-label="t('helpTitle')"
+      :data-tip="t('helpTitle')"
+      @click="emit('help')"
+    >
+      <Icon name="help" :size="17" />
+    </button>
+    <template v-if="undoable">
+      <button
+        type="button"
+        class="icon-btn sm"
+        :aria-label="t('undo')"
+        :data-tip="t('undo')"
+        :data-kbd="mod + 'Z'"
+        @mousedown.prevent
+        @click="emit('undo')"
+      >
+        <Icon name="undo" :size="17" />
+      </button>
+      <button
+        type="button"
+        class="icon-btn sm"
+        :aria-label="t('redo')"
+        :data-tip="t('redo')"
+        :data-kbd="mod + (mod === '⌘' ? '⇧Z' : 'Shift+Z')"
+        @mousedown.prevent
+        @click="emit('redo')"
+      >
+        <Icon name="redo" :size="17" />
+      </button>
+    </template>
   </div>
 </template>
 <style>

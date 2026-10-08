@@ -6,6 +6,7 @@ import {
   headingLabel,
   inlineLabels,
   latexFormats,
+  texDisplay,
   texKind,
   unescapeLatex,
 } from "./labels.js";
@@ -169,6 +170,19 @@ export const texNode = $node("qollab_tex", () => ({
   toDOM: (node) => {
     const source = String(node.attrs.source);
     const { kind, id } = texKind(source);
+    // Commands that print a character or break the page show as such.
+    const shown = kind === "command" ? texDisplay(source) : null;
+    if (shown)
+      return [
+        "span",
+        {
+          "data-qollab-tex": source,
+          "data-kind": shown.kind,
+          class: "qollab-tex",
+          contenteditable: "false",
+        },
+        shown.kind === "symbol" ? shown.text : "",
+      ];
     return [
       "span",
       {

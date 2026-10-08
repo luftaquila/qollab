@@ -37,6 +37,7 @@
     "fastify": "5.12.5",
     "fflate": "0.8.3",
     "jsdom": "27.4.0",
+    "katex": "0.18.10",
     "openid-client": "6.8.8",
     "pg": "8.16.3",
     "remark-gfm": "4.0.1",

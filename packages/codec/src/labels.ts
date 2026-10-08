@@ -41,6 +41,38 @@ export const latexFormats = () => new RegExp(`${latexFormat}|${latexRef}`, "g");
  */
 export const inlineLabels = () =>
   new RegExp(`${span}|${underline}|${color}|${reference}|${texCommand}`, "g");
+/** Text commands the editor shows as the character they print. */
+const TEX_SYMBOLS: Record<string, string> = {
+  textquoteright: "\u2019",
+  textquoteleft: "\u2018",
+  textquotedblright: "\u201d",
+  textquotedblleft: "\u201c",
+  textendash: "\u2013",
+  textemdash: "\u2014",
+  textellipsis: "\u2026",
+  ldots: "\u2026",
+  textbullet: "\u2022",
+  textperiodcentered: "\u00b7",
+  textdegree: "\u00b0",
+  textasciitilde: "~",
+  textbackslash: "\\",
+  copyright: "\u00a9",
+  textregistered: "\u00ae",
+  texttrademark: "\u2122",
+  S: "\u00a7",
+  P: "\u00b6",
+};
+const PAGE_BREAKS = ["newpage", "clearpage", "cleardoublepage", "pagebreak"];
+/**
+ * How the editor shows a command chip: as the character it prints, as a page
+ * break, or as its source.
+ */
+export function texDisplay(source: string): { kind: "symbol"; text: string } | { kind: "pagebreak" } | null {
+  const m = /^\\([a-zA-Z]+)(?:\{\})?$/.exec(source);
+  if (!m) return null;
+  if (TEX_SYMBOLS[m[1]]) return { kind: "symbol", text: TEX_SYMBOLS[m[1]] };
+  return PAGE_BREAKS.includes(m[1]) ? { kind: "pagebreak" } : null;
+}
 /** What a LaTeX command chip stands for: a reference, a label or other. */
 export function texKind(source: string) {
   if (source.startsWith("$$")) return { kind: "math" as const, id: "" };

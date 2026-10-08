@@ -318,7 +318,6 @@ const words = {
     "권한을 바꾸면 열려 있는 편집기가 다시 연결됩니다.",
     "Changing access reconnects open editors.",
   ],
-  visualMode: ["Visual 편집", "Visual"],
   rawMode: ["복구 편집", "Recovery"],
   textMode: ["텍스트", "Text"],
   imageFile: ["이미지", "Image"],

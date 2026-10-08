@@ -266,10 +266,55 @@
   user-select: none;
 }
 /* Other commands are code. */
-.milkdown .qollab-tex[data-kind="command"],
-.milkdown .qollab-tex[data-kind="math"] {
+.milkdown .qollab-tex[data-kind="command"] {
   font-family: var(--font-mono);
   font-size: 0.88em;
+}
+/* Commands that print a character read as that character. */
+.milkdown .qollab-tex[data-kind="symbol"] {
+  margin: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+}
+/* Display math in a paragraph, centred as in the PDF. */
+.milkdown .qollab-tex[data-kind="math"] {
+  display: block;
+  margin: 6px 0;
+  padding: 0;
+  overflow-x: auto;
+  background: none;
+  color: inherit;
+  text-align: center;
+}
+.milkdown .qollab-tex[data-kind="math"] .katex-display {
+  margin: 0;
+}
+/* KaTeX's fonts have no Hangul; the PDF sets it in the body font too. */
+.milkdown .katex .hangul_fallback,
+.milkdown .katex .cjk_fallback {
+  font-family: var(--font-doc);
+}
+/* A page break: a dashed rule with its name. */
+.milkdown .qollab-tex[data-kind="pagebreak"] {
+  display: block;
+  margin: 10px 0;
+  padding: 0;
+  border-top: 1px dashed var(--border-strong, var(--border));
+  background: none;
+  color: var(--text-muted);
+  font: 12px/1.6 var(--font-ui);
+  text-align: center;
+}
+.milkdown .qollab-tex[data-kind="pagebreak"]::before {
+  content: "page break";
+}
+:lang(ko) .milkdown .qollab-tex[data-kind="pagebreak"]::before {
+  content: "쪽 나눔";
+}
+/* Formulas inside sentences read in the text's colour. */
+.milkdown span[data-type="math_inline"] {
+  color: inherit;
 }
 .milkdown .qollab-tex[data-kind="ref"] {
   background: var(--accent-soft);
@@ -291,9 +336,7 @@
   padding: 0 4px;
   cursor: pointer;
 }
-.milkdown .qollab-tex[data-kind="math"] {
-  white-space: normal;
-}
+
 .milkdown .qollab-tex.ProseMirror-selectednode {
   outline: 2px solid var(--accent);
 }

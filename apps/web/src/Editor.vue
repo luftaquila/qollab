@@ -61,7 +61,6 @@ import {
   trackInsertion,
   insertFigure,
   insertBlock,
-  insertSnippet,
   relativePath,
   setTextColor,
   underlineKeymap,
@@ -79,6 +78,7 @@ import {
 import { encode } from "../../../packages/codec/src/index";
 import { DocumentSession } from "./session";
 import { editorAnchor } from "./pdf-sync";
+import { texView } from "./editor-tex";
 import { api, base64, downloadText, uploadAsset } from "./api";
 import { t, errorText } from "./i18n";
 import { notify } from "./ui/feedback";
@@ -325,6 +325,7 @@ onMounted(() => {
       .use(rawView)
       .use(imageAttributes)
       .use(labelPlugins)
+      .use(texView)
       .use(underlineKeymap)
       .use(referencePlugin)
       .use(texReferenceRule)
@@ -746,8 +747,8 @@ defineExpose({
   setFrontMatter,
   revealLabel,
   revealPosition,
-  insertSnippet: (text: string, kind: "block" | "inline" | "raw") =>
-    editor.value?.editor.action((ctx) => insertSnippet(ctx, text, kind)),
+  undo: () => runUndo(),
+  redo: () => runUndo(true),
   pending: () => session.value?.outbox.size || 0,
   uploading: () => uploading.value > 0,
 });
@@ -772,9 +773,6 @@ onBeforeUnmount(() => {
       @color="color"
       @image="pickImages"
       @figure="imageProperties"
-      @undo="runUndo()"
-      @redo="runUndo(true)"
-      @help="emit('help')"
     />
     <div v-if="status === 'stale'" class="editor-banner" role="status">
       <Icon name="alert" />

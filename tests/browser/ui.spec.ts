@@ -395,7 +395,7 @@ test("text stays at least 12px and every control has a name, in light and dark",
     await page.getByRole("button", { name: "더보기" }).first().click();
     results.menu = await audit(page);
     await page.keyboard.press("Escape");
-    await page.getByRole("toolbar").getByRole("button", { name: "작성 도움말" }).click();
+    await page.locator(".document-bar").getByRole("button", { name: "작성 도움말" }).click();
     await page.getByRole("button", { name: "LaTeX 명령" }).click();
     results.help = await audit(page);
     await page.screenshot({ path: `tmp/ui-help-${scheme}.png` });
@@ -703,27 +703,21 @@ test("Markdown source editing takes the lock, autosaves and returns to visual", 
   await expect(peer.locator(".source-editor .cm-content")).toContainText("Typed in Markdown");
   await expect(peer.locator(".ProseMirror")).toHaveCount(0);
 
-  // Help: insert a page break and a callout while editing Markdown.
-  await page.getByRole("button", { name: "Writing help" }).first().click();
+  // Help, next to the source view toggle, lists syntax without copy or insert buttons.
+  await page.locator(".document-bar").getByRole("button", { name: "Writing help" }).click();
   const help = page.getByRole("dialog", { name: "Writing help" });
   await help.getByRole("button", { name: "LaTeX commands" }).click();
-  await help
-    .locator(".help-entry", { hasText: "Start the next content on a new page" })
-    .getByRole("button", { name: "Insert" })
-    .click();
-  await expect.poll(text).toContain("\\newpage");
+  await expect(
+    help.locator(".help-entry", { hasText: "Start the next content on a new page" }),
+  ).toBeVisible();
+  await expect(help.getByRole("button", { name: /^(Insert|Copy)$/ })).toHaveCount(0);
+  await page.keyboard.press("Escape");
 
   await page.getByRole("button", { name: "Back to visual editing" }).click();
   await expect(page.locator(".ProseMirror")).toContainText("Typed in Markdown");
   await expect(page.locator(".ProseMirror li")).toHaveCount(2);
   await expect(peer.locator(".ProseMirror")).toContainText("Typed in Markdown");
 
-  // Help in the visual editor inserts source blocks for Quarto syntax.
-  await page.locator(".ProseMirror p", { hasText: "First line." }).click();
-  await page.getByRole("toolbar").getByRole("button", { name: "Writing help" }).click();
-  await help.getByLabel("Search help").fill("callout");
-  await help.getByRole("button", { name: "Insert" }).first().click();
-  await expect.poll(text).toContain("::: {.callout-note}\nSomething to note\n:::");
   expect(errors).toEqual([]);
   await a.close();
   await b.close();

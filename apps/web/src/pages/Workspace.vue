@@ -427,16 +427,6 @@ const now = ref(Date.now());
 const helpOpen = ref(false),
   sourceEditor = ref<{ insert(text: string): void }>();
 const pdfView = ref<{ follow(anchor: SyncAnchor): void }>();
-const canInsertHelp = computed(
-  () =>
-    (sourcePane.value && sourceEditable.value) ||
-    (!sourcePane.value && visual.value && editable.value && editorStatus.value !== "stale"),
-);
-function insertHelp(entry: { insert: string }, text: string) {
-  helpOpen.value = false;
-  if (sourcePane.value) sourceEditor.value?.insert(text);
-  else editor.value?.insertSnippet(text, entry.insert);
-}
 let sourceTimer: ReturnType<typeof setTimeout> | undefined,
   sourceQueue: Promise<unknown> = Promise.resolve();
 const rawMine = computed(
@@ -875,11 +865,11 @@ onBeforeUnmount(() => {
             sourceVisible = editor?.source() || file.source;
             showSource = !showSource;
           "
-          @start-raw="startRaw"
+          :undoable="visual && !sourcePane && editable && editorStatus !== 'stale'"
           @back-to-visual="backToVisual"
-          @reopen="reopen"
-          @download-pending="downloadText(file.path, editor?.source() ?? file.source)"
-          @rename="renameFile(file)"
+          @help="helpOpen = true"
+          @undo="editor?.undo()"
+          @redo="editor?.redo()"
         />
         <div v-if="!file" class="empty-state center-empty">
           <span class="empty-icon"><Icon name="fileText" :size="24" /></span>
@@ -901,15 +891,6 @@ onBeforeUnmount(() => {
             <span v-else-if="file.mode === 'raw'">{{ t("rawUnsafe") }}</span>
             <span v-else>{{ t("sourceReadonlyHint") }}</span>
             <span class="spacer" />
-            <button
-              type="button"
-              class="icon-btn sm"
-              :aria-label="t('helpTitle')"
-              :data-tip="t('helpTitle')"
-              @click="helpOpen = true"
-            >
-              <Icon name="help" :size="17" />
-            </button>
             <button
               v-if="editable && file.kind === 'document' && !rawMine && !rawLocked"
               type="button"
@@ -949,7 +930,6 @@ onBeforeUnmount(() => {
           @peers="peers = $event"
           @outline="liveOutline = $event"
           @frontmatter="frontMatter = $event"
-          @help="helpOpen = true"
           @labels="
             labels = $event;
             if (showSource) sourceVisible = editor?.source() ?? sourceVisible;
@@ -995,12 +975,7 @@ onBeforeUnmount(() => {
       @replace="replaceFigure"
       @close="imageForm = null"
     />
-    <HelpDialog
-      v-if="helpOpen"
-      :can-insert="canInsertHelp"
-      @insert="insertHelp"
-      @close="helpOpen = false"
-    />
+    <HelpDialog v-if="helpOpen" @close="helpOpen = false" />
     <DiffDialog
       v-if="comparison"
       :comparison="comparison"

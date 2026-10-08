@@ -14,9 +14,6 @@ const emit = defineEmits<{
   color: [string | null];
   image: [];
   figure: [];
-  undo: [];
-  redo: [];
-  help: [];
 }>();
 const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
 type Need = "text" | "link" | "insert";
@@ -148,41 +145,6 @@ function tip(tool: Tool) {
     <span v-if="uploading" class="tb-uploading" role="status"
       ><span class="tb-spinner" />{{ t("uploading") }}</span
     >
-    <span class="spacer" />
-    <button
-      type="button"
-      class="icon-btn"
-      :aria-label="t('helpTitle')"
-      :data-tip="t('helpTitle')"
-      @mousedown.prevent
-      @click="emit('help')"
-    >
-      <Icon name="help" />
-    </button>
-    <button
-      type="button"
-      class="icon-btn"
-      :aria-label="t('undo')"
-      :data-tip="t('undo')"
-      :data-kbd="mod + 'Z'"
-      :disabled="!state?.ready"
-      @mousedown.prevent
-      @click="emit('undo')"
-    >
-      <Icon name="undo" />
-    </button>
-    <button
-      type="button"
-      class="icon-btn"
-      :aria-label="t('redo')"
-      :data-tip="t('redo')"
-      :data-kbd="mod + (mod === '⌘' ? '⇧Z' : 'Shift+Z')"
-      :disabled="!state?.ready"
-      @mousedown.prevent
-      @click="emit('redo')"
-    >
-      <Icon name="redo" />
-    </button>
   </div>
 </template>
 <style>
