@@ -1,0 +1,64 @@
+{
+  "qollab": {
+    "digest": "sha256:f7c1fd7d618b7ffc73d301db242580e77726bf55b54a6ada9889d4509d1c1aca",
+    "platforms": [
+      {
+        "architecture": "amd64",
+        "os": "linux"
+      },
+      {
+        "architecture": "arm64",
+        "os": "linux"
+      }
+    ],
+    "manifests": [
+      {
+        "digest": "sha256:f7a61d26a29d0cc6de4f748528b89f73c3b8249493e3427f0329ce33d258e1db",
+        "platform": {
+          "architecture": "amd64",
+          "os": "linux"
+        }
+      },
+      {
+        "digest": "sha256:33e8a1ef08806704a85e485d2d7f5676bee5419af56a21159fc858d48b7fb25c",
+        "platform": {
+          "architecture": "arm64",
+          "os": "linux"
+        }
+      }
+    ],
+    "tag": "0.1.9",
+    "anonymous": true
+  },
+  "qollab-renderer": {
+    "digest": "sha256:20e5b2d722ed1a65a075de476f09eceff0d8112dfae4326142b32c24d32dc52e",
+    "platforms": [
+      {
+        "architecture": "amd64",
+        "os": "linux"
+      },
+      {
+        "architecture": "arm64",
+        "os": "linux"
+      }
+    ],
+    "manifests": [
+      {
+        "digest": "sha256:8c22ee2d4797ddc5be4a901ca61104b25e9abffe69ccc243251782238bdfaa0c",
+        "platform": {
+          "architecture": "amd64",
+          "os": "linux"
+        }
+      },
+      {
+        "digest": "sha256:aff9efcfe7533e6b1b83733ce3de2509735c50efb51b1b124bfd961235466eda",
+        "platform": {
+          "architecture": "arm64",
+          "os": "linux"
+        }
+      }
+    ],
+    "tag": "0.1.9",
+    "anonymous": true
+  }
+}

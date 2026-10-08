@@ -1,0 +1,15 @@
+{
+  "sourceCommit": "03d08dc22f9dc78603ea96c12972bbff36b17340",
+  "typecheck": true,
+  "build": true,
+  "vitest": {
+    "passed": 39,
+    "files": 6
+  },
+  "chromium": {
+    "passed": 7,
+    "regression": "Two intermediate completion events and an in-flight stale project response retain the original PDF; final completion and its duplicate fetch exactly one replacement"
+  },
+  "database": "temporary isolated PostgreSQL 17.6, removed after tests",
+  "debounceMs": 2000
+}

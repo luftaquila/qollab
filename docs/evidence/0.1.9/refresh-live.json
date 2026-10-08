@@ -1,0 +1,28 @@
+{
+  "burst": {
+    "buildCount": 1,
+    "characters": 3,
+    "spacingMs": 350,
+    "runningObservedAfterLastInputMs": 2062,
+    "pdfRequests": [
+      "8eda3252-1055-497b-a4f8-88779a5d3fe8"
+    ],
+    "finalRevision": 5,
+    "contentRevision": 5,
+    "sourceContainsFinal": true
+  },
+  "overlap": {
+    "baselineBuild": "2e9a50eb-65fb-49ff-8adf-add1ce534919",
+    "supersededBuild": "560dd180-5222-4e11-add1-eb6e8b32b6e9",
+    "supersededRevision": 8,
+    "savedDuringBuildRevision": 9,
+    "baselineRetained": true,
+    "pdfRequests": [
+      "0421e5f6-e241-43bd-947f-bd9dd63ffc4c"
+    ],
+    "finalRevision": 9,
+    "contentRevision": 9,
+    "finalPdfTextVerified": true
+  },
+  "errors": []
+}

@@ -1,0 +1,8 @@
+{
+  "context": "Initial combined live check included leaving through the project list and reopening a document",
+  "pdfAssertionsPassed": true,
+  "pageErrors": [
+    "Context \"editorState\" not found, do you forget to inject it?"
+  ],
+  "scope": "The originating callback was not captured. Editor lifecycle code was unchanged by 0.1.9. Independent-page PDF checks completed with zero page errors."
+}
