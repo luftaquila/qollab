@@ -200,6 +200,8 @@ export async function builds(app: FastifyInstance) {
       if (
         pdf &&
         data.epoch === b.epoch &&
+        data.target === b.target &&
+        Number(b.revision) >= (data.contentRevision ?? 0) &&
         Number(b.revision) >= (data.pdfRevision ?? -1)
       ) {
         data.pdfBuild = id;
@@ -216,7 +218,8 @@ export async function builds(app: FastifyInstance) {
         pdfRevision: data.pdfRevision,
       };
     });
-    // Publish only after COMMIT. The viewer can fetch the completed artifact
+    // Superseded results stay in build history without replacing the last good
+    // PDF. Publish only after COMMIT. The viewer can fetch the completed artifact
     // immediately, without first downloading the entire project and build list.
     const { project, ...event } = completed;
     events(project, { type: "build", ...event });

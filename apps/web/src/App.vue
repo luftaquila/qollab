@@ -69,14 +69,23 @@ async function refresh() {
   if (!project.value) return;
   const p = await api("/projects/" + project.value.id);
   if (p.id !== project.value?.id) return;
-  if (
-    p.data.epoch === project.value.data.epoch &&
-    (p.data.pdfRevision ?? -1) < (project.value.data.pdfRevision ?? -1)
-  ) {
-    // A project request begun before a completion event must not roll the
-    // immediately displayed PDF back while the build list refreshes.
-    p.data.pdfBuild = project.value.data.pdfBuild;
-    p.data.pdfRevision = project.value.data.pdfRevision;
+  if (p.data.epoch < project.value.data.epoch) return;
+  if (p.data.epoch === project.value.data.epoch) {
+    // Events may arrive while this request is in flight. Keep the latest known
+    // content revision, and retain the displayed PDF until that content is built.
+    p.revision = Math.max(Number(p.revision), Number(project.value.revision));
+    p.data.contentRevision = Math.max(
+      p.data.contentRevision ?? 0,
+      project.value.data.contentRevision ?? 0,
+    );
+    if (
+      editor.value?.pending() ||
+      (p.data.pdfRevision ?? -1) < p.data.contentRevision ||
+      (p.data.pdfRevision ?? -1) < (project.value.data.pdfRevision ?? -1)
+    ) {
+      p.data.pdfBuild = project.value.data.pdfBuild;
+      p.data.pdfRevision = project.value.data.pdfRevision;
+    }
   }
   project.value = p;
   builds.value = await api(`/projects/${p.id}/builds`);
@@ -104,10 +113,14 @@ async function openProject(id: string) {
   let timer: ReturnType<typeof setTimeout>;
   stream.onmessage = (e) => {
     const event = JSON.parse(e.data);
+    if (project.value?.id !== id) return;
     if (event.type === "heartbeat") return;
     if (event.type === "document") {
       revision(event.revision);
-      project.value.data.contentRevision = event.revision;
+      project.value.data.contentRevision = Math.max(
+        project.value.data.contentRevision ?? 0,
+        event.revision,
+      );
       return;
     }
     if (
@@ -115,6 +128,8 @@ async function openProject(id: string) {
       project.value?.id === id &&
       event.epoch === project.value.data.epoch &&
       event.pdfBuild &&
+      !editor.value?.pending() &&
+      event.pdfRevision >= (project.value.data.contentRevision ?? 0) &&
       event.pdfRevision >= (project.value.data.pdfRevision ?? -1)
     ) {
       project.value.data.pdfBuild = event.pdfBuild;

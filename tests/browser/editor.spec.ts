@@ -424,7 +424,10 @@ test("shows first-build progress and renders a PDF arriving after the editor ope
   await page.route(`**/api/projects/${created.id}`, async (route) => {
     const response = await route.fetch();
     const p = await response.json();
-    if (phase === "succeeded") p.data.pdfBuild = pdfBuild;
+    if (phase === "succeeded") {
+      p.data.pdfBuild = pdfBuild;
+      p.data.pdfRevision = 0;
+    }
     await route.fulfill({ response, json: p });
   });
   await page.route(`**/api/projects/${created.id}/builds`, (route) =>
@@ -482,6 +485,121 @@ test("shows first-build progress and renders a PDF arriving after the editor ope
     .click();
   await expect(page.locator(".pdf-panel")).toHaveCount(0);
   await expect.poll(() => closedWorkers).toBe(1);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("keeps the current PDF through intermediate results and a delayed project refresh", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ locale: "en-US" });
+  const user = await login(context);
+  const page = await context.newPage();
+  const name = "Settled PDF " + Date.now();
+  const created = await call(page, user, "/projects", "POST", { name });
+  await page.addInitScript(() => {
+    const Native = window.EventSource;
+    window.EventSource = class extends Native {
+      constructor(url: string | URL, options?: EventSourceInit) {
+        super(url, options);
+        (window as any).sendProjectEvent = (event: unknown) =>
+          this.dispatchEvent(
+            new MessageEvent("message", { data: JSON.stringify(event) }),
+          );
+      }
+    };
+  });
+  let snapshot = {
+    revision: 0,
+    contentRevision: 0,
+    pdfBuild: "baseline",
+    pdfRevision: 0,
+  };
+  let hold: Promise<void> | undefined;
+  let started: (() => void) | undefined;
+  let refreshes = 0;
+  await page.route(`**/api/projects/${created.id}`, async (route) => {
+    const response = await route.fetch();
+    const p = await response.json(),
+      captured = { ...snapshot };
+    started?.();
+    await hold;
+    p.revision = captured.revision;
+    Object.assign(p.data, captured);
+    await route.fulfill({ response, json: p });
+    refreshes++;
+  });
+  await page.route(`**/api/projects/${created.id}/builds`, (route) =>
+    route.fulfill({ json: [] }),
+  );
+  const pdfRequests: string[] = [],
+    errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route(`**/api/projects/${created.id}/pdf?*`, (route) => {
+    pdfRequests.push(new URL(route.request().url()).searchParams.get("build")!);
+    return route.fulfill({
+      contentType: "application/pdf",
+      path: "tests/fixtures/preview.pdf",
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: new RegExp(name) }).click();
+  await expect(page.locator(".ProseMirror")).toBeVisible();
+  await expect(page.locator(".pdf-page canvas")).toBeVisible();
+  const notify = (event: unknown) =>
+    page.evaluate((e) => (window as any).sendProjectEvent(e), event);
+  await notify({ type: "document", revision: 1 });
+  await notify({ type: "document", revision: 2 });
+  snapshot = {
+    revision: 1,
+    contentRevision: 1,
+    pdfBuild: "intermediate-1",
+    pdfRevision: 1,
+  };
+  let release!: () => void;
+  hold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const inFlight = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const before = refreshes;
+  await notify({
+    type: "build",
+    epoch: 1,
+    pdfBuild: "intermediate-1",
+    pdfRevision: 1,
+  });
+  await inFlight;
+  await notify({ type: "document", revision: 3 });
+  release();
+  hold = undefined;
+  started = undefined;
+  await expect.poll(() => refreshes).toBeGreaterThan(before);
+  expect(pdfRequests).toEqual(["baseline"]);
+  const after = refreshes;
+  await notify({
+    type: "build",
+    epoch: 1,
+    pdfBuild: "intermediate-2",
+    pdfRevision: 2,
+  });
+  await expect.poll(() => refreshes).toBeGreaterThan(after);
+  expect(pdfRequests).toEqual(["baseline"]);
+  await expect(page.locator(".pdf-page canvas")).toBeVisible();
+  snapshot = {
+    revision: 3,
+    contentRevision: 3,
+    pdfBuild: "final",
+    pdfRevision: 3,
+  };
+  await notify({ type: "build", epoch: 1, pdfBuild: "final", pdfRevision: 3 });
+  await expect.poll(() => pdfRequests).toEqual(["baseline", "final"]);
+  const last = refreshes;
+  await notify({ type: "build", epoch: 1, pdfBuild: "final", pdfRevision: 3 });
+  await expect.poll(() => refreshes).toBeGreaterThan(last);
+  await expect(page.locator(".pdf-page canvas")).toBeVisible();
+  expect(pdfRequests).toEqual(["baseline", "final"]);
   expect(errors).toEqual([]);
   await context.close();
 });

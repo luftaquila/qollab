@@ -390,6 +390,126 @@ it("keeps last good PDF on failure and rejects stale leased results", async () =
   ]);
   expect(await Promise.all(committedReads)).toEqual([good.id, good.id]);
 });
+it("coalesces edits and leases only the final snapshot after two seconds of quiet", async () => {
+  await pool.query(
+    "UPDATE builds SET status='cancelled' WHERE status IN ('queued','running')",
+  );
+  expect(config.debounce).toBe(2000);
+  const p = await project();
+  const url = `/projects/${p.id}/files/${p.data.files[0].id}/raw`;
+  let edit = (await request("owner", url, "POST", { revision: 0 })).json();
+  for (const source of ["# First\n", "# Second\n", "# Final\n"]) {
+    const response = await request("owner", url, "PUT", {
+      revision: edit.revision,
+      epoch: edit.result.epoch,
+      rawVersion: edit.result.rawVersion,
+      source,
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    edit = response.json();
+  }
+  const queued = await pool.query("SELECT * FROM builds WHERE project_id=$1", [
+    p.id,
+  ]);
+  expect(queued.rows).toHaveLength(1);
+  expect(queued.rows[0].input.files[0].source).toBe("# Final\n");
+  const lease = () =>
+    app.inject({
+      method: "POST",
+      url: "/api/renderer/lease",
+      headers: { authorization: "Bearer " + config.rendererToken },
+    });
+  expect((await lease()).json()).toBeNull();
+  // Wait to just before the actual DB deadline; the earlier edits must not
+  // make the latest snapshot eligible before its own quiet period expires.
+  const deadline = +new Date(queued.rows[0].lease_until);
+  await new Promise((r) =>
+    setTimeout(r, Math.max(0, deadline - Date.now() - 300)),
+  );
+  expect((await lease()).json()).toBeNull();
+  await new Promise((r) =>
+    setTimeout(r, Math.max(0, deadline - Date.now() + 30)),
+  );
+  const ready = (await lease()).json();
+  expect(ready.id).toBe(queued.rows[0].id);
+  expect(ready.revision).toBe(edit.revision);
+  await pool.query("UPDATE builds SET status='cancelled' WHERE id=$1", [
+    ready.id,
+  ]);
+});
+it("retains the displayed PDF through superseded results and publishes only current content", async () => {
+  const p = await project();
+  const notifications: any[] = [];
+  const unsubscribe = subscribe(p.id, (event) => notifications.push(event));
+  const finish = async (revision: number, target = "report.qmd", epoch = 1) => {
+    const id = randomUUID(),
+      lease = randomUUID();
+    await pool.query(
+      "INSERT INTO builds(id,project_id,revision,epoch,target,status,input,lease,lease_until) VALUES($1,$2,$3,$4,$5,'running','{}',$6,now()+interval '1 minute')",
+      [id, p.id, revision, epoch, target, lease],
+    );
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/renderer/builds/${id}/result`,
+      headers: { authorization: "Bearer " + config.rendererToken },
+      payload: {
+        lease,
+        pdf: Buffer.from(`%PDF-1.7\nrevision ${revision}`).toString("base64"),
+        log: "OK",
+        image: "test",
+      },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    return id;
+  };
+  const baseline = await finish(0);
+  const url = `/projects/${p.id}/files/${p.data.files[0].id}/raw`;
+  let edit = (await request("owner", url, "POST", { revision: 0 })).json();
+  for (const source of ["# Intermediate\n", "# Final\n"]) {
+    edit = (
+      await request("owner", url, "PUT", {
+        revision: edit.revision,
+        epoch: edit.result.epoch,
+        rawVersion: edit.result.rawVersion,
+        source,
+      })
+    ).json();
+  }
+  const first = await finish(1),
+    second = await finish(2);
+  expect(
+    (await request("owner", `/projects/${p.id}`)).json().data.pdfBuild,
+  ).toBe(baseline);
+  expect((await request("owner", `/projects/${p.id}/pdf`)).body).toContain(
+    "revision 0",
+  );
+  // Unrelated checkpoints advance project revision without changing content.
+  await request("owner", `/projects/${p.id}/history`, "POST", {
+    revision: edit.revision,
+    label: "Keep this content",
+  });
+  const current = await finish(edit.revision);
+  await finish(edit.revision, "other.qmd");
+  await finish(edit.revision, "report.qmd", 0);
+  await finish(2); // delayed older result after the current one
+  expect(
+    (await request("owner", `/projects/${p.id}`)).json().data.pdfBuild,
+  ).toBe(current);
+  expect((await request("owner", `/projects/${p.id}/pdf`)).body).toContain(
+    `revision ${edit.revision}`,
+  );
+  expect(
+    (
+      await pool.query("SELECT status FROM builds WHERE id=ANY($1::uuid[])", [
+        [first, second],
+      ])
+    ).rows.every((r) => r.status === "succeeded"),
+  ).toBe(true);
+  expect(
+    notifications.filter((e) => e.type === "build").map((e) => e.pdfBuild),
+  ).toEqual([baseline, baseline, baseline, current, current, current, current]);
+  unsubscribe();
+});
 it("freezes all writes for a coherent backup and recovers the committed mirror journal", async () => {
   const p = await project();
   const admin = { authorization: "Bearer " + config.adminToken };

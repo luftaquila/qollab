@@ -78,7 +78,7 @@ podman compose up -d
 | MAX_HISTORY_BYTES | 1073741824 | 프로젝트 체크포인트 저장 한도 |
 | SESSION_HOURS | 168 | 세션 수명 |
 | CHECKPOINT_MS | 300000 | 변경이 있는 프로젝트의 자동 체크포인트 |
-| BUILD_DEBOUNCE_MS | 25 | 자동 빌드 대기 |
+| BUILD_DEBOUNCE_MS | 2000 | 마지막 수정 후 자동 빌드 대기 |
 | BUILD_MAX_WAIT_MS | 10000 | 연속 입력 중 최대 대기 |
 | BUILD_TIMEOUT_SECONDS | 120 | 작업 시간 |
 | RENDER_CPUS | 1 | 관리자 서비스의 작업 CPU 제한 |
