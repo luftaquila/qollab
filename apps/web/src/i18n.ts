@@ -5,9 +5,37 @@ export function chooseLanguage(languages: readonly string[]) {
   }
   return "en";
 }
-export const lang = chooseLanguage(
-  navigator.languages?.length ? navigator.languages : [navigator.language],
-);
+export type LanguageChoice = "system" | "ko" | "en";
+const LANGUAGE_KEY = "qollab.lang";
+function storedLanguage(): LanguageChoice {
+  try {
+    const value = localStorage.getItem(LANGUAGE_KEY);
+    if (value === "ko" || value === "en") return value;
+  } catch {
+    /* Storage may be unavailable; follow the browser. */
+  }
+  return "system";
+}
+/** The person's choice in the account menu; "system" follows the browser. */
+export const languageChoice = storedLanguage();
+export const lang =
+  languageChoice === "system"
+    ? chooseLanguage(navigator.languages?.length ? navigator.languages : [navigator.language])
+    : languageChoice;
+document.documentElement.lang = lang;
+/** Text is chosen once at load, so a new language takes effect after a reload. */
+export function setLanguage(choice: LanguageChoice) {
+  if (choice === languageChoice) return;
+  try {
+    if (choice === "system") localStorage.removeItem(LANGUAGE_KEY);
+    else localStorage.setItem(LANGUAGE_KEY, choice);
+  } catch {
+    return;
+  }
+  location.reload();
+}
+export const pick = (text: string | [string, string]) =>
+  typeof text === "string" ? text : text[lang === "ko" ? 0 : 1];
 const words = {
   imageProperties: ["그림 속성", "Figure properties"],
   replaceImage: ["이미지 교체", "Replace image"],
@@ -60,6 +88,7 @@ const words = {
     "The document generation or permission changed. Download unsent work before reopening.",
   ],
   downloadPending: ["미전송 원문 다운로드", "Download unsent source"],
+  staleShort: ["다시 열기 필요", "Reopen required"],
   reopen: ["다시 열기", "Reopen"],
   checkpoint: ["체크포인트 만들기", "Create checkpoint"],
   restore: ["프로젝트 전체 복원", "Restore entire project"],
@@ -138,9 +167,431 @@ const words = {
     "Your document. One shared space.",
   ],
   back: ["프로젝트 목록", "All projects"],
+  loginEyebrow: ["아이디어를 문서로", "A place for your ideas"],
+  workspaceEyebrow: ["나의 작업 공간", "Your workspace"],
+  more: ["더보기", "More actions"],
+  share: ["공유", "Share"],
+  account: ["계정", "Account"],
+  guest: ["게스트", "Guest"],
+  guestMode: [
+    "게스트 모드 · 로그인 없이 공유 계정으로 접속 중",
+    "Guest mode · shared account without sign-in",
+  ],
+  theme: ["테마", "Theme"],
+  themeSystem: ["시스템 설정", "System"],
+  themeLight: ["라이트", "Light"],
+  language: ["언어", "Language"],
+  languageSystem: ["브라우저 설정", "Browser default"],
+  themeDark: ["다크", "Dark"],
+  searchProjects: ["프로젝트 검색", "Search projects"],
+  noMatch: ["일치하는 프로젝트가 없습니다.", "No matching projects."],
+  emptyHint: [
+    "새 프로젝트를 만들거나 Quarto 프로젝트 ZIP을 가져오세요.",
+    "Create a project or import a Quarto project ZIP.",
+  ],
+  projectName: ["프로젝트 이름", "Project name"],
+  renameProject: ["프로젝트 이름 변경", "Rename project"],
+  deleteProject: ["프로젝트 삭제", "Delete project"],
+  deleteProjectConfirm: [
+    "‘{name}’ 프로젝트를 삭제할까요? 모든 파일과 이력이 함께 삭제되며 되돌릴 수 없습니다.",
+    "Delete ‘{name}’? All files and history will be removed. This cannot be undone.",
+  ],
+  openProject: ["프로젝트 열기", "Open project"],
+  editedAgo: ["{time} 수정", "Edited {time}"],
+  pdfCurrent: ["최신 수정 반영됨", "Up to date"],
+  pdfBehind: ["최신 수정 미반영", "Latest edits not included yet"],
+  buildFailed: ["PDF 생성 실패", "PDF build failed"],
+  errOption: [
+    "허용되지 않는 설정이 있습니다: {name}",
+    "A setting is not allowed: {name}",
+  ],
+  errFontPolicy: [
+    "설치되지 않은 글꼴을 지정했습니다. 문서 설정에서 글꼴을 고르세요.",
+    "A font that is not installed was set. Choose one in document settings.",
+  ],
+  errExecutable: [
+    "코드 실행 셀과 shortcode는 사용할 수 없습니다.",
+    "Executable cells and shortcodes are disabled.",
+  ],
+  errRemoteImage: [
+    "외부 주소의 이미지는 사용할 수 없습니다. 이미지를 업로드하세요.",
+    "Remote images are disabled. Upload the image instead.",
+  ],
+  errTimeout: ["PDF 생성 시간이 초과되었습니다.", "The PDF build timed out."],
+  errFont: ["글꼴을 찾을 수 없습니다: {name}", "Font not found: {name}"],
+  errFile: ["LaTeX 패키지나 파일이 없습니다: {name}", "Missing LaTeX package or file: {name}"],
+  errCommand: [
+    "정의되지 않은 LaTeX 명령이 있습니다: {name}",
+    "Undefined LaTeX command: {name}",
+  ],
+  errMath: [
+    "수식 기호($)의 짝이 맞지 않거나 수식 밖에 수식 명령이 있습니다.",
+    "Unbalanced $ or a math command outside math.",
+  ],
+  cause: ["원인", "Cause"],
+  filePath: ["파일 경로", "File path"],
+  filePathHint: [
+    "폴더는 /로 구분합니다. 예: chapters/intro.qmd · 형식: .qmd .md .yml .bib .csl .tex .sty",
+    "Use / for folders, e.g. chapters/intro.qmd · Types: .qmd .md .yml .bib .csl .tex .sty",
+  ],
+  renameFile: ["파일 이름 변경", "Rename file"],
+  deleteFile: ["파일 삭제", "Delete file"],
+  deleteFileConfirm: [
+    "‘{name}’ 파일을 삭제할까요?",
+    "Delete ‘{name}’?",
+  ],
+  pdfTarget: ["PDF 대상", "PDF target"],
+  newFileHere: ["이 폴더에 새 파일", "New file in this folder"],
+  newFolder: ["새 폴더", "New folder"],
+  newSubfolder: ["새 하위 폴더", "New subfolder"],
+  folderPath: ["폴더 경로", "Folder path"],
+  folderHint: [
+    "하위 폴더는 /로 구분합니다. 예: chapters/part1",
+    "Use / for subfolders, e.g. chapters/part1",
+  ],
+  renameFolder: ["폴더 이름 변경", "Rename folder"],
+  deleteFolder: ["폴더 삭제", "Delete folder"],
+  deleteFolderConfirm: [
+    "‘{name}’ 폴더와 안에 있는 파일 {n}개를 삭제할까요?",
+    "Delete ‘{name}’ and the {n} files inside it?",
+  ],
+  emptyFolder: ["비어 있음", "Empty"],
+  moveToRoot: ["최상위로 이동", "Move to top level"],
+  expandFolder: ["펼치기", "Expand"],
+  collapseFolder: ["접기", "Collapse"],
+  addImageFiles: ["이미지 파일 추가", "Add image files"],
+  makeEditor: ["편집자로 변경", "Make editor"],
+  makeViewer: ["열람자로 변경", "Make viewer"],
+  viewChanges: ["변경 내용 보기", "View changes"],
+  deleteFigure: ["그림 삭제", "Delete figure"],
+  projectImages: ["프로젝트 이미지", "Project images"],
+  chooseExisting: [
+    "이미 올린 이미지를 누르면 커서 위치에 바로 삽입됩니다.",
+    "Choose an uploaded image to insert it at the cursor.",
+  ],
+  dropHere: [
+    "클릭해서 고르거나 이미지를 여기로 끌어다 놓으세요",
+    "Click to choose, or drop images here",
+  ],
+  uploadImages: ["이미지 업로드", "Upload images"],
+  uploadHint: [
+    "PNG 또는 JPEG · 여러 장을 한 번에 올릴 수 있습니다.",
+    "PNG or JPEG · you can choose several files.",
+  ],
+  noImages: ["아직 업로드한 이미지가 없습니다.", "No images uploaded yet."],
+  noHeadings: [
+    "제목을 추가하면 여기에 문서 구조가 표시됩니다.",
+    "Headings you add appear here.",
+  ],
+  noHistory: ["아직 체크포인트가 없습니다.", "No checkpoints yet."],
+  checkpointName: ["체크포인트 이름", "Checkpoint name"],
+  checkpointHint: [
+    "현재 프로젝트 전체를 이 이름으로 저장합니다.",
+    "Saves the whole project under this name.",
+  ],
+  restoreHint: [
+    "Owner만 프로젝트 전체를 이 버전으로 되돌릴 수 있습니다.",
+    "Only owners can restore the project to this version.",
+  ],
+  changedFiles: ["변경된 파일", "Changed files"],
+  noChanges: ["현재 원문과 차이가 없습니다.", "No differences from the current source."],
+  inviteTitle: ["멤버 초대", "Invite a member"],
+  inviteHint: [
+    "초대 링크는 7일 동안 한 번 사용할 수 있으며, 받는 사람의 Google 계정 이메일과 일치해야 합니다.",
+    "Links work once for 7 days and must match the recipient’s Google account email.",
+  ],
+  copyLink: ["링크 복사", "Copy link"],
+  copied: ["클립보드에 복사했습니다.", "Copied to clipboard."],
+  labelCopied: ["라벨 이름을 복사했습니다: ", "Copied the label name: "],
+  copyFailed: ["클립보드에 복사하지 못했습니다.", "Could not copy to the clipboard."],
+  role: ["역할", "Role"],
+  you: ["나", "You"],
+  removeConfirm: [
+    "{name} 님을 이 프로젝트에서 내보낼까요?",
+    "Remove {name} from this project?",
+  ],
+  transferConfirm: [
+    "{name} 님에게 소유권을 넘길까요? 나는 편집자가 됩니다.",
+    "Transfer ownership to {name}? You will become an editor.",
+  ],
+  roleChangeNote: [
+    "권한을 바꾸면 열려 있는 편집기가 다시 연결됩니다.",
+    "Changing access reconnects open editors.",
+  ],
+  visualMode: ["Visual 편집", "Visual"],
+  rawMode: ["복구 편집", "Recovery"],
+  textMode: ["텍스트", "Text"],
+  imageFile: ["이미지", "Image"],
+  viewSource: ["원문 보기", "View source"],
+  editMarkdown: ["Markdown 편집 시작", "Edit Markdown"],
+  backToVisual: ["Visual 편집으로 돌아가기", "Back to visual editing"],
+  markdownMode: ["Markdown 편집", "Markdown"],
+  markdownByOther: ["다른 사용자가 편집 중", "Edited by someone else"],
+  sourceReadonlyHint: [
+    "Markdown 원문입니다. 직접 고치려면 ‘Markdown 편집 시작’을 누르세요. 편집하는 동안 다른 사람은 이 문서를 읽기만 할 수 있습니다.",
+    "This is the Markdown source. Choose ‘Edit Markdown’ to change it directly; others can only read the document meanwhile.",
+  ],
+  sourceEditingHint: [
+    "Markdown을 직접 편집하고 있습니다. 변경은 자동 저장되며 그동안 다른 사람은 읽기만 할 수 있습니다. 끝나면 ‘Visual 편집으로 돌아가기’를 누르세요.",
+    "You are editing the Markdown directly. Changes save automatically and others can only read meanwhile. Choose ‘Back to visual editing’ when done.",
+  ],
+  rawByOther: [
+    "다른 사용자가 Markdown을 직접 편집하고 있습니다. 편집이 끝나면 Visual 편집이 다시 열립니다.",
+    "Someone else is editing the Markdown directly. Visual editing reopens when they finish.",
+  ],
+  rawExpired: [
+    "Markdown 편집 잠금이 만료되었습니다. 이어서 편집할 수 있습니다.",
+    "The Markdown editing lock expired. You can take over.",
+  ],
+  rawUnsafe: [
+    "이 문서에는 Visual로 열 수 없는 문법이 있어 Markdown으로 엽니다. 문법을 고친 뒤 Visual 편집으로 돌아갈 수 있습니다.",
+    "This document has syntax the visual editor cannot open safely. Fix it here, then go back to visual editing.",
+  ],
+  takeOver: ["편집 이어받기", "Take over editing"],
+  sourceSaved: ["저장됨", "Saved"],
+  sourceSaving: ["저장 중…", "Saving…"],
+  sourceDirty: ["저장 대기", "Unsaved"],
+  sourceError: ["저장 실패", "Save failed"],
+  backToEditor: ["편집기로 돌아가기", "Back to editor"],
+  downloadPdf: ["PDF 다운로드", "Download PDF"],
+  cancelBuild: ["빌드 취소", "Cancel build"],
+  zoomIn: ["확대", "Zoom in"],
+  zoomOut: ["축소", "Zoom out"],
+  fitWidth: ["폭 맞춤", "Fit width"],
+  followEditor: ["편집 위치 따라가기", "Follow the editor"],
+  followEditorOn: ["편집 위치 따라가기: 켜짐", "Following the editor: on"],
+  followEditorOff: ["편집 위치 따라가기: 꺼짐", "Following the editor: off"],
+  showLog: ["로그 보기", "Show log"],
+  hideLog: ["로그 숨기기", "Hide log"],
+  noFileOpen: ["왼쪽 파일 목록에서 파일을 선택하세요.", "Select a file from the sidebar."],
+  blockType: ["문단 형식", "Block type"],
+  bold: ["굵게", "Bold"],
+  italic: ["기울임", "Italic"],
+  strike: ["취소선", "Strikethrough"],
+  underline: ["밑줄", "Underline"],
+  textColor: ["글자 색", "Text color"],
+  colorNone: ["기본 색", "Default color"],
+  colorCustom: ["직접 지정…", "Custom…"],
+  colorHex: ["색 코드", "Color code"],
+  colorHexHint: ["#RRGGBB 형식의 16진수 색입니다. 예: #1C7667", "A hex color such as #1C7667."],
+  colorInvalid: ["#RRGGBB 형식으로 입력하세요.", "Enter a color as #RRGGBB."],
+  inlineCode: ["인라인 코드", "Inline code"],
+  codeBlock: ["코드 블록", "Code block"],
+  mathBlock: ["수식 블록", "Math block"],
+  insertTable: ["표 삽입", "Insert table"],
+  insertImage: ["이미지 삽입", "Insert image"],
+  rawBlocked: [
+    "원문 블록 안에서는 사용할 수 없습니다. 본문을 클릭하세요.",
+    "Unavailable inside a source block. Click into the text first.",
+  ],
+  selectImageFirst: [
+    "본문에서 그림을 선택하면 사용할 수 있습니다.",
+    "Select a figure in the document first.",
+  ],
+  clickFirst: [
+    "본문을 클릭해 커서를 둔 뒤 사용할 수 있습니다.",
+    "Click into the document first.",
+  ],
+  selectTextForLink: [
+    "링크로 만들 텍스트를 먼저 선택하세요.",
+    "Select the text to link first.",
+  ],
+  formatting: ["서식", "Formatting"],
+  imageKept: [
+    "삽입 위치가 삭제되어 이미지를 이미지 목록에만 보관했습니다.",
+    "The insertion point was removed, so the image was kept in the image list.",
+  ],
+  uploading: ["업로드 중…", "Uploading…"],
+  dropImage: [
+    "PNG 또는 JPEG 그림을 올리면 이 자리에 들어갑니다.",
+    "Upload a PNG or JPEG figure to place it here.",
+  ],
+  online: ["{n}명이 함께 보는 중", "{n} others here"],
+  insertFigure: ["그림 삽입", "Insert figure"],
+  alignLeft: ["왼쪽", "Left"],
+  alignCenter: ["가운데", "Center"],
+  alignRight: ["오른쪽", "Right"],
+  panel: ["사이드 패널", "Side panel"],
+  settings: ["문서 설정", "Document settings"],
+  scopeDocument: ["이 문서", "This document"],
+  scopeProject: ["프로젝트 공통", "Whole project"],
+  scopeProjectHint: [
+    "_quarto.yml에 저장되어 모든 문서에 적용됩니다. 문서에 같은 설정이 있으면 문서 설정이 우선합니다.",
+    "Saved in _quarto.yml for every document. A document's own setting takes precedence.",
+  ],
+  ownerOnlyConfig: [
+    "프로젝트 공통 설정은 소유자만 바꿀 수 있습니다.",
+    "Only owners can change project settings.",
+  ],
+  settingsUnavailable: [
+    "Visual 편집 중인 문서에서 사용할 수 있습니다.",
+    "Open a document in visual mode to change its settings.",
+  ],
+  yamlInvalid: [
+    "YAML을 해석할 수 없습니다. 아래 ‘YAML 직접 편집’에서 고치세요.",
+    "The YAML cannot be read. Fix it under ‘Edit YAML’ below.",
+  ],
+  scopeDocumentHint: ["이 문서에만 적용됩니다. 비워 둔 항목은 프로젝트 공통 설정이나 기본값을 따릅니다.", "Applies to this document only. Empty items follow the project settings or the defaults."],
+  fromProject: ["프로젝트 설정", "Project setting"],
+  allLevels: ["모든 제목", "All headings"],
+  koreanFontNone: ["따로 지정 안 함", "Not set"],
+  fontWithKorean: ["한글 포함", "With Korean"],
+  fontLatinOnly: ["영문 전용", "Latin only"],
+  missingKoreanFont: ["본문이나 제목 글꼴이 영문 전용입니다. 위에서 한글 글꼴을 고르지 않으면 PDF에 한글이 나오지 않습니다.", "The body or heading font is Latin only. Choose a Korean font above, or Korean text will be missing from the PDF."],
+  fIndentHint: ["끄면 들여쓰기 대신 문단 사이를 한 줄 정도 띄웁니다.", "When off, paragraphs are separated by space instead of an indent."],
+  fEngine: ["조판 엔진", "PDF engine"],
+  fEngineHint: [
+    "LuaLaTeX는 kotex(luatexko)로 만든 LaTeX 문서와 같은 조판을 내지만 PDF를 만드는 데 몇 배 더 걸립니다.",
+    "LuaLaTeX matches LaTeX documents written for kotex (luatexko) but takes several times longer to build.",
+  ],
+  fClassHint: ["보고서와 책 형식에서는 # 제목이 장(chapter)이 됩니다.", "In report and book classes, # headings become chapters."],
+  fLinkColorHint: ["목차, 그림·표·절 참조처럼 문서 안으로 이동하는 링크입니다.", "Links within the document, such as the contents and references."],
+  fUrlColor: ["웹 링크 색", "Web link color"],
+  captionsHint: ["캡션 앞에 붙는 이름과 본문의 @fig-… 같은 참조가 PDF에서 어떻게 보일지 정합니다. 비워 두면 문서 언어에 맞는 기본 문구를 씁니다.", "How caption names and references such as @fig-… read in the PDF. Empty items use the defaults for the document language."],
+  captionExample: ["캡션: “{name} 1: 설명”", "Caption: “{name} 1: …”"],
+  referenceExample: ["본문의 {key} → “{name} 1”", "{key} in the text → “{name} 1”"],
+  fDateNone: ["표시 안 함", "None"],
+  fDateToday: ["PDF를 만드는 날", "The day the PDF is made"],
+  fDateTodayHint: ["PDF를 다시 만들 때마다 그날 날짜로 바뀝니다.", "Updates to the current day whenever the PDF is rebuilt."],
+  fDateFixed: ["날짜 지정", "A fixed date"],
+  fDateText: ["직접 입력", "Custom text"],
+  fDateValue: ["표시할 날짜", "Date to show"],
+  fDateTextValue: ["표시할 문구", "Text to show"],
+  fDateTextPlaceholder: ["예: 2026년 가을 학기", "e.g. Fall 2026"],
+  fDateFormat: ["날짜 표기", "Date format"],
+  fLangHint: ["그림·표 이름, 목차 제목 같은 자동 문구와 날짜 표기의 언어입니다.", "Language of generated words such as figure names and the contents title, and of dates."],
+  fMargins: ["여백", "Margins"],
+  marginAuto: ["자동", "Automatic"],
+  marginCustom: ["직접 지정", "Custom"],
+  defaultValue: ["기본값", "Default"],
+  secInfo: ["문서 정보", "Document"],
+  secPage: ["용지와 여백", "Page"],
+  secFont: ["글꼴과 문단", "Fonts and paragraphs"],
+  secStructure: ["구성", "Structure"],
+  secCaptions: ["그림·표 이름과 참조", "Captions and references"],
+  secAdvanced: ["고급: LaTeX 머리말과 YAML 직접 편집", "Advanced: LaTeX preamble and YAML"],
+  fTitle: ["제목", "Title"],
+  fSubtitle: ["부제", "Subtitle"],
+  fAuthor: ["저자", "Author"],
+  fDate: ["날짜", "Date"],
+  fLang: ["문서 언어", "Language"],
+  fPaper: ["용지 크기", "Paper size"],
+  fMarginTop: ["위 여백", "Top margin"],
+  fMarginBottom: ["아래 여백", "Bottom margin"],
+  fMarginLeft: ["왼쪽 여백", "Left margin"],
+  fMarginRight: ["오른쪽 여백", "Right margin"],
+  fMarginHint: ["mm 단위입니다. 비워 둔 쪽은 자동으로 정해집니다.", "In millimetres. Empty sides are set automatically."],
+  fTwoColumn: ["2단 편집", "Two columns"],
+  fPageStyle: ["쪽 번호와 머리글", "Page numbers and headers"],
+  fMainFont: ["본문 글꼴", "Body font"],
+  fKoreanFont: ["한글 글꼴", "Korean font"],
+  fKoreanFontHint: ["본문 글꼴이 영문 전용일 때 한글에 쓸 글꼴입니다.", "Used for Korean text when the body font is Latin only."],
+  fSansFont: ["제목·고딕 글꼴", "Sans font"],
+  fMonoFont: ["코드 글꼴", "Code font"],
+  fFontSize: ["글자 크기", "Font size"],
+  fLineStretch: ["줄 간격", "Line spacing"],
+  fIndent: ["문단 첫 줄 들여쓰기", "Indent first lines"],
+  fClass: ["문서 형식", "Document class"],
+  fNumberSections: ["제목에 번호 붙이기", "Number headings"],
+  fNumberDepth: ["번호 붙일 제목 수준", "Numbering depth"],
+  fToc: ["목차 넣기", "Table of contents"],
+  fTocDepth: ["목차 깊이", "Contents depth"],
+  fTocTitle: ["목차 제목", "Contents title"],
+  fLof: ["그림 목록", "List of figures"],
+  fLot: ["표 목록", "List of tables"],
+  fColorLinks: ["링크에 색 넣기", "Colored links"],
+  fLinkColor: ["문서 안 링크 색", "Internal link color"],
+  fFigTitle: ["그림 이름", "Figure name"],
+  fTblTitle: ["표 이름", "Table name"],
+  fFigPrefix: ["본문의 그림 참조", "Figure references"],
+  fTblPrefix: ["본문의 표 참조", "Table references"],
+  fEqPrefix: ["본문의 수식 참조", "Equation references"],
+  fSecPrefix: ["본문의 절 참조", "Section references"],
+  fFigCapLoc: ["그림 캡션 위치", "Figure caption position"],
+  fTblCapLoc: ["표 캡션 위치", "Table caption position"],
+  fHeader: ["LaTeX 머리말(header-includes)", "LaTeX preamble (header-includes)"],
+  fHeaderHint: [
+    "\\usepackage 등 LaTeX 명령을 넣습니다. 셸 실행은 막혀 있습니다.",
+    "LaTeX commands such as \\usepackage. Shell escape is disabled.",
+  ],
+  fYaml: ["YAML 직접 편집", "Edit YAML"],
+  fYamlHint: [
+    "위 항목에 없는 Quarto PDF 옵션도 여기서 설정할 수 있습니다. 실행·필터 관련 옵션은 거부됩니다.",
+    "Set any other Quarto PDF option here. Execution and filter options are rejected.",
+  ],
+  apply: ["적용", "Apply"],
+  cut: ["잘라내기", "Cut"],
+  helpTitle: ["작성 도움말", "Writing help"],
+  helpSearch: ["도움말 검색", "Search help"],
+  paste: ["붙여넣기", "Paste"],
+  pasteBlocked: [
+    "브라우저가 메뉴에서 붙여넣기를 막았습니다. Ctrl+V(⌘V)를 사용하세요.",
+    "The browser blocked pasting from the menu. Use Ctrl+V (⌘V).",
+  ],
+  copyCode: ["코드 복사", "Copy code"],
+  copySource: ["원문 복사", "Copy source"],
+  goToTarget: ["참조 대상으로 이동", "Go to target"],
+  deleteLatex: ["LaTeX 명령 삭제", "Delete LaTeX command"],
+  deleteReference: ["참조 삭제", "Delete reference"],
+  openLink: ["링크 열기", "Open link"],
+  removeLink: ["링크 제거", "Remove link"],
+  labelSelection: ["선택한 부분에 라벨 붙이기…", "Label selection…"],
+  labelHeading: ["제목에 라벨 붙이기…", "Label heading…"],
+  renameLabel: ["라벨 이름 바꾸기…", "Rename label…"],
+  removeLabel: ["라벨 제거", "Remove label"],
+  toParagraph: ["본문으로 바꾸기", "Make paragraph"],
+  indent: ["들여쓰기", "Indent"],
+  outdent: ["내어쓰기", "Outdent"],
+  rowAbove: ["위에 행 추가", "Row above"],
+  rowBelow: ["아래에 행 추가", "Row below"],
+  columnLeft: ["왼쪽에 열 추가", "Column left"],
+  columnRight: ["오른쪽에 열 추가", "Column right"],
+  deleteRow: ["행 삭제", "Delete row"],
+  deleteColumn: ["열 삭제", "Delete column"],
+  insertReference: ["참조 삽입…", "Insert reference…"],
+  nativeMenuHint: [
+    "Shift+우클릭: 브라우저 기본 메뉴",
+    "Shift+right-click: browser menu",
+  ],
+  labelTitle: ["라벨", "Label"],
+  labelId: ["라벨 이름", "Label name"],
+  labelHint: [
+    "영문으로 시작하고 영문·숫자·-·_만 씁니다. sec-(절) fig-(그림) tbl-(표) eq-(수식)로 시작하면 PDF에서 번호가 붙은 참조(예: 그림 1)가 됩니다.",
+    "Start with a letter; use letters, digits, - and _. Names starting with sec-, fig-, tbl- or eq- become numbered references in the PDF (e.g. Figure 1).",
+  ],
+  labelInvalid: ["사용할 수 없는 라벨 이름입니다.", "Invalid label name."],
+  labelPlainText: [
+    "라벨은 한 문단 안의 서식 없는 글자에 붙일 수 있습니다. [ ] * _ ` { } < > @ $ 문자는 포함할 수 없습니다.",
+    "Labels work on plain text within one paragraph, without [ ] * _ ` { } < > @ $.",
+  ],
+  labelExists: ["이미 있는 라벨 이름입니다.", "This label already exists."],
+  referenceTitle: ["참조 삽입", "Insert reference"],
+  // What a reference to the label shows in the PDF.
+  referenceNumber: ["번호로 참조", "As a number"],
+  referenceLink: ["링크로 참조", "As a link"],
+  searchLabels: ["라벨 검색", "Search labels"],
+  noLabels: [
+    "아직 라벨이 없습니다. 본문에서 우클릭해 제목이나 선택한 글자에 라벨을 붙이세요.",
+    "No labels yet. Right-click a heading or selected text to add one.",
+  ],
+  kindSec: ["절", "Section"],
+  kindFig: ["그림", "Figure"],
+  kindTbl: ["표", "Table"],
+  kindEq: ["수식", "Equation"],
+  kindSpan: ["구간", "Span"],
+  kindOther: ["기타", "Other"],
+  kindLatex: ["LaTeX", "LaTeX"],
+  labelsTitle: ["라벨", "Labels"],
+  brokenRefs: ["찾을 수 없는 참조", "Missing targets"],
+  refCount: ["참조 {n}", "{n} refs"],
+  closePanel: ["패널 닫기", "Close panel"],
+  resizePanel: ["PDF 미리보기 폭 조절", "Resize PDF preview"],
+  lineCount: ["{n}줄", "{n} lines"],
 } as const;
 export type Word = keyof typeof words;
 export const t = (key: Word) => words[key][lang === "ko" ? 0 : 1];
+export const fmt = (key: Word, params: Record<string, string | number>) =>
+  t(key).replace(/\{(\w+)\}/g, (_, name) => String(params[name] ?? ""));
 const errors: Record<string, [string, string]> = {
   IMAGE_SELECT: ["그림을 먼저 선택하세요.", "Select an image first."],
   FORBIDDEN: ["이 작업의 권한이 없습니다.", "You do not have permission."],
@@ -183,6 +634,38 @@ const errors: Record<string, [string, string]> = {
   PDF_UNAVAILABLE: [
     "아직 생성된 PDF가 없습니다.",
     "No PDF has been generated yet.",
+  ],
+  INVALID_PATH: [
+    "사용할 수 없는 경로입니다. 점(.)이나 -로 시작하는 이름과 ..은 쓸 수 없습니다.",
+    "Invalid path. Names cannot start with . or - and cannot contain ..",
+  ],
+  FILE_TYPE: [
+    "지원하지 않는 파일 형식입니다. .qmd .md .yml .bib .csl .tex .sty 파일만 만들 수 있습니다.",
+    "Unsupported file type. Use .qmd, .md, .yml, .bib, .csl, .tex or .sty.",
+  ],
+  PATH_EXISTS: [
+    "같은 경로의 파일이 이미 있습니다.",
+    "A file with this path already exists.",
+  ],
+  USE_IMAGE_UPLOAD: [
+    "이미지는 이미지 업로드로 추가하세요.",
+    "Add images with Upload images.",
+  ],
+  IMAGE_LIMIT: [
+    "이미지가 너무 큽니다.",
+    "The image is too large.",
+  ],
+  RENAME_TYPE: [
+    "파일 형식(확장자)은 바꿀 수 없습니다.",
+    "A file's type (extension) cannot change.",
+  ],
+  RELATIVE_REFERENCES: [
+    "링크가 아닌 형태로 이 경로를 참조하는 곳이 있어 자동으로 고칠 수 없습니다. 원문에서 먼저 수정하세요.",
+    "This path is referenced outside of links, so it cannot be updated automatically. Edit the source first.",
+  ],
+  TRANSFER_INVALID: [
+    "소유권을 넘길 수 없는 대상입니다.",
+    "Ownership cannot be transferred to this member.",
   ],
   MAINTENANCE: [
     "백업 작업 중입니다. 잠시 후 다시 시도하세요.",

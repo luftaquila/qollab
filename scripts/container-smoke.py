@@ -43,6 +43,25 @@ def render(data):
     return output
 
 assert out.get('cache'), 'No reference state captured'
+# Underlined, struck-out and colored Korean keeps its letters (soul.cfg uses ulem).
+styled='---\ntitle: "서식"\n---\n\n[밑줄 친 한국어]{.underline}, ~~지운 한국어~~, \\textcolor{red}{빨간 \\ul{빨간 밑줄}}.\n'
+styled_pdf=dest.with_name('render-styled.pdf')
+styled_pdf.write_bytes(base64.b64decode(render({'target':'styled.qmd','timeout':120,'files':[{'path':'styled.qmd','source':styled}]})['pdf']))
+styled_text=' '.join(subprocess.check_output(['pdftotext',str(styled_pdf),'-']).decode().split())
+for words in ('밑줄 친 한국어','지운 한국어','빨간 빨간 밑줄'):assert words in styled_text,(words,styled_text)
+# LuaLaTeX documents use the trusted font cache from the image: no names
+# database rebuild, Pretendard and kotex (luatexko) for Hangul and Hanja.
+lua='---\npdf-engine: lualatex\nmainfont: Pretendard\nheader-includes: |\n  \\usepackage{kotex}\n  \\setmainhanjafont{Noto Sans CJK KR}\n---\n\n# 루아 조판\n\n프리텐다드 본문과 漢字, $\\sigma_y = 305\\ \\mathrm{MPa}$.\n'
+lua_start=time.monotonic()
+lua_out=render({'target':'lua.qmd','timeout':120,'files':[{'path':'lua.qmd','source':lua}]})
+lua_seconds=round(time.monotonic()-lua_start,2)
+assert 'Font names database not found' not in lua_out.get('log',''), 'LuaTeX rebuilt its font database'
+lua_pdf=dest.with_name('render-lualatex.pdf');lua_pdf.write_bytes(base64.b64decode(lua_out['pdf']))
+lua_text=' '.join(subprocess.check_output(['pdftotext',str(lua_pdf),'-']).decode().split())
+assert '프리텐다드 본문과 漢字' in lua_text,lua_text
+lua_fonts=subprocess.check_output(['pdffonts',str(lua_pdf)]).decode()
+assert 'Pretendard-Regular' in lua_fonts and 'NotoSansCJK' in lua_fonts,lua_fonts
+print(json.dumps({'lualatex':{'seconds':lua_seconds,'metrics':lua_out.get('metrics')}}))
 job['cache']=out['cache']
 job['files'][0]['source']=source.replace('확인합니다.','확인합니다!')
 start=time.monotonic();incremental=render(job)

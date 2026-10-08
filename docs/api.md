@@ -13,10 +13,10 @@
 
 | Method / path | 요청·응답 | 최소 권한 |
 |---|---|---|
-| GET /session | user, csrf, oauthConfigured | 로그인 전 허용 |
+| GET /session | user, csrf, oauthConfigured, anonymous. `ANONYMOUS_ACCESS`이면 세션 없는 방문자에게 게스트 세션 발급 | 로그인 전 허용 |
 | GET /auth/google, /auth/callback | OIDC redirect·callback | 로그인 전 허용 |
 | POST /logout | 세션 폐기, 기존 연결 종료 | 로그인 |
-| GET /projects | 접근 가능한 목록 | 로그인 |
+| GET /projects | 접근 가능한 목록: id, name, revision, role, updated(마지막 내용 변경 시각). 최근 수정 순 | 로그인 |
 | POST /projects | name → id | 로그인 |
 | GET /projects/:pid | 프로젝트 revision, 역할, 파일·원문 목록 | Viewer |
 | PATCH /projects/:pid | revision, name 또는 target | Owner |
@@ -25,6 +25,9 @@
 | GET /projects/:pid/files/:fid | 원문 metadata 또는 이미지 bytes | Viewer |
 | PATCH /projects/:pid/files/:fid | revision, path | Editor |
 | DELETE /projects/:pid/files/:fid | revision, 참조 중 삭제 거부 | Editor |
+| POST /projects/:pid/folders | revision, path; 빈 폴더 추가(`data.folders`) | Editor |
+| PATCH /projects/:pid/folders | revision, from, to; 안의 파일을 한 트랜잭션으로 이동하고 상대 참조 갱신 | Editor |
+| DELETE /projects/:pid/folders | revision, path; 밖에서 참조하는 파일이 있으면 거부 | Editor |
 | PUT /projects/:pid/files/:fid/text | revision, source; 비협업 텍스트 파일 | Editor |
 | POST /projects/:pid/files/:fid/raw | revision; 새 epoch와 15분 복구 잠금 | Editor |
 | PUT /projects/:pid/files/:fid/raw | revision, epoch, rawVersion, source, visual | 잠금 소유 Editor |
@@ -51,7 +54,7 @@
 
 ## WebSocket
 
-`/projects/:pid/documents/:fid/ws?epoch=1&schema=1&clientId=<Yjs clientID>`
+`/projects/:pid/documents/:fid/ws?epoch=1&schema=4&clientId=<Yjs clientID>`
 
 - 업그레이드 시 세션·Origin·읽기 권한·세대·스키마 확인.
 - 서버 → `sync`: 영구 Yjs snapshot, 원문 보존 metadata, revision, role.

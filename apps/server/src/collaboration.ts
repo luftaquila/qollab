@@ -129,7 +129,11 @@ export async function collaboration(app: FastifyInstance) {
               const state = m.state
                 ? {
                     cursor: cursorState.parse(m.state.cursor),
-                    user: { name: u.name, color: "#237f79" },
+                    user: {
+                      name: u.name,
+                      color: "#237f79",
+                      picture: u.picture ?? null,
+                    },
                   }
                 : null;
               member.state = state;

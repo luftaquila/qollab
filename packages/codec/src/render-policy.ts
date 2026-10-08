@@ -1,4 +1,5 @@
 import { parseDocument } from "yaml";
+import { installedFonts, fontKeys, documentClasses } from "./typesetting.js";
 export class PolicyError extends Error {
   code = "RENDER_POLICY";
 }
@@ -7,6 +8,7 @@ const allowed = new Set([
   "subtitle",
   "author",
   "date",
+  "date-format",
   "lang",
   "format",
   "pdf",
@@ -36,11 +38,39 @@ const allowed = new Set([
   "lof",
   "lot",
   "keep-tex",
-  "mainfont",
-  "sansfont",
-  "monofont",
-  "mathfont",
+  ...fontKeys,
+  // Typesetting only: page, paragraph, numbering, captions and LaTeX preamble.
+  // Raw TeX is already allowed in documents; the renderer has no shell escape.
+  "linestretch",
+  "indent",
+  "number-depth",
+  "toc-title",
+  "margin-top",
+  "margin-bottom",
+  "margin-left",
+  "margin-right",
+  "pagestyle",
+  "header-includes",
+  "toccolor",
+  "filecolor",
+  "block-headings",
+  "fig-pos",
+  "cap-location",
+  "fig-cap-location",
+  "tbl-cap-location",
+  "fig-title",
+  "tbl-title",
+  "eq-title",
+  "fig-prefix",
+  "tbl-prefix",
+  "eq-prefix",
+  "sec-prefix",
+  "title-delim",
+  // XeLaTeX by default; LuaLaTeX reproduces LaTeX projects written for it.
+  "pdf-engine",
+  "boxlinks",
 ]);
+export const pdfEngines = ["xelatex", "lualatex"];
 function check(value: unknown, key = "") {
   if (value && typeof value === "object") {
     if (Array.isArray(value)) {
@@ -59,22 +89,19 @@ function check(value: unknown, key = "") {
   } else if (typeof value === "string" && /[\x00]/.test(value))
     throw new PolicyError("NUL in metadata");
   if (
-    ["mainfont", "sansfont", "monofont", "mathfont"].includes(key) &&
+    fontKeys.includes(key) &&
     typeof value === "string" &&
-    ![
-      "Noto Serif CJK KR",
-      "Noto Sans CJK KR",
-      "DejaVu Sans Mono",
-      "Latin Modern Math",
-    ].includes(value)
+    !installedFonts.has(value)
   )
     throw new PolicyError("Font is not installed");
   if (key === "format" && typeof value === "string" && value !== "pdf")
     throw new PolicyError("Only PDF is supported");
+  if (key === "pdf-engine" && !pdfEngines.includes(String(value)))
+    throw new PolicyError("Unsupported PDF engine");
   if (
     key === "documentclass" &&
     typeof value === "string" &&
-    !["article", "report", "book", "scrartcl"].includes(value)
+    !documentClasses.includes(value)
   )
     throw new PolicyError("Unsupported document class");
 }

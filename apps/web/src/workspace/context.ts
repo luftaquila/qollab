@@ -1,0 +1,41 @@
+import { inject, type ComputedRef, type InjectionKey, type Ref } from "vue";
+import type { Heading } from "../editor-commands";
+import type { LabelIndex } from "../editor-labels";
+export interface WorkspaceContext {
+  project: Ref<any>;
+  user: any;
+  file: ComputedRef<any>;
+  editable: ComputedRef<boolean>;
+  owner: ComputedRef<boolean>;
+  history: Ref<any[]>;
+  members: Ref<any[]>;
+  outline: ComputedRef<Heading[]>;
+  outlineLive: ComputedRef<boolean>;
+  labels: Ref<LabelIndex | null>;
+  revealLabel: (id: string) => void;
+  revealPosition: (pos: number) => void;
+  resource: (path: string) => string;
+  selectFile: (f: any) => Promise<void>;
+  addFile: (folder?: string) => Promise<void>;
+  renameFile: (f: any) => Promise<void>;
+  deleteFile: (f: any) => Promise<void>;
+  setTarget: (f: any) => Promise<void>;
+  moveFile: (f: any, folder: string) => Promise<void>;
+  addFolder: (parent?: string) => Promise<void>;
+  renameFolder: (path: string) => Promise<void>;
+  deleteFolder: (path: string) => Promise<void>;
+  uploadImages: (files: File[]) => Promise<string | undefined>;
+  makeCheckpoint: () => Promise<void>;
+  compare: (id: string) => Promise<void>;
+  restore: (id: string) => Promise<void>;
+  invite: (email: string, role: string) => Promise<string | undefined>;
+  changeRole: (m: any, role: string | null, transfer?: boolean) => Promise<void>;
+  scrollToHeading: (index: number) => void;
+  /** Front matter of the open visual document (fences included), null if none. */
+  frontMatter: Ref<string | null>;
+  frontMatterEditable: ComputedRef<boolean>;
+  setFrontMatter: (text: string) => void;
+  saveProjectConfig: (text: string) => Promise<void>;
+}
+export const workspaceKey: InjectionKey<WorkspaceContext> = Symbol("workspace");
+export const useWorkspace = () => inject(workspaceKey)!;

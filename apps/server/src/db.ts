@@ -18,6 +18,9 @@ CREATE INDEX IF NOT EXISTS builds_queue ON builds(status,created);
 CREATE TABLE IF NOT EXISTS audit(id bigserial PRIMARY KEY,project_id uuid,actor text,event text NOT NULL,detail jsonb NOT NULL DEFAULT '{}',created timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS maintenance(singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),frozen boolean NOT NULL DEFAULT false,backup_id text);
 INSERT INTO maintenance(singleton) VALUES(true) ON CONFLICT DO NOTHING;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS updated timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS picture text;
+ALTER TABLE projects ALTER COLUMN updated SET DEFAULT now();
 `);
 }
 export async function transaction<T>(

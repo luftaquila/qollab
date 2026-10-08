@@ -71,7 +71,9 @@ export async function initCodec() {
   builder.editor
     .use(schema.rawNode)
     .use(schema.imageAttributes)
-    .use(schema.sourceIds);
+    .use(schema.labelPlugins)
+    .use(schema.sourceIds)
+    .config(schema.configureLabels);
   await builder.create();
   runtime = builder.editor.action((ctx) => ({
     schema: ctx.get(core.schemaCtx),

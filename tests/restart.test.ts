@@ -1,4 +1,5 @@
 import { it, expect } from "vitest";
+import { SCHEMA_VERSION } from "../packages/codec/src/index.js";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -90,7 +91,7 @@ it("recovers acknowledged changes and finishes a restore interrupted after DB co
       fid = initial.data.files[0].id;
     const history = await api(`/projects/${p.id}/history`);
     const socket = new WebSocket(
-      `ws://127.0.0.1:${port}/api/projects/${p.id}/documents/${fid}/ws?epoch=1&schema=1&clientId=42`,
+      `ws://127.0.0.1:${port}/api/projects/${p.id}/documents/${fid}/ws?epoch=1&schema=${SCHEMA_VERSION}&clientId=42`,
       {
         headers: {
           cookie: "qollab=" + raw,

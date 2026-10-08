@@ -9,9 +9,15 @@ for (const name of ["Alice", "Bob"]) {
   const raw = token(),
     csrf = token(),
     id = "e2e-" + name;
+  // Alice has a Google profile photo; tests serve it from a stubbed route.
   await pool.query(
-    "INSERT INTO users VALUES($1,$2,$3) ON CONFLICT(id) DO NOTHING",
-    [id, name.toLowerCase() + "@example.com", name],
+    "INSERT INTO users(id,email,name,picture) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET picture=$4",
+    [
+      id,
+      name.toLowerCase() + "@example.com",
+      name,
+      name === "Alice" ? "https://lh3.googleusercontent.com/a/qollab-e2e" : null,
+    ],
   );
   await pool.query(
     "INSERT INTO sessions VALUES($1,$2,$3,now()+interval '1 hour')",

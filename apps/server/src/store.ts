@@ -60,8 +60,9 @@ export async function change<T>(
         "INSERT INTO document_generations VALUES($1,$2) ON CONFLICT(id) DO UPDATE SET epoch=GREATEST(document_generations.epoch,EXCLUDED.epoch)",
         [f.id, f.epoch],
       );
+    // `updated` is the last content change shown to people; access changes do not count.
     await db.query(
-      "UPDATE projects SET data=$2,revision=$3,name=$4 WHERE id=$1",
+      `UPDATE projects SET data=$2,revision=$3,name=$4${options.build ? ",updated=now()" : ""} WHERE id=$1`,
       [id, p.data, p.revision, p.name],
     );
     if (options.build) await queueBuild(db, p);
@@ -108,6 +109,13 @@ export async function queueBuild(
   await db.query("DELETE FROM builds WHERE project_id=$1 AND status='queued'", [
     p.id,
   ]);
+  // A running build of older content would be discarded when it finishes
+  // (only current content replaces the PDF). Stopping it lets the new build
+  // start as soon as its quiet period ends; the renderer sees the status.
+  await db.query(
+    "UPDATE builds SET status='cancelled',finished=now() WHERE project_id=$1 AND status='running' AND revision<$2",
+    [p.id, p.data.contentRevision ?? 0],
+  );
   await db.query(
     "INSERT INTO builds(id,project_id,revision,epoch,target,status,input,lease_until,created) VALUES($1,$2,$3,$4,$5,'queued',$6,LEAST(now()+$7*interval '1 millisecond',$8::timestamptz+$9*interval '1 millisecond'),$8)",
     [

@@ -13,5 +13,11 @@ export default defineConfig({
     ],
   },
   server: { proxy: { "/api": { target: "http://127.0.0.1:3000", ws: true } } },
-  build: { manifest: true, sourcemap: true },
+  build: {
+    manifest: true,
+    sourcemap: true,
+    // The CSP allows fonts only from this origin, so small fonts (KaTeX's
+    // Size3) stay files instead of data: URLs.
+    assetsInlineLimit: (file) => (/\.(woff2?|ttf|otf)$/.test(file) ? false : undefined),
+  },
 });

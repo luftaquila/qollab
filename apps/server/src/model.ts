@@ -21,6 +21,8 @@ export interface ProjectData {
   files: ProjectFile[];
   epoch: number;
   target: string;
+  /** Folders without files; folders that hold files follow from file paths. */
+  folders?: string[];
   contentRevision?: number;
   pdfBuild?: string;
   pdfRevision?: number;

@@ -1,4 +1,5 @@
 import { beforeAll, afterAll, it, expect } from "vitest";
+import { SCHEMA_VERSION } from "../packages/codec/src/index.js";
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import * as Y from "yjs";
@@ -41,7 +42,7 @@ async function ws(p: any, who = "owner", epoch = 1) {
     u = people[who],
     messages: any[] = [];
   const socket = new WebSocket(
-    `ws://127.0.0.1:3100/api/projects/${p.id}/documents/${f.id}/ws?epoch=${epoch}&schema=1&clientId=${Math.floor(Math.random() * 1e9)}`,
+    `ws://127.0.0.1:3100/api/projects/${p.id}/documents/${f.id}/ws?epoch=${epoch}&schema=${SCHEMA_VERSION}&clientId=${Math.floor(Math.random() * 1e9)}`,
     { headers: { cookie: "qollab=" + u.raw, origin: config.origin } },
   );
   sockets.push(socket);
@@ -123,6 +124,20 @@ it("exposes no bypass login and enforces Origin, CSRF and viewer on every write"
       { workspace: "example.com", admission: "all", approved: [] },
     ),
   ).toThrow();
+});
+it("keeps only Google profile photo URLs from identity claims", () => {
+  const claims = (picture: unknown) =>
+    validateClaims(
+      { sub: "p", email: "p@example.com", email_verified: true, picture } as any,
+      { workspace: undefined, admission: "all", approved: [] },
+    ).picture;
+  expect(claims("https://lh3.googleusercontent.com/a/abc=s96-c")).toBe(
+    "https://lh3.googleusercontent.com/a/abc=s96-c",
+  );
+  expect(claims("https://evil.example.com/a.png")).toBeNull();
+  expect(claims("http://lh3.googleusercontent.com/a/abc")).toBeNull();
+  expect(claims("javascript:alert(1)")).toBeNull();
+  expect(claims(undefined)).toBeNull();
 });
 it("reports editor activity to the authenticated renderer and clears it on close", async () => {
   const activity = () =>
@@ -437,6 +452,44 @@ it("coalesces edits and leases only the final snapshot after two seconds of quie
     ready.id,
   ]);
 });
+it("stops a running build of older content when an edit queues a new one", async () => {
+  const p = await project();
+  const running = async (revision: number) => {
+    const id = randomUUID(),
+      lease = randomUUID();
+    await pool.query(
+      "INSERT INTO builds(id,project_id,revision,epoch,target,status,input,lease,lease_until) VALUES($1,$2,$3,1,'report.qmd','running','{}',$4,now()+interval '1 minute')",
+      [id, p.id, revision, lease],
+    );
+    const status = () =>
+      app.inject({
+        method: "GET",
+        url: `/api/renderer/builds/${id}/status`,
+        headers: { authorization: "Bearer " + config.rendererToken, "x-render-lease": lease },
+      });
+    return { id, status };
+  };
+  // A rebuild of unchanged content leaves the running build alone.
+  const current = await running(0);
+  const rebuilt = await request("owner", `/projects/${p.id}/builds`, "POST", { revision: 0 });
+  expect(rebuilt.statusCode, rebuilt.body).toBe(200);
+  expect((await current.status()).statusCode).toBe(200);
+  // An edit makes it stale: the renderer is told to stop.
+  const url = `/projects/${p.id}/files/${p.data.files[0].id}/raw`;
+  const edit = (await request("owner", url, "POST", { revision: rebuilt.json().revision })).json();
+  const saved = await request("owner", url, "PUT", {
+    revision: edit.revision,
+    epoch: edit.result.epoch,
+    rawVersion: edit.result.rawVersion,
+    source: "# Changed\n",
+  });
+  expect(saved.statusCode, saved.body).toBe(200);
+  expect((await current.status()).statusCode).toBe(409);
+  const rows = await pool.query("SELECT id,status FROM builds WHERE project_id=$1", [p.id]);
+  expect(rows.rows.find((r) => r.id === current.id).status).toBe("cancelled");
+  expect(rows.rows.filter((r) => r.status === "queued")).toHaveLength(1);
+  await pool.query("UPDATE builds SET status='cancelled' WHERE project_id=$1", [p.id]);
+});
 it("retains the displayed PDF through superseded results and publishes only current content", async () => {
   const p = await project();
   const notifications: any[] = [];
@@ -661,6 +714,176 @@ it("scopes renderer reference caches to project, restore and document generation
     [p.id],
   );
   expect(await key(p.id)).not.toBe(next);
+  await pool.query(
+    "UPDATE builds SET status='cancelled' WHERE status IN ('queued','running')",
+  );
+});
+it("signs visitors into one shared guest account only when anonymous access is enabled", async () => {
+  const off = await app.inject("/api/session");
+  expect(off.json()).toMatchObject({ user: null, anonymous: false });
+  expect(off.headers["set-cookie"]).toBeUndefined();
+  const cookie = (r: { headers: Record<string, unknown> }) =>
+    /qollab=([^;]+)/.exec(String(r.headers["set-cookie"]))![1];
+  config.anonymous = true;
+  try {
+    const first = await app.inject("/api/session"),
+      second = await app.inject("/api/session"),
+      a = first.json(),
+      b = second.json();
+    expect(a.user).toMatchObject({ id: "anonymous", name: "Guest" });
+    expect(a.anonymous).toBe(true);
+    expect(cookie(first)).not.toBe(cookie(second));
+    expect(a.csrf).not.toBe(b.csrf);
+    const headers = (r: typeof first, csrf?: string) => ({
+      cookie: "qollab=" + cookie(r),
+      origin: config.origin,
+      ...(csrf ? { "x-csrf-token": csrf } : {}),
+    });
+    // Writes still need the session's CSRF token.
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/projects",
+          headers: headers(first),
+          payload: { name: "Guest forged" },
+        })
+      ).statusCode,
+    ).toBe(403);
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: headers(first, a.csrf),
+      payload: { name: "Guest shared" },
+    });
+    expect(created.statusCode, created.body).toBe(200);
+    // Another visitor sees the same projects; logging out ends one session only.
+    const listed = await app.inject({
+      url: "/api/projects",
+      headers: headers(second),
+    });
+    expect(listed.json().map((p: any) => p.id)).toContain(created.json().id);
+    const out = await app.inject({
+      method: "POST",
+      url: "/api/logout",
+      headers: headers(first, a.csrf),
+    });
+    expect(out.statusCode).toBe(200);
+    expect(
+      (await app.inject({ url: "/api/projects", headers: headers(second) }))
+        .statusCode,
+    ).toBe(200);
+  } finally {
+    config.anonymous = false;
+  }
+  expect((await app.inject("/api/session")).json().user).toBeNull();
+});
+it("lists projects by their last content change, not by access changes", async () => {
+  const older = await project(),
+    newer = await project();
+  const listed = async () =>
+    (await request("owner", "/projects")).json() as any[];
+  const time = async (id: string) =>
+    new Date((await listed()).find((p) => p.id === id).updated).getTime();
+  const before = await time(older.id);
+  expect(before).toBeGreaterThan(0);
+  await new Promise((r) => setTimeout(r, 20));
+  const p = (await request("owner", "/projects/" + older.id)).json();
+  // A member change is not a content change.
+  await pool.query(
+    "INSERT INTO members VALUES($1,'viewer','viewer') ON CONFLICT DO NOTHING",
+    [older.id],
+  );
+  const role = await request(
+    "owner",
+    `/projects/${older.id}/members/viewer`,
+    "PATCH",
+    { revision: Number(p.revision), role: "editor" },
+  );
+  expect(role.statusCode, role.body).toBe(200);
+  expect(await time(older.id)).toBe(before);
+  const added = await request("owner", `/projects/${older.id}/files`, "POST", {
+    revision: Number(p.revision) + 1,
+    path: "notes.qmd",
+    source: "# Notes\n",
+  });
+  expect(added.statusCode, added.body).toBe(200);
+  expect(await time(older.id)).toBeGreaterThan(before);
+  const order = (await listed()).map((p) => p.id);
+  expect(order.indexOf(older.id)).toBeLessThan(order.indexOf(newer.id));
+  await pool.query(
+    "UPDATE builds SET status='cancelled' WHERE status IN ('queued','running')",
+  );
+});
+it("creates, renames and deletes folders atomically, rewriting references", async () => {
+  const p = await project(),
+    url = `/projects/${p.id}`;
+  const current = async () => (await request("owner", url)).json();
+  const call = async (path: string, method: string, body: any) => {
+    const r = await request("owner", url + path, method, {
+      revision: Number((await current()).revision),
+      ...body,
+    });
+    return r;
+  };
+  const ok = async (r: Promise<any>) => {
+    const response = await r;
+    expect(response.statusCode, response.body).toBe(200);
+    return response.json();
+  };
+  await ok(call("/folders", "POST", { path: "chapters" }));
+  expect((await current()).data.folders).toEqual(["chapters"]);
+  expect((await call("/folders", "POST", { path: "chapters" })).statusCode).toBe(
+    409,
+  );
+  const bytes = await sharp({
+    create: { width: 8, height: 8, channels: 3, background: "#237f79" },
+  })
+    .png()
+    .toBuffer();
+  const image = await ok(
+    call("/images", "POST", {
+      uploadId: randomUUID(),
+      name: "fig.png",
+      bytes: bytes.toString("base64"),
+    }),
+  );
+  const imagePath: string = image.result.file.path;
+  expect(imagePath.startsWith("assets/images/")).toBe(true);
+  await ok(
+    call("/files", "POST", {
+      path: "chapters/one.qmd",
+      source: `# One\n\n![](../${imagePath})\n`,
+    }),
+  );
+  const source = async (path: string) =>
+    (await current()).data.files.find((f: any) => f.path === path)?.source;
+
+  // Renaming the image folder updates links in documents elsewhere.
+  await ok(call("/folders", "PATCH", { from: "assets", to: "media" }));
+  const moved = imagePath.replace(/^assets\//, "media/");
+  expect((await current()).data.files.some((f: any) => f.path === moved)).toBe(
+    true,
+  );
+  expect(await source("chapters/one.qmd")).toContain(`](../${moved})`);
+  // Moving a folder deeper updates its own documents' relative links.
+  await ok(call("/folders", "PATCH", { from: "chapters", to: "parts/chapters" }));
+  expect(await source("parts/chapters/one.qmd")).toContain(`](../../${moved})`);
+  expect((await current()).data.folders).toEqual(["parts/chapters"]);
+  expect(
+    (await call("/folders", "PATCH", { from: "parts", to: "parts/inner" }))
+      .statusCode,
+  ).toBe(400);
+
+  // A folder whose files are still referenced from outside is kept.
+  const blocked = await call("/folders", "DELETE", { path: "media" });
+  expect(blocked.statusCode).toBe(409);
+  expect(blocked.json().code).toBe("REFERENCED_FILE");
+  await ok(call("/folders", "DELETE", { path: "parts" }));
+  await ok(call("/folders", "DELETE", { path: "media" }));
+  const after = await current();
+  expect(after.data.files.map((f: any) => f.path)).toEqual(["report.qmd"]);
+  expect(after.data.folders).toEqual([]);
   await pool.query(
     "UPDATE builds SET status='cancelled' WHERE status IN ('queued','running')",
   );

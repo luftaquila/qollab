@@ -1,0 +1,159 @@
+:root {
+  color-scheme: light;
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo",
+    "Noto Sans KR", "Malgun Gothic", ui-sans-serif, sans-serif;
+  --font-doc:
+    Georgia, "Times New Roman", "Apple SD Gothic Neo", "Noto Serif KR", serif;
+  --font-mono:
+    ui-monospace, "SF Mono", Menlo, Consolas, "D2Coding", monospace;
+
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 15px;
+  --text-xl: 18px;
+
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+
+  --bg: #f5f6f4;
+  --surface: #ffffff;
+  --surface-2: #f6f7f5;
+  --surface-3: #eceee9;
+  --hover: #eef1ed;
+  --active: #e1f0ea;
+  --border: #dde2dc;
+  --border-strong: #c5ccc4;
+  --text: #1b2823;
+  --text-2: #3b4842;
+  --text-muted: #5c6862;
+  --accent: #1c7667;
+  --accent-hover: #155f53;
+  --accent-soft: #e1f1ec;
+  --accent-text: #146153;
+  --on-accent: #ffffff;
+  --danger: #b42318;
+  --danger-soft: #fdecea;
+  --danger-solid: #b42318;
+  --warning: #8a5d00;
+  --warning-soft: #fff5d6;
+  --warning-border: #ecd38c;
+  --success: #2c8556;
+  --pending: #c08a1c;
+  --focus: #2a9a85;
+  --backdrop: rgb(18 30 25 / 45%);
+  --shadow-1: 0 1px 2px rgb(16 24 20 / 6%), 0 1px 3px rgb(16 24 20 / 8%);
+  --shadow-2: 0 8px 24px rgb(16 24 20 / 12%), 0 2px 6px rgb(16 24 20 / 6%);
+  --shadow-3: 0 24px 64px rgb(16 24 20 / 24%);
+
+  --editor-bg: #ffffff;
+  --paper: #ffffff;
+  --pdf-bg: #e4e7e3;
+  --code-bg: #f3f4f1;
+  --inline-code: #b4372f;
+  --raw-bg: #f4f5ef;
+  --raw-border: #d8ddd4;
+  --raw-accent: #90a783;
+  --diff-add-bg: #dcf0e1;
+  --diff-add: #1d6332;
+  --diff-del-bg: #fbe1df;
+  --diff-del: #962b2b;
+  --cursor: #1f7d72;
+  --cursor-selection: rgb(31 125 114 / 22%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #111513;
+    --surface: #171c1a;
+    --surface-2: #1b211f;
+    --surface-3: #242b28;
+    --hover: #252d2a;
+    --active: #1d3a33;
+    --border: #2d3532;
+    --border-strong: #3d4844;
+    --text: #e5ebe8;
+    --text-2: #c4cdc8;
+    --text-muted: #9ba7a1;
+    --accent: #4fb8a3;
+    --accent-hover: #6fcab7;
+    --accent-soft: #1b3832;
+    --accent-text: #7fd4c2;
+    --on-accent: #0a1512;
+    --danger: #f2877f;
+    --danger-soft: #3a1f1d;
+    --danger-solid: #c23a30;
+    --warning: #e6b955;
+    --warning-soft: #312814;
+    --warning-border: #5c4a1e;
+    --success: #5cc28b;
+    --pending: #e0b04a;
+    --focus: #5cc9b3;
+    --backdrop: rgb(0 0 0 / 60%);
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 40%);
+    --shadow-2: 0 8px 24px rgb(0 0 0 / 45%), 0 2px 6px rgb(0 0 0 / 30%);
+    --shadow-3: 0 24px 64px rgb(0 0 0 / 60%);
+    --editor-bg: #171c1a;
+    --pdf-bg: #0e1211;
+    --code-bg: #202725;
+    --inline-code: #f29b90;
+    --raw-bg: #1c2320;
+    --raw-border: #343e3a;
+    --raw-accent: #6e8a62;
+    --diff-add-bg: #16321f;
+    --diff-add: #93deaa;
+    --diff-del-bg: #3a1c1c;
+    --diff-del: #f3a6a6;
+    --cursor: #4fb8a3;
+    --cursor-selection: rgb(79 184 163 / 28%);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111513;
+  --surface: #171c1a;
+  --surface-2: #1b211f;
+  --surface-3: #242b28;
+  --hover: #252d2a;
+  --active: #1d3a33;
+  --border: #2d3532;
+  --border-strong: #3d4844;
+  --text: #e5ebe8;
+  --text-2: #c4cdc8;
+  --text-muted: #9ba7a1;
+  --accent: #4fb8a3;
+  --accent-hover: #6fcab7;
+  --accent-soft: #1b3832;
+  --accent-text: #7fd4c2;
+  --on-accent: #0a1512;
+  --danger: #f2877f;
+  --danger-soft: #3a1f1d;
+  --danger-solid: #c23a30;
+  --warning: #e6b955;
+  --warning-soft: #312814;
+  --warning-border: #5c4a1e;
+  --success: #5cc28b;
+  --pending: #e0b04a;
+  --focus: #5cc9b3;
+  --backdrop: rgb(0 0 0 / 60%);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-2: 0 8px 24px rgb(0 0 0 / 45%), 0 2px 6px rgb(0 0 0 / 30%);
+  --shadow-3: 0 24px 64px rgb(0 0 0 / 60%);
+  --editor-bg: #171c1a;
+  --pdf-bg: #0e1211;
+  --code-bg: #202725;
+  --inline-code: #f29b90;
+  --raw-bg: #1c2320;
+  --raw-border: #343e3a;
+  --raw-accent: #6e8a62;
+  --diff-add-bg: #16321f;
+  --diff-add: #93deaa;
+  --diff-del-bg: #3a1c1c;
+  --diff-del: #f3a6a6;
+  --cursor: #4fb8a3;
+  --cursor-selection: rgb(79 184 163 / 28%);
+}

@@ -33,15 +33,22 @@ export const quartoImageView = $view(imageBlockSchema.node, (ctx) => {
     caption.className = "caption-input";
     caption.placeholder = t("caption");
     caption.setAttribute("aria-label", t("caption"));
+    // Empty figures (older documents) offer an upload instead of a bare button.
+    const empty = document.createElement("div");
+    empty.className = "image-empty";
     const upload = document.createElement("button");
     upload.type = "button";
+    upload.className = "btn primary sm";
     upload.textContent = t("upload");
+    const hint = document.createElement("span");
+    hint.textContent = t("dropImage");
+    empty.append(upload, hint);
     const picker = document.createElement("input");
     picker.type = "file";
     picker.accept = "image/png,image/jpeg";
     picker.hidden = true;
     wrapper.append(img, handle);
-    dom.append(wrapper, caption, upload, picker);
+    dom.append(wrapper, caption, empty, picker);
     function commit(attrs: Record<string, unknown>) {
       const pos = getPos();
       if (disposed || !view.editable || pos == null) return;
@@ -76,7 +83,7 @@ export const quartoImageView = $view(imageBlockSchema.node, (ctx) => {
       wrapper.hidden = !src;
       if (src) picker.remove();
       else if (picker.parentNode !== dom) dom.append(picker);
-      upload.hidden = !!src;
+      empty.hidden = !!src;
       upload.disabled = !view.editable;
       caption.hidden = !src;
       caption.readOnly = !view.editable;

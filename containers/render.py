@@ -5,6 +5,36 @@ from render_cache import capture, validate
 from render_fast import Prepared
 ROOT=pathlib.Path('/work')
 LIMIT=250*1024*1024
+# Same defaults as packages/codec/src/typesetting.ts. Command-line metadata
+# overrides document YAML, so pass a default only when nobody configured it.
+DEFAULT_FONTS={'mainfont':'Noto Serif CJK KR','sansfont':'Noto Sans CJK KR','monofont':'DejaVu Sans Mono'}
+
+# Trusted LuaTeX font caches built into the image (names database and the
+# fonts the warmup used), copied into each LuaLaTeX job's own TEXMFVAR.
+LUATEX_CACHE=pathlib.Path('/opt/qollab/tex-cache')
+
+def settings(target):
+    """YAML of _quarto.yml, then of the document; the document wins."""
+    texts=[]
+    for name in ('_quarto.yml','_quarto.yaml'):
+        if (ROOT/name).is_file():texts.append((ROOT/name).read_text(errors='replace'))
+    source=(ROOT/target).read_text(errors='replace') if (ROOT/target).is_file() else ''
+    front=re.match(r'---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)',source,re.S)
+    if front:texts.append(front.group(1))
+    return texts
+
+def configured_fonts(target):
+    texts=settings(target)
+    return {k for k in DEFAULT_FONTS if any(re.search(r'(?m)^[ \t]*'+k+r'[ \t]*:',t) for t in texts)}
+
+def pdf_engine(target):
+    """XeLaTeX unless the document or project asks for LuaLaTeX (the policy
+    admits no other engine)."""
+    engine='xelatex'
+    for text in settings(target):
+        m=re.search(r'(?m)^[ \t]*pdf-engine[ \t]*:[ \t]*["\']?([A-Za-z]+)',text)
+        if m:engine='lualatex' if m.group(1)=='lualatex' else 'xelatex'
+    return engine
 
 def main():
     # The image contains only caches compiled from trusted Quarto code. Each
@@ -27,7 +57,7 @@ def main():
     for f in job['files']:
         name=f['path'];p=pathlib.PurePosixPath(name)
         if p.is_absolute() or any(x in ('.','..') or x.startswith('.') for x in p.parts) or '\\' in name or ':' in name:raise ValueError('INVALID_PATH')
-        if p.suffix.lower() not in ['.qmd','.md','.yml','.yaml','.bib','.csl','.png','.jpg','.jpeg','.tex']:raise ValueError('FILE_TYPE')
+        if p.suffix.lower() not in ['.qmd','.md','.yml','.yaml','.bib','.csl','.png','.jpg','.jpeg','.tex','.sty']:raise ValueError('FILE_TYPE')
         data=base64.b64decode(f['bytes'],validate=True) if f.get('bytes') else f.get('source','').encode('utf-8')
         total+=len(data)
         if total>LIMIT:raise ValueError('INPUT_LIMIT')
@@ -37,9 +67,11 @@ def main():
     os.environ['TEXMFVAR']=str(ROOT/'.texlive')
     cache=validate(job.get('cache'))
     if cache:(ROOT/'.qollab-aux.json').write_text(json.dumps(cache))
+    engine=pdf_engine(target)
     if prepared_engine:
         try:
-            if int(job['timeout'])>=20:
+            # The prepared fast path is XeLaTeX with the default format only.
+            if engine=='xelatex' and int(job['timeout'])>=20:
                 fast=prepared_engine.render(job)
                 if fast:
                     fast['metrics']['totalMs']=round((time.monotonic()-started)*1000)
@@ -48,7 +80,12 @@ def main():
         finally:prepared_engine.close()
     # XeTeX uses the image's fontconfig index without deserializing the large
     # Lua font tables on every pass. Keep Quarto's automatic reference reruns.
-    cmd=['quarto','render',str(target),'--to','pdf','--no-execute','--no-cache','--output','qollab.pdf','-M','latex-auto-install:false','-M','latex-clean:false','-M','keep-tex:true','-M','mainfont:Noto Serif CJK KR','-M','sansfont:Noto Sans CJK KR','-M','monofont:DejaVu Sans Mono','--pdf-engine','xelatex','--pdf-engine-opt=-no-shell-escape']
+    # LuaTeX reads its font data from the job's cache, seeded from the image.
+    if engine=='lualatex':
+        os.environ['TEXMFCACHE']=str(ROOT/'.texlive')
+        if LUATEX_CACHE.is_dir():shutil.copytree(LUATEX_CACHE,ROOT/'.texlive',dirs_exist_ok=True)
+    fonts=[a for k,v in DEFAULT_FONTS.items() if k not in configured_fonts(target) for a in ('-M',f'{k}:{v}')]
+    cmd=['quarto','render',str(target),'--to','pdf','--no-execute','--no-cache','--output','qollab.pdf','-M','latex-auto-install:false','-M','latex-clean:false','-M','keep-tex:true',*fonts,'--pdf-engine',engine,'--pdf-engine-opt=-no-shell-escape']
     # Logs go to a bounded tmpfs file, never to an unbounded memory PIPE.
     logfile=ROOT/'render.log'
     prepared=time.monotonic()

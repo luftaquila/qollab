@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Fault } from "./db.js";
-export function safePath(value: string) {
+export function safeFolder(value: string) {
   if (
     typeof value !== "string" ||
     !value ||
@@ -24,6 +24,10 @@ export function safePath(value: string) {
       )
   )
     throw new Fault("INVALID_PATH");
+  return value;
+}
+export function safePath(value: string) {
+  safeFolder(value);
   const ext = path.extname(value).toLowerCase();
   if (
     ![
@@ -37,6 +41,7 @@ export function safePath(value: string) {
       ".jpg",
       ".jpeg",
       ".tex",
+      ".sty",
     ].includes(ext)
   )
     throw new Fault("FILE_TYPE");

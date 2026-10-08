@@ -17,7 +17,12 @@ import {
   queueBuild,
 } from "./store.js";
 import { initialize } from "./codec.js";
-import { safePath, relativeAsset, resolveReference } from "./paths.js";
+import {
+  safePath,
+  safeFolder,
+  relativeAsset,
+  resolveReference,
+} from "./paths.js";
 import { config } from "./config.js";
 import { readZip, writeZip } from "./archive.js";
 import type { Project, ProjectFile, ProjectData } from "./model.js";
@@ -25,8 +30,9 @@ const rev = z.number().int().nonnegative();
 const name = z.string().min(1).max(160);
 const params = (r: any) =>
   r.params as { pid: string; fid: string; cid: string; uid: string };
+// rawOwner/rawUntil tell other members who holds the Markdown editing lock.
 export const publicFile = (f: ProjectFile) => {
-  const { state, preservation, bytes, rawOwner, rawUntil, ...rest } = f;
+  const { state, preservation, bytes, ...rest } = f;
   return rest;
 };
 export function file(p: Project, id: string) {
@@ -62,6 +68,59 @@ function textFile(path: string, source: string): ProjectFile {
     ...(path.endsWith(".qmd") ? initialize(source) : {}),
   };
 }
+/**
+ * Moves one file and rewrites relative Markdown links that point to it or that
+ * it contains. Ambiguous textual references stop the move instead of guessing.
+ */
+function moveFile(p: Project, f: ProjectFile, path: string) {
+  if (f.path === "_quarto.yml" || path === "_quarto.yml")
+    if (p.role !== "owner") throw new Fault("FORBIDDEN", 403);
+  if (
+    (f.kind === "image" &&
+      f.path.split(".").pop()!.toLowerCase() !==
+        path.split(".").pop()!.toLowerCase()) ||
+    (f.kind === "document" && !path.endsWith(".qmd")) ||
+    (f.kind === "text" && path.endsWith(".qmd"))
+  )
+    throw new Fault("RENAME_TYPE");
+  if (p.data.files.some((x) => x.path === path))
+    throw new Fault("PATH_EXISTS", 409);
+  const old = f.path;
+  for (const other of p.data.files) {
+    if (!other.source) continue;
+    const oldRelative = relativeAsset(other.path, old);
+    const futurePath = other.id === f.id ? path : other.path;
+    const link = /(!?\[[^\]\n]*\]\()([^\s)]+)([^)]*\))/g;
+    const unmatched = other.source.replace(link, "");
+    if (unmatched.includes(oldRelative) || unmatched.includes(old))
+      throw new Fault("RELATIVE_REFERENCES", 409);
+    const next = other.source.replace(link, (full, prefix, dest, suffix) => {
+      if (/^[a-z]+:|^#|^\//i.test(dest)) return full;
+      const [location, fragment] = dest.split("#", 2);
+      const resolved = resolveReference(other.path, location);
+      const target = resolved === old ? path : resolved;
+      if (resolved !== old && futurePath === other.path) return full;
+      return (
+        prefix +
+        relativeAsset(futurePath, target) +
+        (fragment ? "#" + fragment : "") +
+        suffix
+      );
+    });
+    if (next !== other.source) {
+      if (other.path === "_quarto.yml" && p.role !== "owner")
+        throw new Fault("FORBIDDEN", 403);
+      other.source = next;
+      if (other.kind === "document") {
+        Object.assign(other, initialize(next));
+        other.epoch++;
+      }
+    }
+  }
+  f.path = path;
+  if (p.data.target === old) p.data.target = path;
+  return f;
+}
 export async function routes(
   app: FastifyInstance,
   disconnect: (project: string) => void,
@@ -70,7 +129,8 @@ export async function routes(
     const u = await identity(req);
     return (
       await pool.query(
-        "SELECT p.id,p.name,p.revision,m.role FROM projects p JOIN members m ON m.project_id=p.id WHERE m.user_id=$1 ORDER BY p.created DESC",
+        // Projects from before `updated` existed fall back to their latest checkpoint.
+        "SELECT p.id,p.name,p.revision,m.role,COALESCE(p.updated,(SELECT max(c.created) FROM checkpoints c WHERE c.project_id=p.id),p.created) AS updated FROM projects p JOIN members m ON m.project_id=p.id WHERE m.user_id=$1 ORDER BY updated DESC",
         [u.id],
       )
     ).rows;
@@ -221,59 +281,9 @@ export async function routes(
       b = z.object({ revision: rev, path: z.string() }).parse(req.body);
     safePath(b.path);
     const id = params(req).pid;
-    const result = await change(id, u, b.revision, "editor", async (p) => {
-      const f = file(p, params(req).fid);
-      if (f.path === "_quarto.yml" || b.path === "_quarto.yml")
-        if (p.role !== "owner") throw new Fault("FORBIDDEN", 403);
-      if (
-        (f.kind === "image" &&
-          f.path.split(".").pop()!.toLowerCase() !==
-            b.path.split(".").pop()!.toLowerCase()) ||
-        (f.kind === "document" && !b.path.endsWith(".qmd")) ||
-        (f.kind === "text" && b.path.endsWith(".qmd"))
-      )
-        throw new Fault("RENAME_TYPE");
-      if (p.data.files.some((x) => x.path === b.path))
-        throw new Fault("PATH_EXISTS", 409);
-      const old = f.path;
-      for (const other of p.data.files) {
-        if (!other.source) continue;
-        const oldRelative = relativeAsset(other.path, old);
-        const futurePath = other.id === f.id ? b.path : other.path;
-        const link = /(!?\[[^\]\n]*\]\()([^\s)]+)([^)]*\))/g;
-        const unmatched = other.source.replace(link, "");
-        if (unmatched.includes(oldRelative) || unmatched.includes(old))
-          throw new Fault("RELATIVE_REFERENCES", 409);
-        const next = other.source.replace(
-          link,
-          (full, prefix, dest, suffix) => {
-            if (/^[a-z]+:|^#|^\//i.test(dest)) return full;
-            const [location, fragment] = dest.split("#", 2);
-            const resolved = resolveReference(other.path, location);
-            const target = resolved === old ? b.path : resolved;
-            if (resolved !== old && futurePath === other.path) return full;
-            return (
-              prefix +
-              relativeAsset(futurePath, target) +
-              (fragment ? "#" + fragment : "") +
-              suffix
-            );
-          },
-        );
-        if (next !== other.source) {
-          if (other.path === "_quarto.yml" && p.role !== "owner")
-            throw new Fault("FORBIDDEN", 403);
-          other.source = next;
-          if (other.kind === "document") {
-            Object.assign(other, initialize(next));
-            other.epoch++;
-          }
-        }
-      }
-      f.path = b.path;
-      if (p.data.target === old) p.data.target = b.path;
-      return publicFile(f);
-    });
+    const result = await change(id, u, b.revision, "editor", async (p) =>
+      publicFile(moveFile(p, file(p, params(req).fid), b.path)),
+    );
     disconnect(id);
     events(id, { type: "files" });
     return result;
@@ -302,6 +312,96 @@ export async function routes(
           p.data.files.find((x) => x.kind === "document")?.path || "";
     });
     disconnect(id);
+    return result;
+  });
+  const inside = (path: string, folder: string) =>
+    path.startsWith(folder + "/");
+  app.post("/api/projects/:pid/folders", async (req) => {
+    const u = await mutation(req),
+      b = z.object({ revision: rev, path: z.string() }).parse(req.body);
+    safeFolder(b.path);
+    return change(
+      params(req).pid,
+      u,
+      b.revision,
+      "editor",
+      async (p) => {
+        const folders = p.data.folders || [];
+        if (
+          folders.includes(b.path) ||
+          p.data.files.some((f) => f.path === b.path || inside(f.path, b.path))
+        )
+          throw new Fault("PATH_EXISTS", 409);
+        p.data.folders = [...folders, b.path].sort();
+      },
+      { build: false },
+    );
+  });
+  app.patch("/api/projects/:pid/folders", async (req) => {
+    const u = await mutation(req),
+      b = z
+        .object({ revision: rev, from: z.string(), to: z.string() })
+        .parse(req.body),
+      id = params(req).pid;
+    safeFolder(b.from);
+    safeFolder(b.to);
+    if (b.to === b.from || inside(b.to, b.from))
+      throw new Fault("INVALID_PATH");
+    const result = await change(id, u, b.revision, "editor", async (p) => {
+      const folders = p.data.folders || [],
+        moving = p.data.files.filter((f) => inside(f.path, b.from));
+      if (!moving.length && !folders.some((f) => f === b.from || inside(f, b.from)))
+        throw new Fault("NOT_FOUND", 404);
+      if (
+        folders.includes(b.to) ||
+        p.data.files.some((f) => f.path === b.to || inside(f.path, b.to))
+      )
+        throw new Fault("PATH_EXISTS", 409);
+      // One transaction: either every file moves with its references, or none.
+      for (const f of moving)
+        moveFile(p, f, b.to + f.path.slice(b.from.length));
+      p.data.folders = folders
+        .map((f) =>
+          f === b.from || inside(f, b.from) ? b.to + f.slice(b.from.length) : f,
+        )
+        .sort();
+    });
+    disconnect(id);
+    events(id, { type: "files" });
+    return result;
+  });
+  app.delete("/api/projects/:pid/folders", async (req) => {
+    const u = await mutation(req),
+      b = z.object({ revision: rev, path: z.string() }).parse(req.body),
+      id = params(req).pid;
+    safeFolder(b.path);
+    const result = await change(id, u, b.revision, "editor", async (p) => {
+      const removed = p.data.files.filter((f) => inside(f.path, b.path)),
+        folders = p.data.folders || [];
+      if (!removed.length && !folders.some((f) => f === b.path || inside(f, b.path)))
+        throw new Fault("NOT_FOUND", 404);
+      // Files outside the folder must not reference anything being deleted.
+      for (const doc of p.data.files)
+        if (!inside(doc.path, b.path) && doc.source)
+          for (const f of removed) {
+            const rel = relativeAsset(doc.path, f.path);
+            if (
+              doc.source.includes(rel) ||
+              doc.source.includes(f.path) ||
+              doc.mode === "raw"
+            )
+              throw new Fault("REFERENCED_FILE", 409);
+          }
+      p.data.files = p.data.files.filter((f) => !inside(f.path, b.path));
+      p.data.folders = folders.filter(
+        (f) => f !== b.path && !inside(f, b.path),
+      );
+      if (!p.data.files.some((f) => f.path === p.data.target))
+        p.data.target =
+          p.data.files.find((x) => x.kind === "document")?.path || "";
+    });
+    disconnect(id);
+    events(id, { type: "files" });
     return result;
   });
   app.put("/api/projects/:pid/files/:fid/text", async (req) => {
@@ -526,7 +626,7 @@ export async function routes(
     await access(pool, params(req).pid, u.id);
     return (
       await pool.query(
-        "SELECT u.id,u.email,u.name,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=$1",
+        "SELECT u.id,u.email,u.name,u.picture,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=$1",
         [params(req).pid],
       )
     ).rows;

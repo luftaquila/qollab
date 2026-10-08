@@ -1,0 +1,343 @@
+.editor-session {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.editor-banner {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--warning-border);
+  background: var(--warning-soft);
+  color: var(--text);
+  font-size: var(--text-md);
+}
+.editor-banner > svg {
+  color: var(--warning);
+}
+.editor-scroll {
+  flex: 1;
+  min-height: 0;
+  background: var(--editor-bg);
+}
+.editor-host {
+  min-height: 100%;
+}
+
+/* Crepe colors follow the application theme. */
+.editor-host .milkdown {
+  --crepe-color-background: var(--editor-bg);
+  --crepe-color-on-background: var(--text);
+  --crepe-color-surface: var(--surface-2);
+  --crepe-color-surface-low: var(--surface-3);
+  --crepe-color-on-surface: var(--text);
+  --crepe-color-on-surface-variant: var(--text-2);
+  --crepe-color-outline: var(--border-strong);
+  --crepe-color-primary: var(--accent);
+  --crepe-color-secondary: var(--accent-soft);
+  --crepe-color-on-secondary: var(--text);
+  --crepe-color-inverse: var(--text);
+  --crepe-color-on-inverse: var(--surface);
+  --crepe-color-inline-code: var(--inline-code);
+  --crepe-color-error: var(--danger);
+  --crepe-color-hover: var(--hover);
+  --crepe-color-selected: var(--active);
+  --crepe-color-inline-area: var(--surface-3);
+  --crepe-font-title: var(--font-doc);
+  --crepe-font-default: var(--font-doc);
+  --crepe-font-code: var(--font-mono);
+  --crepe-shadow-1: var(--shadow-1);
+  --crepe-shadow-2: var(--shadow-2);
+  background: var(--editor-bg);
+  color: var(--text);
+}
+.editor-host .milkdown .ProseMirror {
+  max-width: 820px;
+  min-height: 70vh;
+  margin: 0 auto;
+  padding: 40px 56px 160px !important;
+  outline: none !important;
+  font-family: var(--font-doc);
+  font-size: 17px;
+  line-height: 1.8;
+}
+.editor-host .milkdown .ProseMirror h1 {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.editor-host .milkdown .ProseMirror h2 {
+  font-size: 26px;
+}
+.editor-host .milkdown .ProseMirror h3 {
+  font-size: 21px;
+}
+.qollab-raw {
+  border: 1px solid var(--raw-border);
+  border-left: 3px solid var(--raw-accent);
+  border-radius: var(--radius-sm);
+  background: var(--raw-bg) !important;
+  color: var(--text-2);
+  padding: 12px 16px !important;
+  font:
+    13px/1.65 var(--font-mono) !important;
+  white-space: pre-wrap;
+}
+.qollab-raw code {
+  background: none !important;
+  color: inherit !important;
+  font: inherit !important;
+}
+
+/* Figures */
+.milkdown .qollab-image-block {
+  width: 100%;
+  margin: 20px 0;
+}
+.milkdown .qollab-image-block [hidden] {
+  display: none !important;
+}
+.milkdown .qollab-image-block .image-wrapper {
+  display: block;
+  position: relative;
+  max-width: 100%;
+}
+.milkdown .qollab-image-block.selected .image-wrapper {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.milkdown .qollab-image-block .image-wrapper img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  cursor: pointer;
+}
+.milkdown .qollab-image-block .image-resize-handle {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  width: 18px;
+  height: 18px;
+  min-width: 0;
+  padding: 0;
+  border: 2px solid #fff;
+  border-radius: 4px;
+  background: var(--accent);
+  cursor: ew-resize;
+  touch-action: none;
+  opacity: 0;
+}
+.milkdown .qollab-image-block:hover .image-resize-handle,
+.milkdown .qollab-image-block.selected .image-resize-handle,
+.milkdown .qollab-image-block:focus-within .image-resize-handle {
+  opacity: 1;
+}
+.ProseMirror[contenteditable="false"] .qollab-image-block .image-resize-handle {
+  display: none;
+}
+.milkdown .qollab-image-block .caption-input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: italic 15px var(--font-doc);
+  text-align: center;
+}
+.milkdown .qollab-image-block .caption-input:focus {
+  outline: 1px dashed var(--border-strong);
+}
+.milkdown .qollab-image-block .image-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 16px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font: var(--text-sm) var(--font-ui);
+}
+
+/* Remote cursors */
+.ProseMirror-yjs-cursor {
+  position: relative;
+  display: inline !important;
+  margin-right: -1px;
+  margin-left: -1px;
+  border-right: 0;
+  border-left: 2px solid var(--cursor);
+  word-break: normal;
+  pointer-events: none;
+}
+.ProseMirror-yjs-cursor > div {
+  position: absolute;
+  top: -1.4em;
+  left: -2px;
+  padding: 2px 6px;
+  border-radius: 4px 4px 4px 0;
+  background: var(--cursor);
+  color: var(--surface);
+  font: 600 12px/1.3 var(--font-ui);
+  white-space: nowrap;
+  user-select: none;
+}
+.ProseMirror-yjs-selection,
+.yRemoteSelection {
+  background: var(--cursor-selection);
+}
+
+@media (max-width: 760px) {
+  .editor-host .milkdown .ProseMirror {
+    padding: 24px 20px 120px !important;
+    font-size: 16px;
+  }
+}
+
+/* CodeMirror's base theme is light; align it with the application tokens. */
+.editor-host .milkdown .cm-editor {
+  color: var(--text);
+}
+.editor-host .milkdown .cm-gutters {
+  border-right-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
+}
+.editor-host .milkdown .cm-activeLine,
+.editor-host .milkdown .cm-activeLineGutter {
+  background: var(--hover);
+}
+.editor-host .milkdown .cm-cursor {
+  border-left-color: var(--text);
+}
+.editor-host .milkdown .cm-focused .cm-selectionBackground,
+.editor-host .milkdown .cm-selectionBackground {
+  background: var(--cursor-selection) !important;
+}
+
+/* Labels and references */
+.qollab-frontmatter {
+  display: none !important;
+}
+/* References and labels read as part of the text: same font, size and
+   baseline, wrapping like words; the tint marks them. */
+.milkdown .qollab-ref {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  cursor: pointer;
+}
+.milkdown .qollab-ref:hover {
+  text-decoration: underline;
+}
+.milkdown .qollab-ref.qollab-ref-broken {
+  background: var(--danger-soft);
+  color: var(--danger);
+  text-decoration: wavy underline;
+}
+.milkdown .qollab-ref.qollab-ref-cite {
+  background: var(--surface-3);
+  color: var(--text-2);
+  cursor: default;
+}
+.milkdown .qollab-ref.ProseMirror-selectednode {
+  outline: 2px solid var(--accent);
+}
+/* LaTeX commands kept in text: references, labels and other commands. */
+.milkdown .qollab-tex {
+  margin: 0 1px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  user-select: none;
+}
+/* Other commands are code. */
+.milkdown .qollab-tex[data-kind="command"],
+.milkdown .qollab-tex[data-kind="math"] {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+.milkdown .qollab-tex[data-kind="ref"] {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  cursor: pointer;
+}
+.milkdown .qollab-tex[data-kind="ref"]::before {
+  content: "→ ";
+}
+.milkdown .qollab-tex[data-kind="ref"].qollab-ref-broken {
+  background: var(--danger-soft);
+  color: var(--danger);
+  text-decoration: wavy underline;
+}
+.milkdown .qollab-tex[data-kind="label"]::before {
+  content: "#";
+}
+.milkdown .qollab-tex[data-kind="label"] {
+  padding: 0 4px;
+  cursor: pointer;
+}
+.milkdown .qollab-tex[data-kind="math"] {
+  white-space: normal;
+}
+.milkdown .qollab-tex.ProseMirror-selectednode {
+  outline: 2px solid var(--accent);
+}
+.milkdown .qollab-label {
+  border-bottom: 2px dotted var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 60%, transparent);
+}
+/* A label is a small "#" after its text or heading; hovering names it. */
+.milkdown .qollab-label-tag {
+  margin-left: 2px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.milkdown .qollab-label-tag:hover {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.milkdown .qollab-label-tag.heading {
+  margin-left: 10px;
+}
+.milkdown .qollab-flash {
+  animation: qollab-flash 1.5s ease-out;
+}
+@keyframes qollab-flash {
+  0%,
+  30% {
+    background: var(--warning-soft);
+    box-shadow: 0 0 0 4px var(--warning-soft);
+  }
+}
+
+/* Text color marks: exact on light paper, lightened to stay readable in dark mode. */
+.qollab-color {
+  color: var(--qollab-color);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .qollab-color {
+    color: color-mix(in oklab, var(--qollab-color) 62%, white);
+  }
+}
+:root[data-theme="dark"] .qollab-color {
+  color: color-mix(in oklab, var(--qollab-color) 62%, white);
+}

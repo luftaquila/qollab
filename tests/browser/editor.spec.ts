@@ -1,55 +1,6 @@
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
-import { readFile } from "node:fs/promises";
+import { test, expect } from "@playwright/test";
 import sharp from "sharp";
-const origin = "http://127.0.0.1:3200";
-async function login(context: BrowserContext, index = 0) {
-  const users = JSON.parse(await readFile("tmp/e2e-sessions.json", "utf8"));
-  const user = users[index];
-  await context.addCookies([
-    {
-      name: "qollab",
-      value: user.raw,
-      url: origin,
-      httpOnly: true,
-      sameSite: "Lax",
-    },
-  ]);
-  return user;
-}
-async function call(
-  page: Page,
-  user: any,
-  path: string,
-  method = "GET",
-  body?: unknown,
-) {
-  const r = await page.request.fetch(origin + "/api" + path, {
-    method,
-    headers: { origin, "x-csrf-token": user.csrf },
-    data: body,
-  });
-  expect(r.ok(), await r.text()).toBeTruthy();
-  return r.json();
-}
-async function makeProject(page: Page, user: any) {
-  const p = await call(page, user, "/projects", "POST", {
-    name: "Browser " + Date.now(),
-  });
-  await page.goto("/");
-  await page
-    .getByRole("button", { name: /Browser/ })
-    .first()
-    .click();
-  await expect(page.locator(".ProseMirror")).toBeVisible();
-  await expect(
-    page.getByText("Saved to server", { exact: false }),
-  ).toBeVisible();
-  await page.waitForTimeout(300);
-  const unchanged = await call(page, user, "/projects/" + p.id);
-  expect(Number(unchanged.revision)).toBe(0);
-  expect(unchanged.data.files[0].source).toBe("# Untitled\n\n");
-  return p.id;
-}
+import { login, call, makeProject } from "./helpers";
 test("language priority and login shell exclude editor, math and PDF assets", async ({
   browser,
 }) => {
@@ -105,10 +56,10 @@ test("two browsers collaborate, preserve personal undo, upload images and retain
   await pb.keyboard.press("Enter");
   await pb.keyboard.insertText("한글 공동 편집");
   await expect(ea).toContainText("한글 공동 편집");
-  await pa.getByTitle("Undo", { exact: true }).click();
+  await pa.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(ea).toContainText("한글 공동 편집");
   await expect(eb).not.toContainText("Alice wrote this.");
-  await pa.getByTitle("Redo", { exact: true }).click();
+  await pa.getByRole("button", { name: "Redo", exact: true }).click();
   await expect(eb).toContainText("Alice wrote this.");
   await expect(pa.getByText("Saved to server", { exact: false })).toBeVisible();
   // IME protocol through Chromium, with remote edits between composition events.
@@ -131,21 +82,16 @@ test("two browsers collaborate, preserve personal undo, upload images and retain
   await cdp.send("Input.insertText", { text: "한글" });
   await expect(eb).toContainText("한글");
   // Choose and insert an uploaded image only after the asset has been persisted.
-  await pa.getByRole("button", { name: "Images", exact: true }).click();
+  await pa.getByRole("button", { name: "Insert image", exact: true }).click();
   const png = await sharp({
     create: { width: 120, height: 60, channels: 3, background: "#237f79" },
   })
     .png()
     .toBuffer();
   await pa
-    .locator('input[type=file][accept="image/png,image/jpeg"]')
+    .locator('.modal input[type=file][accept="image/png,image/jpeg"]')
     .setInputFiles({ name: "figure.png", mimeType: "image/png", buffer: png });
-  await expect(pa.locator(".modal")).toBeVisible();
-  await pa.getByLabel("Caption", { exact: true }).fill("Example figure");
-  await pa
-    .locator(".modal")
-    .getByRole("button", { name: "Insert", exact: true })
-    .click();
+  await expect(pa.locator(".modal")).toHaveCount(0);
   await expect(
     pa.locator(".milkdown img[src*=resource]").first(),
   ).toBeVisible();
@@ -189,7 +135,7 @@ test("two browsers collaborate, preserve personal undo, upload images and retain
     .toBe(2);
   await pa
     .locator(".modal")
-    .getByRole("button", { name: "Insert", exact: true })
+    .getByRole("button", { name: "Save", exact: true })
     .click();
   await expect
     .poll(
@@ -204,7 +150,7 @@ test("two browsers collaborate, preserve personal undo, upload images and retain
     "POST",
     { revision: Number(p.revision) },
   );
-  await pa.getByRole("button", { name: "Reopen", exact: true }).click();
+  // Without unsent edits the restored generation reopens automatically.
   await expect(pa.locator(".milkdown img[src*=resource]")).toHaveCount(1);
   await expect
     .poll(
@@ -215,11 +161,9 @@ test("two browsers collaborate, preserve personal undo, upload images and retain
     )
     .toBe(1);
   await pa.screenshot({ path: "tmp/editor-collab.png" });
+  // A reload returns to the same project and file.
   await pa.reload();
-  await pa
-    .getByRole("button", { name: /Browser/ })
-    .first()
-    .click();
+  await expect(pa).toHaveURL(new RegExp(`/projects/${id}/files/`));
   await expect(pa.locator(".ProseMirror")).toContainText("한글");
   expect(errors).toEqual([]);
   await a.close();
@@ -620,9 +564,9 @@ test("image drag and properties share Quarto width across peers, undo and reopen
   await peer.goto("/");
   await peer.getByRole("button", { name: new RegExp(p.name) }).click();
   await expect(peer.locator(".ProseMirror")).toBeVisible();
-  await page.getByRole("button", { name: "Images", exact: true }).click();
+  await page.getByRole("button", { name: "Insert image", exact: true }).click();
   await page
-    .locator('input[type=file][accept="image/png,image/jpeg"]')
+    .locator('.modal input[type=file][accept="image/png,image/jpeg"]')
     .setInputFiles({
       name: "resize.png",
       mimeType: "image/png",
@@ -632,11 +576,6 @@ test("image drag and properties share Quarto width across peers, undo and reopen
         .png()
         .toBuffer(),
     });
-  await expect(page.locator(".modal")).toBeVisible();
-  await page
-    .locator(".modal")
-    .getByRole("button", { name: "Insert", exact: true })
-    .click();
   const image = page.locator(".qollab-image-block img"),
     otherImage = peer.locator(".qollab-image-block img");
   await expect(image).toBeVisible();
@@ -668,9 +607,9 @@ test("image drag and properties share Quarto width across peers, undo and reopen
         (await image.boundingBox())!.width,
     )
     .toBeCloseTo(1, 1);
-  await page.getByTitle("Undo", { exact: true }).click();
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect.poll(source).toContain('width="80%"');
-  await page.getByTitle("Redo", { exact: true }).click();
+  await page.getByRole("button", { name: "Redo", exact: true }).click();
   await expect.poll(source).toMatch(/width="40(?:\.\d+)?%"/);
   await image.click();
   await page
@@ -679,14 +618,13 @@ test("image drag and properties share Quarto width across peers, undo and reopen
   await page.getByLabel(/^Width/).fill("25%");
   await page
     .locator(".modal")
-    .getByRole("button", { name: "Insert", exact: true })
+    .getByRole("button", { name: "Save", exact: true })
     .click();
   await expect.poll(source).toContain('width="25%"');
   await expect
     .poll(async () => (await image.boundingBox())!.width / initial)
     .toBeCloseTo(0.3125, 1);
   await page.reload();
-  await page.getByRole("button", { name: new RegExp(p.name) }).click();
   await expect(page.locator(".qollab-image-block img")).toBeVisible();
   await expect.poll(source).toContain('width="25%"');
   await expect

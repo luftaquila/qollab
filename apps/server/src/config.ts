@@ -4,6 +4,12 @@ const number = (key: string, fallback: number) => {
   if (!Number.isFinite(n) || n < 1) throw new Error(`Invalid ${key}`);
   return n;
 };
+const flag = (key: string) => {
+  const value = (process.env[key] || "false").toLowerCase();
+  if (!["true", "false"].includes(value))
+    throw new Error(`${key} must be true or false`);
+  return value === "true";
+};
 export const config = {
   port: number("PORT", 3000),
   host: process.env.HOST || "127.0.0.1",
@@ -20,6 +26,8 @@ export const config = {
       .map((v) => v.trim().toLowerCase())
       .filter(Boolean) || [],
   admission: process.env.ACCOUNT_POLICY || "approval",
+  // Opt-in: anyone who can reach the server works as one shared guest account.
+  anonymous: flag("ANONYMOUS_ACCESS"),
   rendererToken: process.env.RENDERER_TOKEN || "",
   adminToken: process.env.ADMIN_TOKEN || "",
   documentBytes: number("MAX_DOCUMENT_BYTES", 2 * 1024 * 1024),

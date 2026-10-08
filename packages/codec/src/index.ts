@@ -2,9 +2,13 @@ import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import type { Node as PMNode, Schema } from "@milkdown/kit/prose/model";
-import { imageWidth } from "./image.js";
+import { colors, texCommands, withoutLabels } from "./labels.js";
+import { figureAttrs, figureMarkdown } from "./image.js";
+import { nestedRawSpans } from "./raw.js";
 
-export const SCHEMA_VERSION = 1;
+// 2: labels (`[text]{#id}`, heading `{#id}`) and references (`@id`) as nodes.
+// 3: underline (`[text]{.underline}`) and text color (`\textcolor`) marks.
+export const SCHEMA_VERSION = 4;
 export interface CodecRuntime {
   schema: Schema;
   parse: (source: string) => PMNode;
@@ -30,6 +34,44 @@ export interface Decoded {
 const parser = unified().use(remarkParse).use(remarkGfm);
 const key = (node: PMNode) => JSON.stringify(node.toJSON());
 
+// A figure alone in a paragraph (also inside a list item) decodes visually.
+const FIGURE_LINE = /^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+)?!\[[^\]\n]*\]\([^\s)]+\)\{([^{}\n]*)\}[ \t]*$/;
+function withoutFigures(text: string) {
+  return text
+    .split(/(\n[ \t]*\n)/)
+    .map((chunk) => {
+      const m = FIGURE_LINE.exec(chunk);
+      return m && figureAttrs(m[1]) ? "" : chunk;
+    })
+    .join("");
+}
+// LaTeX commands with arguments stay text in the editor, but Markdown has read
+// the backslash escapes in them (`\textbf{50\%}` holds `50%`), so writing the
+// text back would change the LaTeX. A paragraph with both stays raw.
+const OPAQUE = ["inlineCode", "inlineMath", "html"];
+function escapedLatex(node: any, source: string): boolean {
+  if (["paragraph", "heading", "tableCell"].includes(node.type)) {
+    const { start, end } = node.position;
+    let text = source.slice(start.offset, end.offset);
+    const blank = (n: any) => {
+      for (const child of n.children || []) {
+        if (OPAQUE.includes(child.type)) {
+          const from = child.position.start.offset - start.offset;
+          const to = child.position.end.offset - start.offset;
+          text = text.slice(0, from) + " ".repeat(to - from) + text.slice(to);
+        } else blank(child);
+      }
+    };
+    blank(node);
+    // Math is read by LaTeX as written (this parser has no math syntax).
+    text = text
+      .replace(/(?<!\\)\$\$[\s\S]*?(?<!\\)\$\$|(?<!\\)\$[^$\n]+?(?<!\\)\$/g, "")
+      .replace(colors(), "")
+      .replace(texCommands(), "");
+    return /\\[a-zA-Z]+\*?[[{]/.test(text) && /\\[!-/:-@[-`{-~]/.test(text);
+  }
+  return (node.children || []).some((child: any) => escapedLatex(child, source));
+}
 // A deliberately conservative boundary: unsupported inline syntax promotes its
 // containing block to editable raw text. Never guess where malformed fences end.
 function ranges(
@@ -38,7 +80,7 @@ function ranges(
   const result: { start: number; end: number; raw: boolean }[] = [];
   let cursor = 0;
   if (/^---\r?\n/.test(source)) {
-    const end = /^---\s*$/gm;
+    const end = /^---[ \t]*$/gm;
     end.lastIndex = source.indexOf("\n") + 1;
     const match = end.exec(source);
     if (!match) throw new Error("UNCLOSED_YAML");
@@ -87,10 +129,15 @@ function ranges(
       }
       continue;
     }
+    // Raw blocks nested in a list stay raw nodes inside the visual list.
+    let probe = text;
+    for (const [from, to] of nestedRawSpans(child, rest).reverse())
+      probe = probe.slice(0, from - (start - cursor)) + probe.slice(to - (start - cursor));
     const raw =
       ["html", "definition", "footnoteDefinition"].includes(child.type) ||
+      escapedLatex(child, rest) ||
       /(?:\{[#.=]|\{\{|\[@|(?<![\w])@[a-zA-Z][\w:-]*|\[\^|^\s*#\||```\{|~~~\{|\\(?:begin|end|input|include|newcommand)|\]\{)/m.test(
-        text,
+        withoutLabels(withoutFigures(probe)),
       );
     result.push({ start, end, raw });
   }
@@ -109,30 +156,15 @@ export function decode(source: string, rt: CodecRuntime): Decoded {
           text,
         );
       if (figure) {
-        const attrs = figure[4] || "";
-        const known = attrs
-          .replace(
-            /#[\w-]+|(?:fig-alt|width|fig-align)=(?:"[^"]*"|'[^']*'|[^\s]+)/g,
-            "",
-          )
-          .trim();
-        if (!known) {
-          const prop = (name: string) =>
-            new RegExp(name + "=(?:\"([^\"]*)\"|'([^']*)'|([^\\s]+))")
-              .exec(attrs)
-              ?.slice(1)
-              .find((v) => v !== undefined) || "";
+        const quarto = figureAttrs(figure[4] || "");
+        if (quarto)
           parsed = [
             rt.schema.nodes["image-block"].create({
               src: figure[2],
               caption: figure[1],
-              alt: prop("fig-alt"),
-              width: prop("width"),
-              align: prop("fig-align"),
-              identifier: /#([\w-]+)/.exec(attrs)?.[1] || "",
+              ...quarto,
             }),
           ];
-        }
       }
       if (parsed.length) {
       } else if (r.raw)
@@ -208,37 +240,34 @@ export function encode(
   if (key(doc) === saved.fingerprint) return saved.original;
   const used = new Set<number>();
   const output: string[] = [];
+  let rewritten = false;
   doc.forEach((node) => {
+    // A figure without an uploaded image has nothing to write; `![]()` would
+    // fail to parse back and break the PDF.
+    if (node.type.name === "image-block" && !node.attrs.src) return;
     const match = saved.segments.findIndex(
       (s, i) => !used.has(i) && s.key === key(node),
     );
     if (match >= 0) {
       used.add(match);
       const s = saved.segments[match];
-      output.push((output.length ? s.before || "\n\n" : s.before) + s.source);
+      // A rewritten block drops trailing newlines that the original segment
+      // (e.g. YAML front matter) carried; keep the blocks a paragraph apart.
+      const before =
+        rewritten && !/\n[ \t]*\n/.test(s.before) ? "\n\n" : s.before || "\n\n";
+      output.push((output.length ? before : s.before) + s.source);
+      rewritten = false;
     } else {
       const rendered =
         node.type.name === "qollab_raw" ? node.textContent : render(node, rt);
       output.push((output.length ? "\n\n" : "") + rendered.trimEnd());
+      rewritten = true;
     }
   });
   return output.join("") + saved.suffix;
 }
 function render(node: PMNode, rt: CodecRuntime): string {
-  if (node.type.name === "image-block") {
-    const a = node.attrs;
-    const safe = (s: unknown) =>
-      String(s || "")
-        .replaceAll('"', '\\"')
-        .replaceAll("\n", " ");
-    let attrs = "";
-    if (a.identifier) attrs += ` #${safe(a.identifier)}`;
-    if (a.alt) attrs += ` fig-alt="${safe(a.alt)}"`;
-    const width = imageWidth(a);
-    if (width) attrs += ` width="${safe(width)}"`;
-    if (a.align) attrs += ` fig-align="${safe(a.align)}"`;
-    return `![${String(a.caption || "").replaceAll("]", "\\]")}](${a.src})${attrs ? "{" + attrs.trim() + "}" : ""}`;
-  }
+  if (node.type.name === "image-block") return figureMarkdown(node.attrs);
   return rt.serialize(rt.schema.node("doc", null, [node]));
 }
 export function validateDocument(doc: PMNode) {

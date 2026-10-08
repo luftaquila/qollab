@@ -14,7 +14,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Open `http://localhost:3000`. The default port binds to loopback. Configure a Google web OAuth client and `APPROVED_EMAILS` in `.env` to sign in. The callback URI is `${PUBLIC_ORIGIN}/api/auth/callback`. There is no password or development login in production images.
+Open `http://localhost:3000`. The default port binds to loopback. Configure a Google web OAuth client and `APPROVED_EMAILS` in `.env` to sign in. The callback URI is `${PUBLIC_ORIGIN}/api/auth/callback`. There is no password login. `ANONYMOUS_ACCESS=true` (off by default) lets anyone who can reach the server work as one shared guest account without signing in; use it only on trusted local networks ([details](docs/operations.md#로그인-없는-접근)).
 
 For access from another device, set `BIND_ADDRESS=0.0.0.0` and set `PUBLIC_ORIGIN` to the address used by that device, then run `docker compose up -d app`. See [network access](docs/operations.md#다른-기기에서-접속) for LAN and HTTPS configuration.
 
@@ -29,12 +29,19 @@ See [operations](docs/operations.md) for socket permissions, HTTPS, limits and b
 ## Included
 
 - Shared Markdown editing, Korean IME, remote cursors and personal undo/redo.
-- Fixed formatting bar, lists, links, images, tables, code and math.
+- Workspace with an activity rail (files, outline, document settings, history, members), resizable PDF preview that follows the editor's position (can be turned off), right-click menus, light and dark themes.
+- Formatting toolbar for underline, text color, lists, links, images, tables, code and math that never edits YAML front matter by accident; one image dialog uploads or reuses project images.
+- Document settings for paper, margins, date, fonts (including a separate Hangul font), spacing, numbering, contents, link colors, caption labels and LaTeX preamble, per document or project-wide in `_quarto.yml`, each showing the value that applies when left empty, with free YAML editing.
+- XeLaTeX by default or LuaLaTeX per document or project, with project `.tex` templates and `.sty` packages, so existing LaTeX documents (kotex/luatexko) render the same.
+- Writing help for Markdown, math, Quarto and common LaTeX commands; Korean and English interface following the browser or chosen in the account menu.
+- Folders: create, rename, delete and drag files between them; links are rewritten.
+- Labels on headings, figures or any span of text, LaTeX `\label`/`\ref` kept as chips (typed `\ref{…}` becomes one), raw LaTeX blocks such as tables inside list items, and references that jump to their target in the editor and link inside the PDF.
+- Right-click menus for each editor element, refresh-safe URLs and build errors summarized from the log.
 - Preserved YAML and unsupported Quarto syntax in editable raw blocks; exclusive recovery editing for uncertain boundaries.
 - Google OIDC, expiring invitations, Owner/Editor/Viewer roles and ownership transfer.
 - PNG/JPEG upload, paste and drop; figure properties, replacement and asset reuse.
 - Project files, relative links, checkpoints, source diff, complete project restore and ZIP import/export.
-- Automatic PDF builds, last successful preview, cancellation and isolated disposable job containers.
+- Automatic PDF builds that stop outdated runs when editing continues, last successful preview, cancellation and isolated disposable job containers.
 - Consistent backup/restore of source, images, permissions, collaborative state and history.
 
 Commenting, suggestions, full offline editing, simultaneous Visual/Source editing, executable user code and advanced page layout are outside 0.1.0. Google sign-in with a real account requires deployment credentials; automated OIDC tests use a signed local provider.

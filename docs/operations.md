@@ -51,6 +51,16 @@ Google의 [redirect URI 규칙](https://developers.google.com/identity/protocols
 
 Google sub를 사용자 ID로 사용한다. 이메일 변경으로 계정을 합치지 않는다. Google token은 저장하지 않는다. 세션 cookie는 HttpOnly/SameSite=Lax, HTTPS origin에서는 Secure다. 변경 API의 CSRF와 Origin 검사는 항상 활성화된다.
 
+### 로그인 없는 접근
+
+`ANONYMOUS_ACCESS=true`이면 세션이 없는 모든 방문자를 공유 게스트 계정 하나(`anonymous`)로 로그인시킨다. 기본값은 `false`다.
+
+- 서버에 접근할 수 있는 누구나 게스트 계정의 프로젝트를 읽고 수정·삭제할 수 있다. 신뢰하는 로컬 환경이나 시험용 배포에서만 사용한다. 공개 주소에는 사용하지 않는다.
+- 방문자마다 세션과 CSRF 토큰은 따로 발급하고, Origin·CSRF 검사는 그대로 적용한다. 공동편집 접속자 이름은 모두 `Guest`로 표시된다.
+- Google 로그인과 함께 설정할 수 있지만, 로그인한 사용자와 게스트는 서로 다른 계정이다. 게스트 프로젝트를 공유하려면 Owner인 게스트가 멤버 패널에서 초대한다.
+- 옵션을 끄면 게스트 계정으로 로그인할 수 없으므로, 게스트 프로젝트는 끄기 전에 ZIP으로 내보내거나 다른 계정으로 소유권을 넘긴다.
+- 시작 시 서버 로그에 경고를 남긴다.
+
 ### rootless Podman (Linux)
 
 ```sh
@@ -77,6 +87,7 @@ podman compose up -d
 | MAX_PROJECT_BYTES | 262144000 | 현재 프로젝트 전체 원본 크기 |
 | MAX_HISTORY_BYTES | 1073741824 | 프로젝트 체크포인트 저장 한도 |
 | SESSION_HOURS | 168 | 세션 수명 |
+| ANONYMOUS_ACCESS | false | 로그인 없이 공유 게스트 계정으로 접근 ([주의](#로그인-없는-접근)) |
 | CHECKPOINT_MS | 300000 | 변경이 있는 프로젝트의 자동 체크포인트 |
 | BUILD_DEBOUNCE_MS | 2000 | 마지막 수정 후 자동 빌드 대기 |
 | BUILD_MAX_WAIT_MS | 10000 | 연속 입력 중 최대 대기 |
@@ -94,6 +105,14 @@ podman compose up -d
 빈 컨테이너에서는 기본 형식의 XeLaTeX 패키지·폰트 초기화까지 미리 수행한다. 기본 설정의 최상위 문서에서 일반 서식·표·이미지·기본 수식은 같은 Pandoc/Quarto 필터와 XeLaTeX로 빠르게 생성한다. YAML 설정, Raw TeX, 인용·교차참조, 중첩 문서 경로, 100KB 초과 본문, 추가 수식 명령, 변경된 표 너비 등은 전체 Quarto 경로를 사용한다. 미리보기와 다운로드는 같은 PDF이며, 글꼴·여백·조판 엔진을 바꾸지 않는다. 준비되지 않은 작업이나 연속 입력·동시 사용에서는 고속 경로의 지연 시간을 보장하지 않는다.
 
 관리자는 같은 프로젝트·문서 경로·프로젝트 및 문서 세대의 TeX 참조 정보를 최대 1시간 재사용한다. 관리자 메모리 전체 16MiB, 작업별 디코딩된 참조 파일 1MiB 제한이며 디스크·DB·Git에는 저장하지 않는다. 새 컨테이너에서 생성한 TeX의 preamble이 같을 때만 복원하고, Quarto가 참조 변경에 필요한 재조판을 결정한다. 캐시로 인한 조판 실패는 같은 작업 제한 시간 안에서 새로 빌드한다. 관리자 재시작은 이 최적화 상태를 버리며 문서나 PDF를 잃지 않는다.
+
+### 문서 설정과 글꼴
+
+조판 엔진은 기본이 XeLaTeX이다. 문서나 `_quarto.yml`에 `pdf-engine: lualatex`을 쓰면(문서 설정 → 구성 → 조판 엔진) LuaLaTeX로 만든다. kotex(luatexko)로 작성된 기존 LaTeX 문서는 한글 줄바꿈 규칙이 엔진마다 달라 LuaLaTeX에서만 같은 조판이 나온다. LuaLaTeX 작업은 이미지에 미리 만든 luaotfload 글꼴 데이터베이스와 기본 글꼴·Pretendard 캐시(`/opt/qollab/tex-cache`)를 작업 디렉터리로 복사해 쓰므로 글꼴 목록을 다시 만들지 않는다. 그래도 XeLaTeX 고속 경로를 쓰지 않으므로 PDF 생성이 몇 배 느리다. 렌더 정책은 `xelatex`, `lualatex` 외의 엔진을 거부한다.
+
+프로젝트에는 `.tex`와 함께 `.sty` 파일을 둘 수 있다. 작업 디렉터리가 TeX 검색 경로의 처음이므로 같은 이름의 시스템 패키지보다 먼저 읽힌다. 셸 실행은 막혀 있어 문서 본문의 Raw TeX와 같은 권한이다.
+
+문서 설정 패널에서 고를 수 있는 글꼴은 렌더 이미지에 설치된 글꼴(`packages/codec/src/typesetting.ts`)과 같다. Pretendard(SIL OFL 1.1)는 Regular와 Bold를 고정된 릴리스(1.3.9, SHA-256 확인)에서 설치한다. 다른 글꼴이 필요하면 렌더 이미지에 설치하고 이 목록에 추가한다. 렌더 정책은 목록에 없는 글꼴 이름을 거부한다. `CJKmainfont`(영문 글꼴 + 한글 글꼴)는 xeCJK를 사용하며, 렌더 이미지에 ctex의 `ctexhook.sty`와 한국어 규칙용 `xeCJK.cfg`가 들어 있다. 밑줄(`[글자]{.underline}`, 색 안의 `\ul`)은 한글에서도 줄바꿈되도록 `soul.sty`와 `ulem.sty`를 쓰며, 둘 다 고정한 Debian 패키지에서 파일만 꺼내 설치한다.
 
 ## 백업·복원
 

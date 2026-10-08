@@ -9,6 +9,7 @@ export interface Identity {
   id: string;
   email: string;
   name: string;
+  picture?: string | null;
   csrf: string;
   session: string;
 }
@@ -22,6 +23,12 @@ export async function identity(req: FastifyRequest): Promise<Identity> {
   if (!r.rowCount) throw new Fault("UNAUTHENTICATED", 401);
   return r.rows[0];
 }
+/** The shared account for ANONYMOUS_ACCESS. Google subjects never use this id. */
+export const guest = {
+  id: "anonymous",
+  email: "anonymous@qollab.invalid",
+  name: "Guest",
+};
 export function sameSecret(actual: string, expected: string) {
   return (
     !!expected &&
@@ -64,15 +71,28 @@ export function validateClaims(
     id: claims.sub,
     email: claims.email,
     name: String(claims.name || claims.email),
+    picture: profilePicture(claims.picture),
   };
 }
+/** Google profile photos only; anything else is ignored rather than embedded. */
+export function profilePicture(value: unknown) {
+  if (typeof value !== "string" || value.length > 2048) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname.endsWith(".googleusercontent.com")
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
 export async function establishSession(
-  user: { id: string; email: string; name: string },
+  user: { id: string; email: string; name: string; picture?: string | null },
   reply: FastifyReply,
 ) {
   await pool.query(
-    "INSERT INTO users VALUES($1,$2,$3) ON CONFLICT(id) DO UPDATE SET email=$2,name=$3",
-    [user.id, user.email, user.name],
+    "INSERT INTO users(id,email,name,picture) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET email=$2,name=$3,picture=$4",
+    [user.id, user.email, user.name, user.picture ?? null],
   );
   const raw = token(),
     csrf = token();
@@ -108,15 +128,30 @@ export async function authRoutes(
     );
     return client;
   }
-  app.get("/api/session", async (req) => {
-    let user: Identity | null = null;
+  app.get("/api/session", async (req, reply) => {
+    let user: {
+        id: string;
+        email: string;
+        name: string;
+        picture?: string | null;
+      } | null = null,
+      csrf: string | undefined;
     try {
-      user = await identity(req);
+      const found = await identity(req);
+      user = found;
+      csrf = found.csrf;
     } catch {}
+    if (!user && config.anonymous) {
+      csrf = await establishSession(guest, reply);
+      user = guest;
+    }
     return {
-      user: user ? { id: user.id, email: user.email, name: user.name } : null,
-      csrf: user?.csrf,
+      user: user
+        ? { id: user.id, email: user.email, name: user.name, picture: user.picture ?? null }
+        : null,
+      csrf,
       oauthConfigured: !!provided || !!(config.clientId && config.clientSecret),
+      anonymous: config.anonymous,
     };
   });
   app.get("/api/auth/google", async (req, reply) => {
@@ -170,7 +205,8 @@ export async function authRoutes(
   app.post("/api/logout", async (req, reply) => {
     const u = await mutation(req);
     await pool.query("DELETE FROM sessions WHERE id=$1", [u.session]);
-    disconnect(u.id);
+    // Other visitors share the guest account; only this session ends.
+    if (u.id !== guest.id) disconnect(u.id);
     reply.clearCookie("qollab", { path: "/" });
     return { ok: true };
   });
