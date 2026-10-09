@@ -102,17 +102,19 @@ podman compose up -d
 
 편집자의 문서 연결이 열려 있으면 다음 작업을 위한 빈 컨테이너를 최대 하나 미리 시작한다. 각 컨테이너에는 문서를 한 번만 전달하고 작업 후 삭제한다. 대기 시간이 지난 빈 컨테이너는 삭제하고 편집자가 남아 있으면 새로 준비한다. 뷰어 연결만 있는 경우에는 갱신하지 않는다. 앱이 응답하지 않으면 15초 안에 갱신이 멈추고, 남은 빈 컨테이너도 자신의 대기 시간 후 삭제한다. 컨테이너 작업 기한을 별도로 적용하는 엔진 어댑터에서는 빌드 제한 시간에 이 대기 시간과 시작 여유 시간을 더해야 한다.
 
-빈 컨테이너에서는 기본 형식의 XeLaTeX 패키지·폰트 초기화까지 미리 수행한다. 기본 설정의 최상위 문서에서 일반 서식·표·이미지·기본 수식은 같은 Pandoc/Quarto 필터와 XeLaTeX로 빠르게 생성한다. YAML 설정, Raw TeX, 인용·교차참조, 중첩 문서 경로, 100KB 초과 본문, 추가 수식 명령, 변경된 표 너비 등은 전체 Quarto 경로를 사용한다. 미리보기와 다운로드는 같은 PDF이며, 글꼴·여백·조판 엔진을 바꾸지 않는다. 준비되지 않은 작업이나 연속 입력·동시 사용에서는 고속 경로의 지연 시간을 보장하지 않는다.
-
-관리자는 같은 프로젝트·문서 경로·프로젝트 및 문서 세대의 TeX 참조 정보를 최대 1시간 재사용한다. 관리자 메모리 전체 16MiB, 작업별 디코딩된 참조 파일 1MiB 제한이며 디스크·DB·Git에는 저장하지 않는다. 새 컨테이너에서 생성한 TeX의 preamble이 같을 때만 복원하고, Quarto가 참조 변경에 필요한 재조판을 결정한다. 캐시로 인한 조판 실패는 같은 작업 제한 시간 안에서 새로 빌드한다. 관리자 재시작은 이 최적화 상태를 버리며 문서나 PDF를 잃지 않는다.
+PDF는 Pandoc(Markdown → Typst)과 Typst로 만든다. 렌더 이미지에 Quarto는 없다. Typst는 한 번의 실행에서 목차·교차참조·쪽 참조를 해결하므로 이전 빌드의 참조 상태를 보관하거나 재사용하지 않는다. 미리보기와 다운로드는 같은 PDF다. 렌더 시간 로그(`render-timing`)의 `worker`에는 입력 준비(`prepareMs`), Pandoc 변환(`pandocMs`), Typst 조판(`typstMs`) 시간이 들어 있다.
 
 ### 문서 설정과 글꼴
 
-조판 엔진은 기본이 XeLaTeX이다. 문서나 `_quarto.yml`에 `pdf-engine: lualatex`을 쓰면(문서 설정 → 구성 → 조판 엔진) LuaLaTeX로 만든다. kotex(luatexko)로 작성된 기존 LaTeX 문서는 한글 줄바꿈 규칙이 엔진마다 달라 LuaLaTeX에서만 같은 조판이 나온다. LuaLaTeX 작업은 이미지에 미리 만든 luaotfload 글꼴 데이터베이스와 기본 글꼴·Pretendard 캐시(`/opt/qollab/tex-cache`)를 작업 디렉터리로 복사해 쓰므로 글꼴 목록을 다시 만들지 않는다. 그래도 XeLaTeX 고속 경로를 쓰지 않으므로 PDF 생성이 몇 배 느리다. 렌더 정책은 `xelatex`, `lualatex` 외의 엔진을 거부한다.
+렌더 이미지의 `/opt/qollab/typst`(저장소의 `containers/typst`)에 Pandoc 템플릿(`template.typ`), 기본 양식의 두 부분(`typst-template.typ`, `typst-show.typ`), Lua 필터(`qollab.lua`: LaTeX 문법, `qmd.lua`: Quarto 문법)가 있다. 프로젝트가 자신의 양식을 쓰려면 같은 이름의 `.typ` 파일을 프로젝트에 두고 문서나 `_quarto.yml`의 `format: typst: template-partials`에 경로를 적는다(문서에 적으면 문서 위치 기준, `_quarto.yml`에 적으면 프로젝트 기준). 렌더 정책은 프로젝트 안의 상대 경로 `.typ` 파일만 받는다. 이때도 두 필터는 적용된다.
 
-프로젝트에는 `.tex`와 함께 `.sty` 파일을 둘 수 있다. 작업 디렉터리가 TeX 검색 경로의 처음이므로 같은 이름의 시스템 패키지보다 먼저 읽힌다. 셸 실행은 막혀 있어 문서 본문의 Raw TeX와 같은 권한이다.
+Quarto 문법 중 교차참조(`@fig-`·`@tbl-`·`@eq-`·`@sec-`, `-@`로 번호만), 번호 수식(`$$…$$ {#eq-…}`), callout 5종, 2단(`.columns`), `{{< pagebreak >}}`, 각주, 문헌 인용을 지원한다. 문서 설정의 캡션·참조 이름(`crossref`), 캡션 위치(`fig-cap-location`, `tbl-cap-location`), 날짜 형식(`date-format`: long·full·medium·short, 한국어·영어)도 적용한다. 번호 없는 절을 `@sec-`로 참조하면 제목 링크가 되고, 없는 라벨은 `?@라벨`로 표시하고 경고한다. 그 밖의 Quarto 블록(`.panel-tabset` 등)은 내용만 보이고, 다른 shortcode는 빠지며, 코드 셀은 실행하지 않고 코드로만 보인다. 모두 빌드 로그에 경고를 남긴다. 렌더러가 쓰지 않는 설정(예: `keywords`)도 경고로 남는다.
 
-문서 설정 패널에서 고를 수 있는 글꼴은 렌더 이미지에 설치된 글꼴(`packages/codec/src/typesetting.ts`)과 같다. Pretendard(SIL OFL 1.1)는 Regular와 Bold를 고정된 릴리스(1.3.9, SHA-256 확인)에서 설치한다. 다른 글꼴이 필요하면 렌더 이미지에 설치하고 이 목록에 추가한다. 렌더 정책은 목록에 없는 글꼴 이름을 거부한다. `CJKmainfont`(영문 글꼴 + 한글 글꼴)는 xeCJK를 사용하며, 렌더 이미지에 ctex의 `ctexhook.sty`와 한국어 규칙용 `xeCJK.cfg`가 들어 있다. 밑줄(`[글자]{.underline}`, 색 안의 `\ul`)은 한글에서도 줄바꿈되도록 `soul.sty`와 `ulem.sty`를 쓰며, 둘 다 고정한 Debian 패키지에서 파일만 꺼내 설치한다.
+편집기가 쓰는 LaTeX 인라인 문법(`\textcolor`, `\ul`, `\textbf`, `\texttt`, `\char`, `\label`, `\ref`, `\cref`, `\pageref`, `\newpage`)은 필터가 Typst로 옮긴다. 목록 항목 안의 `\label`은 `\ref`에서 항목 번호로, 그 밖의 `\label`은 속한 절 번호로 표시된다. 옮길 수 없는 명령과 Raw LaTeX 블록(쪽 나눔만 있는 블록 제외)은 빼고 빌드 로그 처음에 `WARNING (qollab): …`로 남긴다. Typst 블록(```` ```{=typst} ````)은 그대로 들어간다.
+
+LaTeX PDF 형식(`format: pdf`)으로 쓴 기존 설정은 렌더 시 Typst 설정으로 옮긴다. `geometry`의 여백은 `margin`으로, LaTeX 용지 이름(`letterpaper`, `b5` 등)은 Typst 이름으로, `pagestyle: empty`는 쪽 번호 없음으로, `classoption: twocolumn`은 `columns: 2`로, `colorlinks: false`는 링크 색 없음으로 바꾼다. `documentclass`, `pdf-engine`, `fig-pos` 같은 LaTeX 전용 설정과 LaTeX 명령이 든 `header-includes`는 경고를 남기고 무시한다. 렌더 정책은 기존 문서를 열 수 있도록 이 설정들을 계속 허용한다(`pdf-engine`은 `xelatex`, `lualatex`만). 프로젝트의 `.tex`·`.sty` 파일은 보관만 되며 Typst는 읽지 않는다.
+
+문서 설정 패널에서 고를 수 있는 글꼴은 렌더 이미지에 설치된 글꼴(`packages/codec/src/typesetting.ts`)과 같다. Pretendard(SIL OFL 1.1)는 Regular와 Bold를 고정된 릴리스(1.3.9, SHA-256 확인)에서 설치한다. 다른 글꼴이 필요하면 렌더 이미지에 설치하고 이 목록에 추가한다. 렌더 정책은 목록에 없는 글꼴 이름을 거부한다. `CJKmainfont`(영문 글꼴 + 한글 글꼴)를 쓰면 Typst 글꼴 목록에 영문 글꼴, 한글 글꼴 순으로 넣어 영문 글꼴에 없는 한글을 한글 글꼴로 조판한다. 지정하지 않으면 본문은 Noto Serif CJK KR, 제목은 Noto Sans CJK KR, 수식은 Latin Modern Math다.
 
 ## 백업·복원
 
@@ -139,8 +141,8 @@ scripts/restore.sh ./backup-20261007
 ## 렌더 실패
 
 - 마지막 정상 PDF와 revision은 실패 시 유지된다.
-- 실행 코드 셀, 프로젝트 스크립트, 사용자 filter/template, 확장은 거부한다.
-- Raw TeX/HTML은 원문으로 보존한다. 렌더러의 파일 접근은 격리 컨테이너 안에 제한된다.
-- TeX 패키지 자동 설치는 비활성이다. 필요한 패키지는 이미지 빌드 때 고정한다.
+- 실행 코드 셀, 프로젝트 스크립트, 사용자 filter, 확장은 거부한다. 템플릿은 프로젝트 안의 `.typ` 템플릿 부분만 받는다.
+- Raw TeX/HTML은 원문으로 보존하며 PDF에는 넣지 않는다(빌드 로그 경고). 렌더러의 파일 접근은 격리 컨테이너 안에 제한된다.
+- 작업에는 네트워크가 없어 Typst 패키지(`@preview/…`)를 내려받지 않는다.
 - lease가 만료된 작업은 실패 처리한다. 관리 프로세스 재시작 시 자기 namespace의 잔여 컨테이너를 제거한다.
 - 이미지·빌드·프로젝트 이력을 자동 삭제하지 않는다. 초기 버전 운영자는 저장 공간을 감시하고 보존 정책에 맞춰 프로젝트 백업·삭제를 수행한다.

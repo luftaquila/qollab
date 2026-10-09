@@ -1,6 +1,6 @@
 # Qollab
 
-Self-hosted collaborative Quarto editor with a live PDF preview. Vue 3, Milkdown CrepeBuilder, Yjs, PostgreSQL and an isolated Quarto renderer. English and Korean UI, selected from browser language preferences.
+Self-hosted collaborative Quarto editor with a live PDF preview. Vue 3, Milkdown CrepeBuilder, Yjs, PostgreSQL and an isolated Pandoc/Typst renderer for Quarto Markdown (`.qmd`). English and Korean UI, selected from browser language preferences.
 
 ## Run
 
@@ -31,11 +31,11 @@ See [operations](docs/operations.md) for socket permissions, HTTPS, limits and b
 - Shared Markdown editing, Korean IME, remote cursors and personal undo/redo.
 - Workspace with an activity rail (files, outline, document settings, history, members), resizable PDF preview that follows the editor's position (can be turned off), right-click menus, light and dark themes.
 - Formatting toolbar for underline, text color, lists, links, images, tables, code and math that never edits YAML front matter by accident; one image dialog uploads or reuses project images.
-- Document settings for paper, margins, date, fonts (including a separate Hangul font), spacing, numbering, contents, link colors, caption labels and LaTeX preamble, per document or project-wide in `_quarto.yml`, each showing the value that applies when left empty, with free YAML editing.
-- XeLaTeX by default or LuaLaTeX per document or project, with project `.tex` templates and `.sty` packages, so existing LaTeX documents (kotex/luatexko) render the same.
-- Writing help for Markdown, math, Quarto and common LaTeX commands; Korean and English interface following the browser or chosen in the account menu.
+- Document settings for paper, margins, date, fonts (including a separate Hangul font), spacing, numbering, contents, link colors, caption labels and Typst preamble, per document or project-wide in `_quarto.yml`, each showing the value that applies when left empty, with free YAML editing.
+- PDFs made by Pandoc and Typst, without Quarto: cross references, numbered equations, callouts, two columns and page breaks of the Quarto syntax are supported; other Quarto-only blocks and shortcodes are reported in the build log. The default style can be replaced per project with `.typ` template partials. The LaTeX inline commands the editor writes (`\textcolor`, `\ul`, `\label`/`\ref`, `\newpage`, `\char`) are translated; LaTeX-only settings and raw LaTeX blocks are left out with a warning in the build log.
+- Writing help for Markdown, math, Quarto and Typst layout commands; Korean and English interface following the browser or chosen in the account menu.
 - Folders: create, rename, delete and drag files between them; links are rewritten.
-- Labels on headings, figures or any span of text, LaTeX `\label`/`\ref` kept as chips (typed `\ref{…}` becomes one), raw LaTeX blocks such as tables inside list items, and references that jump to their target in the editor and link inside the PDF.
+- Labels on headings, figures or any span of text, LaTeX `\label`/`\ref` kept as chips (typed `\ref{…}` becomes one), raw Typst or LaTeX blocks inside list items, and references that jump to their target in the editor and link inside the PDF.
 - Right-click menus for each editor element, refresh-safe URLs and build errors summarized from the log.
 - Preserved YAML and unsupported Quarto syntax in editable raw blocks; exclusive recovery editing for uncertain boundaries.
 - Google OIDC, expiring invitations, Owner/Editor/Viewer roles and ownership transfer.
@@ -78,4 +78,4 @@ Test databases must be dedicated to Qollab tests. The suite creates users, sessi
 
 ## License
 
-MIT. Dependencies retain their own licenses. Container images include Quarto, Pandoc, TeX Live and fonts under their respective licenses; installed package versions are recorded in `/opt/qollab/packages.txt` in the renderer image.
+MIT. Dependencies retain their own licenses. Container images include Pandoc, Typst, Quarto's arrow-light highlighting theme and fonts under their respective licenses; installed package versions are recorded in `/opt/qollab/packages.txt` in the renderer image.
