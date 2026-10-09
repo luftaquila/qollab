@@ -1,4 +1,4 @@
-// Fonts installed in the renderer image (checked with `fc-list : family`).
+// Fonts in the renderer image that Typst can use (checked with `typst fonts`).
 // The render policy accepts only these names so a typo fails visibly.
 export const fonts = {
   korean: [
@@ -19,8 +19,6 @@ export const fonts = {
     "Latin Modern Sans",
     "DejaVu Serif",
     "DejaVu Sans",
-    "Bitstream Charter",
-    "Utopia",
   ],
   mono: [
     "DejaVu Sans Mono",
@@ -39,13 +37,13 @@ export const fontKeys = [
   "CJKsansfont",
   "CJKmonofont",
 ];
-/** Renderer defaults, used when neither the document nor _quarto.yml sets them. */
+/** The qollab style's defaults (containers/typst/typst-show.typ). */
 export const defaultFonts = {
   mainfont: "Noto Serif CJK KR",
   sansfont: "Noto Sans CJK KR",
   monofont: "DejaVu Sans Mono",
 };
-// All compile with the renderer's fonts; report and book classes make # a chapter.
+// LaTeX document classes of older documents; the Typst renderer ignores them.
 export const documentClasses = ["scrartcl", "article", "scrreprt", "report", "scrbook", "book"];
 /** xcolor's standard colors, used to show `\textcolor` names on screen. */
 export const xcolorHex: Record<string, string> = {

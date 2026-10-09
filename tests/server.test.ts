@@ -674,50 +674,6 @@ it("late results cannot replace a newer PDF or cross a project restore epoch", a
     (await request("owner", `/projects/${p.id}`)).json().data.pdfBuild,
   ).toBe(newer);
 });
-it("scopes renderer reference caches to project, restore and document generations", async () => {
-  const p = await project(),
-    other = await project();
-  async function key(id: string) {
-    await pool.query(
-      "UPDATE builds SET status='cancelled' WHERE status IN ('queued','running')",
-    );
-    const current = (await request("owner", `/projects/${id}`)).json();
-    const queued = await request("owner", `/projects/${id}/builds`, "POST", {
-      revision: Number(current.revision),
-    });
-    expect(queued.statusCode, queued.body).toBe(200);
-    const leased = await app.inject({
-      method: "POST",
-      url: "/api/renderer/lease",
-      headers: { authorization: "Bearer " + config.rendererToken },
-      payload: {},
-    });
-    expect(leased.statusCode, leased.body).toBe(200);
-    expect(leased.json().cacheKey).toMatch(/^[a-f0-9]{64}$/);
-    return leased.json().cacheKey;
-  }
-  const first = await key(p.id);
-  expect(await key(p.id)).toBe(first);
-  expect(await key(other.id)).not.toBe(first);
-  const current = (await request("owner", `/projects/${p.id}`)).json();
-  const raw = await request(
-    "owner",
-    `/projects/${p.id}/files/${p.data.files[0].id}/raw`,
-    "POST",
-    { revision: Number(current.revision) },
-  );
-  expect(raw.statusCode, raw.body).toBe(200);
-  const next = await key(p.id);
-  expect(next).not.toBe(first);
-  await pool.query(
-    "UPDATE projects SET data=jsonb_set(data,'{epoch}',to_jsonb((data->>'epoch')::int+1)) WHERE id=$1",
-    [p.id],
-  );
-  expect(await key(p.id)).not.toBe(next);
-  await pool.query(
-    "UPDATE builds SET status='cancelled' WHERE status IN ('queued','running')",
-  );
-});
 it("signs visitors into one shared guest account only when anonymous access is enabled", async () => {
   const off = await app.inject("/api/session");
   expect(off.json()).toMatchObject({ user: null, anonymous: false });

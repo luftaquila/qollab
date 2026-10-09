@@ -8,7 +8,6 @@ const exec = promisify(execFile);
 export type Result = {
   pdf?: string;
   log: string;
-  cache?: unknown;
   metrics?: Record<string, number>;
 };
 type Worker = {

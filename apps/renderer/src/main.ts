@@ -1,7 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
-import { RenderCache } from "./cache.js";
 import { Workers, type Result } from "./workers.js";
 const exec = promisify(execFile);
 const base = process.env.APP_URL || "http://app:3000",
@@ -17,7 +16,6 @@ const headers = {
   "Content-Type": "application/json",
 };
 let stopped = false;
-const cache = new RenderCache();
 async function request(
   path: string,
   method = "GET",
@@ -85,14 +83,6 @@ function workerArgs() {
     "/tmp:rw,nosuid,nodev,mode=1777,size=32m",
     "--env",
     "HOME=/work",
-    "--env",
-    "TEXMFVAR=/work/.texlive",
-    "--env",
-    "openin_any=p",
-    "--env",
-    "openout_any=p",
-    "--env",
-    "shell_escape=f",
     "--workdir",
     "/work",
     image,
@@ -111,7 +101,6 @@ async function run(job: any, input: any) {
       ...input,
       target: job.target,
       timeout: job.timeout,
-      cache: cache.get(job.cacheKey),
     },
     job.timeout,
     () =>
@@ -161,13 +150,11 @@ while (!stopped) {
       } catch (e) {
         result = { log: String(e).slice(0, 60000) };
       }
-      const { cache: nextCache, ...output } = result;
       await request(`/builds/${job.id}/result`, "POST", {
-        ...output,
+        ...result,
         lease: job.lease,
         image,
       });
-      cache.set(job.cacheKey, result.pdf ? nextCache : undefined);
       continue;
     }
   } catch (e) {

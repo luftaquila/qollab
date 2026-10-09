@@ -80,9 +80,10 @@ export function texKind(source: string) {
   if (!m) return { kind: "command" as const, id: "" };
   return { kind: m[1] === "label" ? ("label" as const) : ("ref" as const), id: m[2] };
 }
-// Text inside \textcolor is read by LaTeX, but Markdown parses it first: it drops
-// backslash escapes and reads `*`, `[`, `<`… as syntax. Characters special to
-// either are written as XeLaTeX \char codes, which Markdown leaves alone.
+// Text inside \textcolor is read by the renderer's LaTeX filter, but Markdown
+// parses it first: it drops backslash escapes and reads `*`, `[`, `<`… as
+// syntax. Characters special to either are written as \char codes, which
+// Markdown leaves alone.
 export const escapeLatex = (text: string) =>
   text.replace(/[\\{}$&#^_%~*`[\]<>]/g, (c) =>
     "$&#_%".includes(c) ? "\\" + c : `\\char${c.charCodeAt(0)}{}`,

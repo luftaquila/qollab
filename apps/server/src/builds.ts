@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { config } from "./config.js";
@@ -121,16 +121,6 @@ export async function builds(app: FastifyInstance) {
       events(b.project_id, { type: "build" });
       return {
         id: b.id,
-        cacheKey: createHash("sha256")
-          .update(
-            JSON.stringify([
-              b.project_id,
-              b.epoch,
-              b.target,
-              b.input.generations,
-            ]),
-          )
-          .digest("hex"),
         lease,
         target: b.target,
         revision: Number(b.revision),
