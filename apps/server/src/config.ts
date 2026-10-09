@@ -36,7 +36,7 @@ export const config = {
   pixels: number("MAX_IMAGE_PIXELS", 40_000_000),
   historyBytes: number("MAX_HISTORY_BYTES", 1024 * 1024 * 1024),
   sessionHours: number("SESSION_HOURS", 168),
-  debounce: number("BUILD_DEBOUNCE_MS", 2000),
+  debounce: number("BUILD_DEBOUNCE_MS", 800),
   maxWait: number("BUILD_MAX_WAIT_MS", 10000),
   checkpointMs: number("CHECKPOINT_MS", 300000),
   buildSeconds: number("BUILD_TIMEOUT_SECONDS", 120),

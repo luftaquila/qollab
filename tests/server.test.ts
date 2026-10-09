@@ -405,11 +405,11 @@ it("keeps last good PDF on failure and rejects stale leased results", async () =
   ]);
   expect(await Promise.all(committedReads)).toEqual([good.id, good.id]);
 });
-it("coalesces edits and leases only the final snapshot after two seconds of quiet", async () => {
+it("coalesces edits and leases only the final snapshot after its quiet period", async () => {
   await pool.query(
     "UPDATE builds SET status='cancelled' WHERE status IN ('queued','running')",
   );
-  expect(config.debounce).toBe(2000);
+  expect(config.debounce).toBe(800);
   const p = await project();
   const url = `/projects/${p.id}/files/${p.data.files[0].id}/raw`;
   let edit = (await request("owner", url, "POST", { revision: 0 })).json();
