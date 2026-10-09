@@ -485,7 +485,7 @@ it("coalesces edits and leases only the final snapshot after its quiet period", 
   await pool.query(
     "UPDATE builds SET status='cancelled' WHERE status IN ('queued','running')",
   );
-  expect(config.debounce).toBe(800);
+  expect(config.debounce).toBe(1000);
   const p = await project();
   const url = `/projects/${p.id}/files/${p.data.files[0].id}/raw`;
   let edit = (await request("owner", url, "POST", { revision: 0 })).json();
