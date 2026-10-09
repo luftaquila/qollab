@@ -39,6 +39,7 @@ import { askText } from "./ui/feedback";
 import { editorMenu, markExtent } from "./editor-menu";
 import {
   collectLabels,
+  flashPlugin,
   jumpTo,
   referencePlugin,
   texReferenceRule,
@@ -328,6 +329,7 @@ onMounted(() => {
       .use(texView)
       .use(underlineKeymap)
       .use(referencePlugin)
+      .use(flashPlugin)
       .use(texReferenceRule)
       .use(frontMatterGuard)
       .use(sourceIds)

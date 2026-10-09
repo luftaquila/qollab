@@ -190,6 +190,22 @@ function revision(value: number) {
     project.value.revision = Math.max(Number(project.value.revision), value);
 }
 const rev = () => Number(project.value.revision);
+/**
+ * A file or folder change at the latest revision. Another change may land
+ * between the refresh and this request (the server also saves documents that
+ * are open), so a conflict refreshes and retries once, as source saves do.
+ */
+async function tree(path: string, method: string, body: Record<string, unknown>) {
+  const send = () =>
+    api(`/projects/${project.value.id}${path}`, method, { ...body, revision: rev() });
+  try {
+    return await send();
+  } catch (e: any) {
+    if (e.code !== "REVISION_CONFLICT") throw e;
+    await refresh();
+    return send();
+  }
+}
 async function guarded(fn: () => Promise<unknown>) {
   try {
     await fn();
@@ -224,11 +240,7 @@ async function addFile(folder = "") {
   });
   if (!path) return;
   await guarded(async () => {
-    const r = await api(`/projects/${project.value.id}/files`, "POST", {
-      revision: rev(),
-      path,
-      source: "",
-    });
+    const r = await tree("/files", "POST", { path, source: "" });
     await refresh();
     const created = project.value.data.files.find(
       (f: any) => f.id === r.result?.id,
@@ -246,10 +258,7 @@ async function renameFile(f: any) {
   });
   if (!path || path === f.path) return;
   await guarded(async () => {
-    await api(`/projects/${project.value.id}/files/${f.id}`, "PATCH", {
-      revision: rev(),
-      path,
-    });
+    await tree(`/files/${f.id}`, "PATCH", { path });
     await refresh();
   });
 }
@@ -273,10 +282,7 @@ async function moveFile(f: any, folder: string) {
   const path = (folder ? folder + "/" : "") + f.path.split("/").pop();
   if (path === f.path) return;
   await guarded(async () => {
-    await api(`/projects/${project.value.id}/files/${f.id}`, "PATCH", {
-      revision: rev(),
-      path,
-    });
+    await tree(`/files/${f.id}`, "PATCH", { path });
     await refresh();
   });
 }
@@ -290,10 +296,7 @@ async function addFolder(parent = "") {
   });
   if (!path) return;
   await guarded(async () => {
-    await api(`/projects/${project.value.id}/folders`, "POST", {
-      revision: rev(),
-      path: path.replace(/\/+$/, ""),
-    });
+    await tree("/folders", "POST", { path: path.replace(/\/+$/, "") });
     await refresh();
   });
 }
@@ -308,11 +311,7 @@ async function renameFolder(from: string) {
   if (!to || to === from) return;
   await guarded(async () => {
     savePending();
-    await api(`/projects/${project.value.id}/folders`, "PATCH", {
-      revision: rev(),
-      from,
-      to: to.replace(/\/+$/, ""),
-    });
+    await tree("/folders", "PATCH", { from, to: to.replace(/\/+$/, "") });
     await refresh();
   });
 }

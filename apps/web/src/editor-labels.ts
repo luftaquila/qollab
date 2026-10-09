@@ -117,6 +117,39 @@ export function collectLabels(doc: PMNode): LabelIndex {
   return { labels: [...labels.values()], refs };
 }
 
+// The highlight after a jump is a decoration: the editor may redraw the label's
+// node right after the jump, which would drop a class set on its DOM.
+const flashKey = new PluginKey<DecorationSet>("qollab-flash");
+export const flashPlugin = $prose(
+  () =>
+    new Plugin({
+      key: flashKey,
+      state: {
+        init: () => DecorationSet.empty,
+        apply(tr, old) {
+          const flash = tr.getMeta(flashKey) as Decoration | null | undefined;
+          if (flash === null) return DecorationSet.empty;
+          if (flash) return DecorationSet.create(tr.doc, [flash]);
+          return old.map(tr.mapping, tr.doc);
+        },
+      },
+      props: { decorations: (state) => flashKey.getState(state) },
+    }),
+);
+/** The text a span label covers: its marked text nodes in the block. */
+function spanRange(doc: PMNode, pos: number, id: string) {
+  const $pos = doc.resolve(pos);
+  let from = -1,
+    to = -1;
+  $pos.parent.forEach((child, offset) => {
+    if (child.marks.some((m) => m.type.name === "qollab_label" && m.attrs.id === id)) {
+      if (from < 0) from = $pos.start() + offset;
+      to = $pos.start() + offset + child.nodeSize;
+    }
+  });
+  return from < 0 ? null : { from, to };
+}
+
 /** Moves the cursor to a label, scrolls it into view and briefly highlights it. */
 export function jumpTo(view: EditorView, id: string) {
   const entry = collectLabels(view.state.doc).labels.find((l) => l.id === id);
@@ -126,18 +159,21 @@ export function jumpTo(view: EditorView, id: string) {
     entry.owner === "figure" || entry.owner === "anchor"
       ? NodeSelection.create(doc, entry.pos)
       : TextSelection.near(doc.resolve(entry.owner === "span" ? entry.pos : entry.pos + 1));
-  view.dispatch(view.state.tr.setSelection(selection));
+  const range = entry.owner === "span" ? spanRange(doc, entry.pos, id) : null;
+  const node = entry.owner === "span" ? null : doc.nodeAt(entry.pos);
+  const flash = range
+    ? Decoration.inline(range.from, range.to, { class: "qollab-flash" })
+    : node && Decoration.node(entry.pos, entry.pos + node.nodeSize, { class: "qollab-flash" });
+  view.dispatch(view.state.tr.setSelection(selection).setMeta(flashKey, flash || null));
   const dom =
     entry.owner === "span"
       ? (view.domAtPos(entry.pos + 1).node as Node).parentElement?.closest("[data-qollab-label]")
       : view.nodeDOM(entry.pos);
-  if (dom instanceof HTMLElement) {
-    dom.scrollIntoView({ block: "center", behavior: "smooth" });
-    dom.classList.remove("qollab-flash");
-    void dom.offsetWidth;
-    dom.classList.add("qollab-flash");
-    setTimeout(() => dom.classList.remove("qollab-flash"), 1600);
-  }
+  if (dom instanceof HTMLElement) dom.scrollIntoView({ block: "center", behavior: "smooth" });
+  setTimeout(() => {
+    if (!view.isDestroyed && flashKey.getState(view.state) !== DecorationSet.empty)
+      view.dispatch(view.state.tr.setMeta(flashKey, null));
+  }, 1600);
   view.focus();
   return true;
 }
