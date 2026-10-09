@@ -3,6 +3,7 @@ import { safePath } from "./paths.js";
 import { config } from "./config.js";
 import { Fault } from "./db.js";
 import type { ProjectFile } from "./model.js";
+import { content } from "./blobs.js";
 export function readZip(data: Buffer): Record<string, Uint8Array> {
   if (data.length > config.projectBytes) throw new Fault("PROJECT_LIMIT", 413);
   // Inspect the central directory before allocation, including Unix file mode.
@@ -56,18 +57,11 @@ export function readZip(data: Buffer): Record<string, Uint8Array> {
   if (Object.keys(out).length !== names.size) throw new Fault("INVALID_ZIP");
   return out;
 }
-export function writeZip(files: ProjectFile[]) {
-  return Buffer.from(
-    zipSync(
-      Object.fromEntries(
-        files.map((f) => [
-          f.path,
-          f.bytes
-            ? Buffer.from(f.bytes, "base64")
-            : Buffer.from(f.source || ""),
-        ]),
-      ),
-      { level: 6 },
-    ),
-  );
+export async function writeZip(files: ProjectFile[]) {
+  const entries: Record<string, Uint8Array> = {};
+  for (const f of files) {
+    const data = await content(f);
+    entries[f.path] = typeof data === "string" ? Buffer.from(data) : data;
+  }
+  return Buffer.from(zipSync(entries, { level: 6 }));
 }

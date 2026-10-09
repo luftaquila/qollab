@@ -5,7 +5,11 @@ export interface ProjectFile {
   path: string;
   kind: "document" | "image" | "text";
   source?: string;
+  /** Inline image bytes (base64): uploads and data saved before blobs. */
   bytes?: string;
+  /** SHA-256 of the image bytes in the blobs table, and their length. */
+  blob?: string;
+  size?: number;
   mime?: string;
   state?: string;
   preservation?: Preservation;

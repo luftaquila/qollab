@@ -7,6 +7,7 @@ import { resolve } from "node:path";
 import { ZodError } from "zod";
 import { config } from "./config.js";
 import { Fault, pool, migrate, transaction } from "./db.js";
+import { migrateBlobs } from "./blobs.js";
 import { initCodec } from "./codec.js";
 import { authRoutes } from "./auth.js";
 import { routes } from "./routes.js";
@@ -22,6 +23,7 @@ export async function createApp(
   options: { oidc?: Configuration; logger?: boolean } = {},
 ) {
   await migrate();
+  await migrateBlobs();
   await initCodec();
   await recover();
   const app = Fastify({

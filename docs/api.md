@@ -72,9 +72,9 @@
 
 ## 렌더러와 운영 API
 
-- `Authorization: Bearer ${RENDERER_TOKEN}`: POST `/renderer/lease`, GET `/renderer/builds/:bid/input`, GET `/renderer/builds/:bid/status`, POST `/renderer/builds/:bid/result`.
+- `Authorization: Bearer ${RENDERER_TOKEN}`: POST `/renderer/lease`(빌드 id·lease·project·target·revision·epoch·timeout), GET `/renderer/builds/:bid/input`(파일 path와 source, 이미지는 blob id), GET `/renderer/builds/:bid/blobs/:blob`(그 빌드 입력에 있는 이미지 bytes), GET `/renderer/builds/:bid/status`, POST `/renderer/builds/:bid/result`.
 - 같은 렌더러 인증으로 GET `/renderer/activity`: `{editing:boolean}`. 인증·편집 권한을 재확인한 열린 문서 연결이 있는지만 반환한다. 사용자·프로젝트·문서 ID는 반환하지 않는다. 관리자는 빈 작업 컨테이너 준비 여부에 사용한다.
-- input/status에는 `x-render-lease`. result는 lease, pdf(base64, 선택), log, image.
+- input/blobs/status에는 `x-render-lease`. result는 lease, pdf(base64, 선택), log, image.
 - 만료·취소된 lease의 결과는 거부한다. 이전 project epoch 또는 이전 성공 revision의 PDF는 공개하지 않는다.
 - `Authorization: Bearer ${ADMIN_TOKEN}`: POST `/admin/freeze`, `{frozen, backupId?}`.
 - 관리 API는 사용자 세션 경로와 별도이며 renderer/admin token을 브라우저에 전달하지 않는다.

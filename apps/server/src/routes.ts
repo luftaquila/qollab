@@ -25,6 +25,7 @@ import {
 } from "./paths.js";
 import { config } from "./config.js";
 import { readZip, writeZip } from "./archive.js";
+import { blobId, content, storeBlobs } from "./blobs.js";
 import type { Project, ProjectFile, ProjectData } from "./model.js";
 const rev = z.number().int().nonnegative();
 const name = z.string().min(1).max(160);
@@ -32,7 +33,7 @@ const params = (r: any) =>
   r.params as { pid: string; fid: string; cid: string; uid: string };
 // rawOwner/rawUntil tell other members who holds the Markdown editing lock.
 export const publicFile = (f: ProjectFile) => {
-  const { state, preservation, bytes, ...rest } = f;
+  const { state, preservation, bytes, blob, ...rest } = f;
   return rest;
 };
 export function file(p: Project, id: string) {
@@ -261,8 +262,7 @@ export async function routes(
     const u = await identity(req),
       p = await access(pool, params(req).pid, u.id),
       f = file(p, params(req).fid);
-    if (f.kind === "image")
-      return reply.type(f.mime!).send(Buffer.from(f.bytes!, "base64"));
+    if (f.kind === "image") return reply.type(f.mime!).send(await content(f));
     return { ...publicFile(f), revision: p.revision };
   });
   app.get("/api/projects/:pid/resource", async (req, reply) => {
@@ -274,7 +274,7 @@ export async function routes(
     return reply
       .header("X-Content-Type-Options", "nosniff")
       .type(f.mime || "text/plain; charset=utf-8")
-      .send(f.bytes ? Buffer.from(f.bytes, "base64") : f.source);
+      .send(await content(f));
   });
   app.patch("/api/projects/:pid/files/:fid", async (req) => {
     const u = await mutation(req),
@@ -488,7 +488,10 @@ export async function routes(
     return change(params(req).pid, u, undefined, "editor", async (p) => {
       const existing = p.data.files.find((f) => f.uploadId === b.uploadId);
       if (existing) {
-        if (existing.bytes !== b.bytes) throw new Fault("UPLOAD_CONFLICT", 409);
+        const same = existing.blob
+          ? existing.blob === blobId(bytes)
+          : existing.bytes === b.bytes;
+        if (!same) throw new Fault("UPLOAD_CONFLICT", 409);
         return {
           file: publicFile(existing),
           relative: b.documentId
@@ -566,7 +569,7 @@ export async function routes(
     if (!r.rowCount) throw new Fault("NOT_FOUND", 404);
     return reply
       .type("application/zip")
-      .send(writeZip(r.rows[0].snapshot.files));
+      .send(await writeZip(r.rows[0].snapshot.files));
   });
   app.post("/api/projects/:pid/history/:cid/restore", async (req) => {
     const u = await mutation(req),
@@ -744,7 +747,7 @@ export async function routes(
     return reply
       .type("application/zip")
       .header("Content-Disposition", 'attachment; filename="project.zip"')
-      .send(writeZip(p.data.files));
+      .send(await writeZip(p.data.files));
   });
   app.post("/api/import", async (req) => {
     const u = await mutation(req),
@@ -779,6 +782,7 @@ export async function routes(
     const id = randomUUID();
     await transaction(async (db) => {
       await writable(db);
+      await storeBlobs(db, data.files);
       await db.query("INSERT INTO projects(id,name,data) VALUES($1,$2,$3)", [
         id,
         b.name,

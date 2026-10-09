@@ -427,7 +427,7 @@ Typst 기본 양식과 한글 폰트를 검증한다. 한글·영문·수식·�
 | audit | actor, project, event, detail JSONB, created |
 | maintenance | 단일 행, frozen, backup_id |
 
-`projects.data`는 `{files, epoch, target, contentRevision, pdfBuild?, pdfRevision?}`다. 파일은 `{id,path,kind,epoch,source?,state?,preservation?,bytes?,mime?,uploadId?,mode?,rawVersion?,rawOwner?,rawUntil?}`로 저장한다. 이미지 bytes는 base64, Yjs state는 base64 update다. 대형 바이너리 분리는 후속 범위이며 초기 용량 제한을 서버에서 검사한다.
+`projects.data`는 `{files, epoch, target, contentRevision, pdfBuild?, pdfRevision?}`다. 파일은 `{id,path,kind,epoch,source?,state?,preservation?,blob?,size?,mime?,uploadId?,mode?,rawVersion?,rawOwner?,rawUntil?}`로 저장한다. 이미지 bytes는 내용의 SHA-256을 키로 하는 `blobs` 테이블에 따로 두고, 프로젝트 데이터·체크포인트·빌드 입력에는 해시(`blob`)와 크기(`size`)만 남긴다. 문서를 저장할 때 이미지를 다시 쓰지 않고, 렌더러는 프로젝트 컨테이너에 없는 이미지만 받는다. blob은 이력이 계속 가리키므로 지우지 않는다. blob 이전에 저장된 프로젝트의 base64 `bytes`는 서버 시작 시 옮기며, 이전 체크포인트의 `bytes`도 그대로 읽는다. Yjs state는 base64 update다. 용량 제한은 서버에서 검사한다.
 
 `preservation`은 원문, doc 지문, 최상위 블록별 구조 지문·원문·앞 공백과 마지막 공백을 저장한다. `qollabId`가 같은 문법으로 정규화되는 서로 다른 원문 블록을 구분한다. 브라우저·서버의 스키마가 이 속성을 함께 사용한다. 미지원 인라인은 포함 블록 전체를 `qollab_raw(text*)`로 보존한다. 모든 Quarto 문법에 별도 Visual 노드를 제공하는 것은 아니다.
 

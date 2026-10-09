@@ -9,6 +9,7 @@ import { pool } from "../apps/server/src/db.js";
 import { token, hash, validateClaims } from "../apps/server/src/auth.js";
 import { config } from "../apps/server/src/config.js";
 import { subscribe } from "../apps/server/src/store.js";
+import { blobId, migrateBlobs } from "../apps/server/src/blobs.js";
 let app: Awaited<ReturnType<typeof createApp>>;
 const people: any = {};
 const sockets: WebSocket[] = [];
@@ -277,6 +278,81 @@ it("uploads valid images idempotently, rejects invalid images and protects refer
   expect(copied.data.files.map((f: any) => f.path)).toEqual(
     current.data.files.map((f: any) => f.path).concat("chapters/second.qmd"),
   );
+});
+it("keeps images in blobs, serves them and gives the renderer only the blobs of its build", async () => {
+  await pool.query(
+    "UPDATE builds SET status='cancelled' WHERE status IN ('queued','running')",
+  );
+  const p = await project(),
+    bytes = await sharp({
+      create: { width: 6, height: 6, channels: 3, background: "#1c7667" },
+    })
+      .png()
+      .toBuffer();
+  const up = await request("owner", `/projects/${p.id}/images`, "POST", {
+    revision: 0,
+    uploadId: randomUUID(),
+    name: "blob.png",
+    bytes: bytes.toString("base64"),
+  });
+  expect(up.statusCode, up.body).toBe(200);
+  const stored = (
+    await pool.query("SELECT data FROM projects WHERE id=$1", [p.id])
+  ).rows[0].data.files.find((f: any) => f.kind === "image");
+  expect(stored.bytes).toBeUndefined();
+  expect(stored.blob).toBe(blobId(bytes));
+  expect(stored.size).toBe(bytes.length);
+  expect(up.json().result.file.blob).toBeUndefined();
+  const served = await request(
+    "owner",
+    `/projects/${p.id}/resource?path=${encodeURIComponent(stored.path)}`,
+  );
+  expect(Buffer.compare(served.rawPayload, bytes)).toBe(0);
+  // The build input names the blob; the renderer fetches it with its lease.
+  await request("owner", `/projects/${p.id}/builds`, "POST", {
+    revision: up.json().revision,
+  });
+  const renderer = { authorization: "Bearer " + config.rendererToken };
+  const job = (
+    await app.inject({ method: "POST", url: "/api/renderer/lease", headers: renderer })
+  ).json();
+  expect(job.project).toBe(p.id);
+  const lease = { ...renderer, "x-render-lease": job.lease };
+  const input = (
+    await app.inject({ url: `/api/renderer/builds/${job.id}/input`, headers: lease })
+  ).json();
+  const image = input.files.find((f: any) => f.path === stored.path);
+  expect(image).toEqual({ path: stored.path, blob: stored.blob });
+  const blob = await app.inject({
+    url: `/api/renderer/builds/${job.id}/blobs/${stored.blob}`,
+    headers: lease,
+  });
+  expect(Buffer.compare(blob.rawPayload, bytes)).toBe(0);
+  const other = await app.inject({
+    url: `/api/renderer/builds/${job.id}/blobs/${"0".repeat(64)}`,
+    headers: lease,
+  });
+  expect(other.statusCode).toBe(404);
+  await pool.query("UPDATE builds SET status='cancelled' WHERE id=$1", [job.id]);
+  // Projects saved before blobs: the images move out on startup.
+  const legacy = randomUUID();
+  await pool.query("INSERT INTO projects(id,name,data) VALUES($1,'Legacy',$2)", [
+    legacy,
+    {
+      epoch: 1,
+      target: "",
+      files: [
+        { id: randomUUID(), path: "a.png", kind: "image", mime: "image/png", epoch: 1, bytes: bytes.toString("base64") },
+      ],
+    },
+  ]);
+  await migrateBlobs();
+  const moved = (
+    await pool.query("SELECT data FROM projects WHERE id=$1", [legacy])
+  ).rows[0].data.files[0];
+  expect(moved).toMatchObject({ blob: blobId(bytes), size: bytes.length });
+  expect(moved.bytes).toBeUndefined();
+  await pool.query("DELETE FROM projects WHERE id=$1", [legacy]);
 });
 it("restores documents/assets with fresh generations while preserving members and rejecting old writes", async () => {
   const p = await project();

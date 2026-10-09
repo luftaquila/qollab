@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile, rename, readdir, rm } from "node:fs/promises";
+import { mkdir, writeFile, rename, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -8,6 +8,7 @@ import { pool, transaction, Fault } from "./db.js";
 import { config } from "./config.js";
 import type { Identity } from "./auth.js";
 import type { Project, ProjectData, Role } from "./model.js";
+import { content, fileSize, storeBlobs } from "./blobs.js";
 const exec = promisify(execFile);
 export const ranks = { viewer: 0, editor: 1, owner: 2 };
 export async function access(
@@ -52,6 +53,7 @@ export async function change<T>(
     const result = await fn(p, db);
     if (options.noChange?.(result))
       return { result, revision: p.revision, changed: false };
+    await storeBlobs(db, p.data.files);
     validateSize(p.data);
     p.revision++;
     if (options.build) p.data.contentRevision = p.revision;
@@ -77,14 +79,7 @@ export async function change<T>(
   return out;
 }
 export function validateSize(data: ProjectData) {
-  const total = data.files.reduce(
-    (n, f) =>
-      n +
-      (f.bytes
-        ? Buffer.byteLength(f.bytes, "base64")
-        : Buffer.byteLength(f.source || "")),
-    0,
-  );
+  const total = data.files.reduce((n, f) => n + fileSize(f), 0);
   if (total > config.projectBytes)
     throw new Fault("PROJECT_LIMIT", 413, { limit: config.projectBytes });
   for (const f of data.files)
@@ -128,6 +123,7 @@ export async function queueBuild(
         files: p.data.files.map((f) => ({
           path: f.path,
           source: f.source,
+          blob: f.blob,
           bytes: f.bytes,
         })),
         epoch: p.data.epoch,
@@ -193,6 +189,13 @@ export function subscribe(id: string, fn: (event: unknown) => void) {
   return () => listeners.get(id)?.delete(fn);
 }
 const mirrors = new Map<string, Promise<void>>();
+// Project → (path → blob) already written to the mirror worktree.
+const mirroredBlobs = new Map<string, Map<string, string>>();
+const exists = (file: string) =>
+  stat(file).then(
+    () => true,
+    () => false,
+  );
 export function mirror(id: string): Promise<void> {
   const task = (mirrors.get(id) || Promise.resolve())
     .catch(() => {})
@@ -217,15 +220,17 @@ export function mirror(id: string): Promise<void> {
         }
       }
       await clean(root);
+      // An image is written again only when its blob changed.
+      const images = mirroredBlobs.get(id) ?? new Map<string, string>();
+      mirroredBlobs.set(id, images);
       for (const f of data.files) {
         const dest = path.join(root, f.path);
+        if (f.blob && images.get(f.path) === f.blob && (await exists(dest))) continue;
         await mkdir(path.dirname(dest), { recursive: true });
-        await writeFile(
-          dest + ".qollab-tmp",
-          f.bytes ? Buffer.from(f.bytes, "base64") : f.source || "",
-          { mode: 0o600 },
-        );
+        await writeFile(dest + ".qollab-tmp", await content(f), { mode: 0o600 });
         await rename(dest + ".qollab-tmp", dest);
+        if (f.blob) images.set(f.path, f.blob);
+        else images.delete(f.path);
       }
       const cps = await pool.query(
         "SELECT * FROM checkpoints WHERE project_id=$1 AND git_hash IS NULL ORDER BY created",
@@ -263,10 +268,7 @@ export function mirror(id: string): Promise<void> {
         await exec("git", ["-C", root, "read-tree", "--empty"], { env });
         for (const f of (cp.snapshot as ProjectData).files) {
           const tmp = path.join(root, ".git", "qollab-blob");
-          await writeFile(
-            tmp,
-            f.bytes ? Buffer.from(f.bytes, "base64") : f.source || "",
-          );
+          await writeFile(tmp, await content(f));
           const blob = (
             await exec("git", ["-C", root, "hash-object", "-w", tmp])
           ).stdout.trim();

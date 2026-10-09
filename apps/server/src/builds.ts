@@ -14,6 +14,7 @@ import {
   mirror,
 } from "./store.js";
 import { renderPolicy } from "../../../packages/codec/src/render-policy.js";
+import { readBlob } from "./blobs.js";
 export async function builds(app: FastifyInstance) {
   const service = (req: FastifyRequest) => {
     if (
@@ -147,6 +148,18 @@ export async function builds(app: FastifyInstance) {
     );
     if (!r.rowCount) throw new Fault("LEASE_EXPIRED", 409);
     return r.rows[0].input;
+  });
+  // Images of the build input, by blob id: the renderer asks only for those its
+  // project worker does not have yet.
+  app.get("/api/renderer/builds/:bid/blobs/:blob", async (req, reply) => {
+    service(req);
+    const { bid, blob } = req.params as any;
+    const r = await pool.query(
+      "SELECT 1 FROM builds WHERE id=$1 AND lease=$2 AND status='running' AND lease_until>now() AND jsonb_path_exists(input, '$.files[*] ? (@.blob == $blob)', jsonb_build_object('blob', $3::text))",
+      [bid, String(req.headers["x-render-lease"]), String(blob)],
+    );
+    if (!r.rowCount) throw new Fault("NOT_FOUND", 404);
+    return reply.type("application/octet-stream").send(await readBlob(String(blob)));
   });
   app.post("/api/renderer/builds/:bid/result", async (req) => {
     service(req);
