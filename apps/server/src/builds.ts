@@ -122,6 +122,7 @@ export async function builds(app: FastifyInstance) {
       return {
         id: b.id,
         lease,
+        project: b.project_id,
         target: b.target,
         revision: Number(b.revision),
         epoch: b.epoch,

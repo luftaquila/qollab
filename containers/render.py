@@ -5,7 +5,7 @@ Pandoc turns the document into Typst with qollab's template and filters
 (/opt/qollab/typst) and Typst makes the PDF. Settings come from _quarto.yml
 and the document's front matter, as the editor writes them.
 """
-import base64, datetime, json, pathlib, re, shutil, subprocess, sys, time
+import base64, datetime, json, os, pathlib, re, shutil, subprocess, sys, threading, time
 import yaml
 ROOT=pathlib.Path('/work')
 LIMIT=250*1024*1024
@@ -153,13 +153,13 @@ SCAN={'latex':r'\\[A-Za-z]','labels':r'\\label\b','equations':r'\{#eq-','shortco
 # Quarto code cells (```{python}) are shown as code; nothing is executed.
 CELL=re.compile(r'^([ \t]*(?:`{3,}|~{3,})[ \t]*)\{([A-Za-z][\w+-]*)[^}\n]*\}[ \t]*$',re.M)
 
-def render(target,deadline,log):
-    """Pandoc (template and filters in /work/.qollab), then Typst. Returns the
-    exit code and the metrics."""
+def convert(target,deadline,log):
+    """Pandoc (template and filters in /work/.qollab). Returns the exit code,
+    the metrics and the Typst source."""
     options,body=settings(target)
     work=ROOT/'.qollab';shutil.copytree(TYPST,work,dirs_exist_ok=True)
     template=work/'template'
-    template.mkdir()
+    template.mkdir(exist_ok=True)
     for name in ('template.typ',*PARTIALS):shutil.copyfile(TYPST/name,template/name)
     for p in options.get('template-partials',[]):
         if ROOT not in p.resolve().parents:raise ValueError('Template partials must be files in the project')
@@ -172,66 +172,178 @@ def render(target,deadline,log):
     data['qollab-scan']={k:bool(re.search(pattern,source)) for k,pattern in SCAN.items()}
     (work/'metadata.yml').write_text(yaml.safe_dump(data,allow_unicode=True,sort_keys=False))
     (work/'input.md').write_text(source)
-    stem=target.stem;cwd=(ROOT/target).parent
     cmd=['pandoc',str(work/'input.md'),'-f','markdown','-t','typst','-s','--template',str(template/'template.typ'),
          '--wrap=none','--syntax-highlighting',str(work/'arrow-light.theme'),'--metadata-file',str(work/'metadata.yml'),
-         '-L',str(work/'qollab.lua'),'-L',str(work/'qmd.lua'),'-o',f'{stem}.typ']
+         '-L',str(work/'qollab.lua'),'-L',str(work/'qmd.lua'),'-o',str(work/'out.typ')]
     if header:
         # Typst code, included as written (metadata would be read as Markdown).
         (work/'header.typ').write_text('\n'.join(map(str,header)) if isinstance(header,list) else str(header))
         cmd[-2:-2]=['-H',str(work/'header.typ')]
     log.write(''.join(f'WARNING (qollab): {w}\n' for w in dict.fromkeys(warnings)).encode());log.flush()
     started=time.monotonic()
-    code=subprocess.run(cmd,cwd=cwd,stdout=log,stderr=subprocess.STDOUT,timeout=max(1,deadline-started)).returncode
-    pandoc_ms=round((time.monotonic()-started)*1000)
-    metrics={'pandocMs':pandoc_ms}
-    if code:return code,metrics
+    code=subprocess.run(cmd,cwd=(ROOT/target).parent,stdout=log,stderr=subprocess.STDOUT,timeout=max(1,deadline-started)).returncode
+    metrics={'pandocMs':round((time.monotonic()-started)*1000)}
+    if code:return code,metrics,None
     # Code blocks keep the padded box of Quarto's look (Quarto patches the
     # same line of Pandoc's highlighting definitions).
-    typ=cwd/f'{stem}.typ'
-    typ.write_text(typ.read_text().replace('block(fill: bgcolor, blocks)','block(fill: bgcolor, width: 100%, inset: 8pt, radius: 2pt, blocks)',1))
-    log.write(f'typst compile {stem}.typ\n'.encode());log.flush()
-    started=time.monotonic()
-    code=subprocess.run(['typst','compile','--root',str(ROOT),f'{stem}.typ','qollab.pdf'],cwd=cwd,stdout=log,
-                        stderr=subprocess.STDOUT,timeout=max(1,deadline-started)).returncode
-    metrics['typstMs']=round((time.monotonic()-started)*1000)
-    return code,metrics
+    text=(work/'out.typ').read_text().replace('block(fill: bgcolor, blocks)','block(fill: bgcolor, width: 100%, inset: 8pt, radius: 2pt, blocks)',1)
+    return 0,metrics,text
+
+STATUS=re.compile(r'compiled (successfully|with warnings|with errors)(?: in ([\d.]+) ?(ms|s)\b)?')
+ANSI=re.compile(r'\x1b\[[0-9;?]*[A-Za-z]')
+
+class Typst:
+    """`typst watch` for one document. It keeps the last layout in memory and
+    lays out again only what changed: each replacement of the document's .typ,
+    and each change of a file the last compile read, starts one compile."""
+    def __init__(self,target):
+        self.target=target;self.cwd=(ROOT/target).parent
+        self.lines=[];self.closed=False;self.cond=threading.Condition()
+        self.deps_file=ROOT/'.qollab/deps.json'
+        self.proc=subprocess.Popen(['typst','watch','--no-serve','--root',str(ROOT),'--deps',str(self.deps_file),
+                                    f'{target.stem}.typ','qollab.pdf'],cwd=self.cwd,stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+        threading.Thread(target=self._read,daemon=True).start()
+    def _read(self):
+        for raw in self.proc.stdout:
+            line=ANSI.sub('',raw.decode('utf-8','replace')).rstrip()
+            with self.cond:
+                self.lines.append(line)
+                self.cond.notify_all()
+        with self.cond:
+            self.closed=True;self.cond.notify_all()
+    def position(self):
+        with self.cond:return len(self.lines)
+    def deps(self):
+        """Files the last compile read."""
+        try:inputs=json.loads(self.deps_file.read_text()).get('inputs') or []
+        except (OSError,ValueError):return set()
+        return {(self.cwd/p).resolve() for p in inputs}
+    def compiled(self,since,deadline):
+        """The first compile that starts after line `since`: (succeeded, Typst
+        milliseconds, diagnostics)."""
+        with self.cond:
+            while True:
+                begun=next((i for i in range(since,len(self.lines)) if self.lines[i].endswith('compiling ...')),None)
+                end=None if begun is None else next((i for i in range(begun,len(self.lines)) if STATUS.search(self.lines[i])),None)
+                if end is not None:break
+                if self.closed:raise RuntimeError('typst watch stopped:\n'+'\n'.join(self.lines[since:])[-4000:])
+                left=deadline-time.monotonic()
+                if left<=0:raise subprocess.TimeoutExpired('typst watch',0)
+                self.cond.wait(min(left,0.5))
+            # Diagnostics follow the status line; take what arrives before a pause.
+            seen=len(self.lines)
+            while self.cond.wait(0.1) and len(self.lines)>seen:seen=len(self.lines)
+            m=STATUS.search(self.lines[end])
+            ms=round(float(m.group(2))*(1 if m.group(3)=='ms' else 1000)) if m.group(2) else 0
+            noise=('watching ','writing to ')
+            diagnostics=[l for l in self.lines[end+1:] if not l.startswith(noise) and 'compiling ...' not in l]
+            return m.group(1)!='with errors',ms,'\n'.join(diagnostics).strip()
+    def stop(self):
+        if self.proc.poll() is None:
+            self.proc.terminate()
+            try:self.proc.wait(5)
+            except subprocess.TimeoutExpired:self.proc.kill()
+
+PNG=b'\x89PNG'
+
+def checked(name):
+    p=pathlib.PurePosixPath(name)
+    if p.is_absolute() or any(x in ('.','..') or x.startswith('.') for x in p.parts) or '\\' in name or ':' in name:raise ValueError('INVALID_PATH')
+    if p.suffix.lower() not in TYPES:raise ValueError('FILE_TYPE')
+    return ROOT/name
+
+def replace(dest,data):
+    """Writes a file in one step, so a running `typst watch` never reads half of it."""
+    dest.parent.mkdir(parents=True,exist_ok=True)
+    tmp=dest.with_name('.qollab-'+dest.name)
+    tmp.write_bytes(data);os.replace(tmp,dest)
+
+class Session:
+    """One project's files and compiler, kept between builds. Each request
+    carries the files that changed since the last one (all of them at first)."""
+    def __init__(self):
+        self.sizes={};self.typst=None
+    def apply(self,request):
+        files,removed=request.get('files',[]),request.get('remove',[])
+        if len(files)>1000 or len(removed)>1000:raise ValueError('FILE_COUNT')
+        changed=set()
+        for name in removed:
+            dest=checked(name);self.sizes.pop(name,None)
+            for f in (dest,dest.with_name(dest.name+'.png')):
+                if f.is_file():f.unlink();changed.add(f.resolve())
+        for f in files:
+            dest=checked(f['path'])
+            data=base64.b64decode(f['bytes'],validate=True) if f.get('bytes') is not None else f.get('source','').encode('utf-8')
+            self.sizes[f['path']]=len(data)
+            if len(self.sizes)>1000:raise ValueError('FILE_COUNT')
+            if sum(self.sizes.values())>LIMIT:raise ValueError('INPUT_LIMIT')
+            replace(dest,data);changed.add(dest.resolve())
+            # Typst decides the image format from the extension; PNG data named .jpg
+            # gets a .png copy, which the LaTeX syntax filter points the image to.
+            copy=dest.with_name(dest.name+'.png')
+            if dest.suffix.lower() in ('.jpg','.jpeg') and data[:4]==PNG:replace(copy,data);changed.add(copy.resolve())
+            elif copy.is_file():copy.unlink();changed.add(copy.resolve())
+        return changed
+    def handle(self,request):
+        started=time.monotonic();warnings.clear()
+        since=self.typst.position() if self.typst else 0
+        changed=self.apply(request)
+        target=pathlib.PurePosixPath(request['target'])
+        if target.is_absolute() or '..' in target.parts or not str(target).endswith('.qmd'):raise ValueError('INVALID_TARGET')
+        deadline=started+int(request['timeout'])
+        if self.typst and (self.typst.target!=target or self.typst.closed):self.stop()
+        # A changed file that the last compile read starts a compile of the
+        # previous document. Let it finish; the next compile is this build's.
+        if self.typst and changed&self.typst.deps():self.typst.compiled(since,deadline)
+        prepared=time.monotonic()
+        # Logs go to a bounded tmpfs file, never to an unbounded memory PIPE.
+        logfile=ROOT/'render.log'
+        with logfile.open('wb') as log:
+            code,metrics,text=convert(target,deadline,log)
+        metrics['prepareMs']=round((prepared-started)*1000)
+        with logfile.open('rb') as log:
+            log.seek(max(0,logfile.stat().st_size-60000));report=log.read().decode('utf-8','replace')
+        if code:return {'log':report[-60000:],'metrics':metrics}
+        cwd=(ROOT/target).parent
+        metrics['incremental']=int(self.typst is not None)
+        since=self.typst.position() if self.typst else 0
+        replace(cwd/f'{target.stem}.typ',text.encode())
+        if not self.typst:self.typst=Typst(target)
+        ok,metrics['typstMs'],diagnostics=self.typst.compiled(since,deadline)
+        report=(report+f'typst {target.stem}.typ\n'+(diagnostics+'\n' if diagnostics else ''))[-60000:]
+        pdf=cwd/'qollab.pdf'
+        if not ok or not pdf.is_file():return {'log':report+('' if ok else 'ERROR: Typst compilation failed\n'),'metrics':metrics}
+        if pdf.is_symlink() or pdf.stat().st_size>50*1024*1024:raise ValueError('OUTPUT_LIMIT')
+        return {'pdf':base64.b64encode(pdf.read_bytes()).decode(),'log':report,'metrics':metrics}
+    def stop(self):
+        if self.typst:self.typst.stop();self.typst=None
+
+LINE=360*1024*1024
 
 def main():
-    raw=sys.stdin.buffer.read(360*1024*1024+1)
-    started=time.monotonic()
-    if len(raw)>360*1024*1024: raise ValueError('INPUT_LIMIT')
-    job=json.loads(raw);total=0
-    if len(job['files'])>1000:raise ValueError('FILE_COUNT')
-    for f in job['files']:
-        name=f['path'];p=pathlib.PurePosixPath(name)
-        if p.is_absolute() or any(x in ('.','..') or x.startswith('.') for x in p.parts) or '\\' in name or ':' in name:raise ValueError('INVALID_PATH')
-        if p.suffix.lower() not in TYPES:raise ValueError('FILE_TYPE')
-        data=base64.b64decode(f['bytes'],validate=True) if f.get('bytes') else f.get('source','').encode('utf-8')
-        total+=len(data)
-        if total>LIMIT:raise ValueError('INPUT_LIMIT')
-        dest=ROOT/name;dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(data)
-    target=pathlib.PurePosixPath(job['target'])
-    if target.is_absolute() or '..' in target.parts or not str(target).endswith('.qmd'):raise ValueError('INVALID_TARGET')
-    # Logs go to a bounded tmpfs file, never to an unbounded memory PIPE.
-    logfile=ROOT/'render.log'
-    prepared=time.monotonic()
-    deadline=started+int(job['timeout'])
+    """Requests arrive one JSON object per line; each answer is one line. A
+    single request without a newline (one build per container) works too."""
+    session=Session()
     try:
-        if deadline<=prepared:raise subprocess.TimeoutExpired('render',job['timeout'])
-        with logfile.open('wb') as log:
-            code,metrics=render(target,deadline,log)
-    except subprocess.TimeoutExpired:return {'log':'RENDER_TIMEOUT'}
-    except yaml.YAMLError:return {'log':'Invalid YAML'}
-    metrics['prepareMs']=round((prepared-started)*1000)
-    with logfile.open('rb') as log:
-        log.seek(max(0,logfile.stat().st_size-60000));text=log.read().decode('utf-8','replace')
-    pdf=ROOT/target.parent/'qollab.pdf'
-    if code or not pdf.is_file():return {'log':text[-60000:],'metrics':metrics}
-    if pdf.is_symlink() or pdf.stat().st_size>50*1024*1024:raise ValueError('OUTPUT_LIMIT')
-    return {'pdf':base64.b64encode(pdf.read_bytes()).decode(),'log':text,'metrics':metrics}
+        while True:
+            line=sys.stdin.buffer.readline(LINE+1)
+            if not line:break
+            if not line.strip():continue
+            if len(line)>LINE:
+                respond({'log':'INPUT_LIMIT','reset':True});break
+            try:response=session.handle(json.loads(line))
+            except subprocess.TimeoutExpired:
+                session.stop();response={'log':'RENDER_TIMEOUT','reset':True}
+            except yaml.YAMLError:response={'log':'Invalid YAML'}
+            # The project files may be half applied: the renderer starts over.
+            except Exception as e:response={'log':str(e),'reset':True}
+            respond(response)
+    finally:
+        session.stop()
+
+def respond(response):
+    sys.stdout.write(json.dumps(response,ensure_ascii=False)+'\n');sys.stdout.flush()
+
 if __name__=='__main__':
-    try:
-        print(json.dumps(main(),ensure_ascii=False))
-    except Exception as e:
-        print(json.dumps({'log':str(e)}))
+    main()

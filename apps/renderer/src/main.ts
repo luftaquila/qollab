@@ -16,7 +16,7 @@ const headers = {
   "Content-Type": "application/json",
 };
 let stopped = false;
-async function request(
+async function fetchBody(
   path: string,
   method = "GET",
   body?: unknown,
@@ -42,7 +42,15 @@ async function request(
     }
     chunks.push(value);
   }
-  return JSON.parse(Buffer.concat(chunks).toString());
+  return Buffer.concat(chunks);
+}
+async function request(
+  path: string,
+  method = "GET",
+  body?: unknown,
+  extra: Record<string, string> = {},
+) {
+  return JSON.parse((await fetchBody(path, method, body, extra)).toString());
 }
 async function cleanup() {
   const { stdout } = await exec(engine, [
@@ -90,23 +98,24 @@ function workerArgs() {
     "/opt/qollab/render.py",
   ];
 }
-const workers = new Workers(
-  engine,
-  workerArgs,
-  Number(process.env.RENDER_WARM_MS ?? 30000),
-);
+const workers = new Workers(engine, workerArgs, {
+  warmMs: Number(process.env.RENDER_WARM_MS ?? 30000),
+  idleMs: Number(process.env.RENDER_IDLE_MS ?? 600000),
+  maxAgeMs: Number(process.env.RENDER_WORKER_MAX_MS ?? 1800000),
+  max: Number(process.env.RENDER_WORKERS ?? 2),
+});
 async function run(job: any, input: any) {
+  const lease = { "x-render-lease": job.lease };
   const { result, timings } = await workers.run(
     {
-      ...input,
+      project: job.project,
+      epoch: job.epoch,
       target: job.target,
       timeout: job.timeout,
+      files: input.files,
     },
-    job.timeout,
-    () =>
-      request(`/builds/${job.id}/status`, "GET", undefined, {
-        "x-render-lease": job.lease,
-      }),
+    (blob) => fetchBody(`/builds/${job.id}/blobs/${blob}`, "GET", undefined, lease),
+    () => request(`/builds/${job.id}/status`, "GET", undefined, lease),
   );
   console.info(
     JSON.stringify({
@@ -150,8 +159,9 @@ while (!stopped) {
       } catch (e) {
         result = { log: String(e).slice(0, 60000) };
       }
+      const { reset, ...published } = result;
       await request(`/builds/${job.id}/result`, "POST", {
-        ...result,
+        ...published,
         lease: job.lease,
         image,
       });

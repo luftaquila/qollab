@@ -189,6 +189,27 @@ assert '419.528 x 595.276 pts' in info(partials_pdf),info(partials_pdf)
 assert '사용자 양식 표지' in words(partials_pdf) and '파란 글자' in words(partials_pdf),words(partials_pdf)
 print('Project template partials replace the default style and keep the LaTeX syntax filter')
 
+# A project's worker stays between builds: later requests carry only what
+# changed, and Typst lays out again only what changed.
+proc=subprocess.Popen([a.engine,'run',*flags,a.image,'python3','/opt/qollab/render.py'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+def ask(request):
+    proc.stdin.write((json.dumps(request)+'\n').encode());proc.stdin.flush()
+    return json.loads(proc.stdout.readline())
+first=ask({'target':'report.qmd','timeout':120,'files':job['files']})
+assert first.get('pdf') and first['metrics']['incremental']==0,first.get('log')
+start=time.monotonic()
+again=ask({'target':'report.qmd','timeout':120,'files':[{'path':'report.qmd','source':source.replace('확인합니다.','다시 확인합니다.')}],'remove':[]})
+again_seconds=round(time.monotonic()-start,2)
+assert again.get('pdf') and again['metrics']['incremental']==1,again
+assert '다시 확인합니다' in words(save(again,'render-incremental.pdf'))
+broken=ask({'target':'report.qmd','timeout':120,'files':[{'path':'report.qmd','source':source+'\n`#nope()`{=typst}\n'}]})
+assert not broken.get('pdf') and 'unknown variable: nope' in broken['log'] and not broken.get('reset'),broken.get('log')
+fixed=ask({'target':'report.qmd','timeout':120,'files':[{'path':'report.qmd','source':source}]})
+assert fixed.get('pdf'),fixed.get('log')
+proc.stdin.close();proc.wait(30)
+print(json.dumps({'incremental':{'seconds':again_seconds,'metrics':again['metrics']}}))
+print('A kept worker renders later builds from the changed files and recovers from errors')
+
 probe='''import os,socket,pathlib
 assert os.getuid()==10001
 assert not any(k in os.environ for k in ['DATABASE_URL','GOOGLE_CLIENT_SECRET','RENDERER_TOKEN','ADMIN_TOKEN'])

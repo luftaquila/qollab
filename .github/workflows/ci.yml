@@ -123,6 +123,7 @@ jobs:
             tmp/render-references.pdf
             tmp/render-partials.pdf
             tmp/render-qmd.pdf
+            tmp/render-incremental.pdf
             tmp/deployment-report.json
   manifests:
     needs: images

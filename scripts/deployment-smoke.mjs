@@ -97,7 +97,7 @@ for (let i = 0; i < 180; i++) {
   await new Promise((r) => setTimeout(r, 1000));
 }
 project = await api(path);
-// The next job must use a distinct, already empty worker that runs Typst.
+// The next build of the project reuses its worker, which lays out only what changed.
 const previousBuild = project.data.pdfBuild;
 await api(path + "/builds", "POST", { revision: Number(project.revision) });
 for (let i = 0; i < 120; i++) {
@@ -118,9 +118,9 @@ const timings = timingLines
   .filter((s) => s.startsWith('{"type":"render-timing"'))
   .map((s) => JSON.parse(s));
 const repeated = timings.at(-1);
-if (!(repeated?.worker?.typstMs > 0) || repeated.warmMs <= 0)
+if (repeated?.reused !== 1 || repeated?.worker?.incremental !== 1)
   throw new Error(
-    "Repeated build did not run Typst in a prepared, empty worker: " +
+    "Repeated build did not reuse the project's worker: " +
       JSON.stringify(repeated),
   );
 project = await api(path);

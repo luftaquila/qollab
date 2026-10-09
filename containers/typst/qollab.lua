@@ -212,6 +212,9 @@ end
 
 -- Typst decides the image format from the extension; some uploads are PNG data
 -- named .jpg, which would stop the build.
+-- render.py writes the .png copy with the project files; it is written here
+-- only when missing (a copy written during a build would make a running
+-- `typst watch` compile again).
 local function png_named_jpg(img)
   local src = img.src
   if not src:match('%.[jJ][pP][eE]?[gG]$') then return nil end
@@ -219,11 +222,16 @@ local function png_named_jpg(img)
   if not f then return nil end
   local magic = f:read(4)
   if magic ~= '\137PNG' then f:close(); return nil end
-  local data = magic .. f:read('a'); f:close()
   local fixed = src .. '.png'
-  local out = io.open(fixed, 'wb')
-  if not out then return nil end
-  out:write(data); out:close()
+  local existing = io.open(fixed, 'rb')
+  if existing then
+    existing:close(); f:close()
+  else
+    local data = magic .. f:read('a'); f:close()
+    local out = io.open(fixed, 'wb')
+    if not out then return nil end
+    out:write(data); out:close()
+  end
   img.src = fixed
   return img
 end
