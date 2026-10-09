@@ -513,14 +513,19 @@ it("coalesces edits and leases only the final snapshot after its quiet period", 
   expect((await lease()).json()).toBeNull();
   // Wait to just before the actual DB deadline; the earlier edits must not
   // make the latest snapshot eligible before its own quiet period expires.
-  const deadline = +new Date(queued.rows[0].lease_until);
-  await new Promise((r) =>
-    setTimeout(r, Math.max(0, deadline - Date.now() - 300)),
-  );
+  // Time left is measured by the database clock, which decides the lease.
+  const left = async () =>
+    Number(
+      (
+        await pool.query(
+          "SELECT extract(epoch FROM lease_until-now())*1000 AS ms FROM builds WHERE id=$1",
+          [queued.rows[0].id],
+        )
+      ).rows[0].ms,
+    );
+  await new Promise(async (r) => setTimeout(r, Math.max(0, (await left()) - 300)));
   expect((await lease()).json()).toBeNull();
-  await new Promise((r) =>
-    setTimeout(r, Math.max(0, deadline - Date.now() + 30)),
-  );
+  await new Promise(async (r) => setTimeout(r, Math.max(0, (await left()) + 30)));
   const ready = (await lease()).json();
   expect(ready.id).toBe(queued.rows[0].id);
   expect(ready.revision).toBe(edit.revision);
