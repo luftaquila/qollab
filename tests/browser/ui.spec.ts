@@ -396,7 +396,7 @@ test("text stays at least 12px and every control has a name, in light and dark",
     results.menu = await audit(page);
     await page.keyboard.press("Escape");
     await page.locator(".document-bar").getByRole("button", { name: "작성 도움말" }).click();
-    await page.getByRole("button", { name: "LaTeX 명령" }).click();
+    await page.getByRole("button", { name: "Typst 조판" }).click();
     results.help = await audit(page);
     await page.screenshot({ path: `tmp/ui-help-${scheme}.png` });
     await page.keyboard.press("Escape");
@@ -479,7 +479,7 @@ test("document settings edit YAML front matter and _quarto.yml without losing co
     "mainfont: Latin Modern Roman",
     "CJKmainfont: UnBatang",
     "linestretch: 1.5",
-    "- top=25mm",
+    "margin:\n  top: 25mm",
     "number-sections: true",
     "toc: true",
     "crossref:\n  fig-title: 그림",
@@ -494,7 +494,7 @@ test("document settings edit YAML front matter and _quarto.yml without losing co
   await expect.poll(() => source(page, user, id)).not.toContain("linestretch");
 
   // Free-form YAML: invalid input is refused, valid input is applied.
-  await panel.getByText("Advanced: LaTeX preamble and YAML").click();
+  await panel.getByText("Advanced: Typst preamble and YAML").click();
   const yaml = label("Edit YAML");
   await yaml.fill("title: [unclosed");
   await panel.getByRole("button", { name: "Apply" }).click();
@@ -629,14 +629,14 @@ test("failed builds explain their cause", async ({ browser }) => {
         {
           id: "failed-build",
           status: "failed",
-          log: "\u001b[91mERROR: compilation failed\u001b[39m\nPackage microtype Warning: noise\n! Undefined control sequence.\nl.181 \\qollabmark\n",
+          log: "WARNING (qollab): \\smallpar is not supported by Typst and was left out\n[typst]: Compiling report.typ to report.pdf...error: unknown variable: qollabmark\n   ┌─ report.typ:181:2\n\u001b[91mERROR: Typst compilation failed\u001b[39m\n",
         },
       ],
     }),
   );
   await open(page, name);
   await expect(page.locator(".pdf-failure")).toContainText(
-    "Cause: Undefined LaTeX command: \\qollabmark",
+    "Cause: Unknown Typst name: qollabmark",
   );
   await context.close();
 });
@@ -706,7 +706,7 @@ test("Markdown source editing takes the lock, autosaves and returns to visual", 
   // Help, next to the source view toggle, lists syntax without copy or insert buttons.
   await page.locator(".document-bar").getByRole("button", { name: "Writing help" }).click();
   const help = page.getByRole("dialog", { name: "Writing help" });
-  await help.getByRole("button", { name: "LaTeX commands" }).click();
+  await help.getByRole("button", { name: "Typst layout" }).click();
   await expect(
     help.locator(".help-entry", { hasText: "Start the next content on a new page" }),
   ).toBeVisible();

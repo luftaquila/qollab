@@ -31,7 +31,7 @@ export const texView = $view(texNode, () => (initial) => {
   dom.dataset.qollabTex = source;
   dom.dataset.kind = "math";
   dom.contentEditable = "false";
-  // Hangul and other text inside math is valid for LuaLaTeX and XeLaTeX.
+  // Hangul and other text inside math also renders in the Typst PDF.
   katex.render(forDisplay(source.slice(2, -2)), dom, {
     displayMode: true,
     throwOnError: false,

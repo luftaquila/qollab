@@ -53,13 +53,16 @@ const parsed = computed<Document | undefined>(() =>
 const invalid = computed(() => !!parsed.value?.errors.length);
 const locked = computed(() => !editable.value || invalid.value || !YAML.value);
 
-// Options written under `format: pdf:` stay there; new ones go to the top level.
+// Options written under `format: typst:` (or `format: pdf:` in documents made
+// for LaTeX, which the renderer reads as Typst options) stay there; new ones
+// go to the top level.
 function location(doc: Document, key: string[]) {
-  if (key.length === 1) {
-    const pdf = doc.getIn(["format", "pdf"], true);
-    if (YAML.value!.isMap(pdf) && pdf.has(key[0]))
-      return ["format", "pdf", key[0]];
-  }
+  if (key.length === 1)
+    for (const format of ["typst", "pdf"]) {
+      const options = doc.getIn(["format", format], true);
+      if (YAML.value!.isMap(options) && options.has(key[0]))
+        return ["format", format, key[0]];
+    }
   return key;
 }
 function lookup(doc: Document | undefined, key: string[]): any {
@@ -69,7 +72,7 @@ function lookup(doc: Document | undefined, key: string[]): any {
 }
 const read = (key: string[]) => lookup(parsed.value, key);
 // A document inherits what _quarto.yml sets; the panel shows it in place of
-// Quarto's own default.
+// the renderer's default.
 const projectDoc = computed(() =>
   scope.value === "document" && YAML.value
     ? YAML.value.parseDocument(config.value?.source ?? "")
@@ -110,28 +113,22 @@ function write(key: string[], value: unknown) {
 }
 const text = (e: Event) => (e.target as HTMLInputElement).value.trim();
 
-// Quarto's own defaults, checked in the renderer image: KOMA scrartcl on
-// Letter paper, colored links except in book classes, English text.
+// Defaults the renderer applies (containers/render.py and containers/typst):
+// Letter paper, 11pt, coloured links, page numbers, English text.
 const documentLang = computed(() => String(read(["lang"]) ?? inherited(["lang"]) ?? "en"));
 const korean = computed(() => documentLang.value.toLowerCase().startsWith("ko"));
-const documentClass = computed(() =>
-  String(read(["documentclass"]) ?? inherited(["documentclass"]) ?? "scrartcl"),
-);
 const localized = (ko: string, en: string) => (korean.value ? ko : en);
 const defaults: Record<string, () => unknown> = {
   lang: () => "en",
-  papersize: () => "letter",
-  documentclass: () => "scrartcl",
-  "pdf-engine": () => "xelatex",
-  fontsize: () => (documentClass.value.startsWith("scr") ? "11pt" : "10pt"),
+  papersize: () => "us-letter",
+  fontsize: () => "11pt",
   linestretch: () => 1,
   mainfont: () => defaultFonts.mainfont,
   sansfont: () => defaultFonts.sansfont,
   monofont: () => defaultFonts.monofont,
-  pagestyle: () => (["book", "scrbook"].includes(documentClass.value) ? "headings" : "plain"),
-  colorlinks: () => !["book", "scrbook"].includes(documentClass.value),
+  "page-numbering": () => true,
+  colorlinks: () => true,
   linkcolor: () => "blue",
-  urlcolor: () => "blue",
   "toc-depth": () => 3,
   "toc-title": () => localized("목차", "Table of contents"),
   "fig-cap-location": () => "bottom",
@@ -160,7 +157,7 @@ interface Field {
   /** Option groups instead of a flat list (fonts). */
   groups?: { label: Word; choices: Choice[] }[];
   hint?: Word | (() => string);
-  /** What leaving a select empty means when Quarto has no single default. */
+  /** What leaving a select empty means when the renderer has no single default. */
   empty?: Word;
   /** Shown only while this returns true (e.g. depth only with a contents list). */
   when?: () => boolean;
@@ -210,9 +207,9 @@ const sections: { title: Word; hint?: Word; fields: Field[] }[] = [
         choices: [
           { value: "a4", label: "A4 · 210×297mm" },
           { value: "a5", label: "A5 · 148×210mm" },
-          { value: "b5", label: "B5 · 176×250mm" },
-          { value: "letter", label: "Letter · 216×279mm" },
-          { value: "legal", label: "Legal · 216×356mm" },
+          { value: "iso-b5", label: "B5 · 176×250mm" },
+          { value: "us-letter", label: "Letter · 216×279mm" },
+          { value: "us-legal", label: "Legal · 216×356mm" },
         ],
       },
     ],
@@ -249,44 +246,10 @@ const sections: { title: Word; hint?: Word; fields: Field[] }[] = [
   {
     title: "secStructure",
     fields: [
-      {
-        key: ["documentclass"],
-        label: "fClass",
-        kind: "select",
-        hint: "fClassHint",
-        choices: [
-          { value: "scrartcl", label: ["KOMA 문서 (scrartcl)", "KOMA article (scrartcl)"] },
-          { value: "article", label: ["일반 문서 (article)", "Article (article)"] },
-          { value: "scrreprt", label: ["보고서, 장 단위 (scrreprt)", "Report with chapters (scrreprt)"] },
-          { value: "report", label: ["보고서, 장 단위 (report)", "Report with chapters (report)"] },
-          { value: "scrbook", label: ["책, 양면 (scrbook)", "Two-sided book (scrbook)"] },
-          { value: "book", label: ["책, 양면 (book)", "Two-sided book (book)"] },
-        ],
-      },
-      {
-        key: ["pdf-engine"],
-        label: "fEngine",
-        kind: "select",
-        hint: "fEngineHint",
-        choices: [
-          { value: "xelatex", label: ["XeLaTeX (빠름)", "XeLaTeX (fast)"] },
-          { value: "lualatex", label: ["LuaLaTeX (LaTeX 원본 호환)", "LuaLaTeX (LaTeX project compatible)"] },
-        ],
-      },
       { key: ["number-sections"], label: "fNumberSections", kind: "check" },
-      {
-        key: ["number-depth"],
-        label: "fNumberDepth",
-        kind: "select",
-        choices: depths(4),
-        empty: "allLevels",
-        when: on("number-sections"),
-      },
       { key: ["toc"], label: "fToc", kind: "check" },
       { key: ["toc-depth"], label: "fTocDepth", kind: "select", choices: depths(4), when: on("toc") },
       { key: ["toc-title"], label: "fTocTitle", kind: "text", when: on("toc") },
-      { key: ["lof"], label: "fLof", kind: "check" },
-      { key: ["lot"], label: "fLot", kind: "check" },
       { key: ["colorlinks"], label: "fColorLinks", kind: "check" },
       {
         key: ["linkcolor"],
@@ -296,7 +259,6 @@ const sections: { title: Word; hint?: Word; fields: Field[] }[] = [
         hint: "fLinkColorHint",
         when: on("colorlinks"),
       },
-      { key: ["urlcolor"], label: "fUrlColor", kind: "select", choices: linkColors, when: on("colorlinks") },
     ],
   },
   {
@@ -369,12 +331,12 @@ function display(field: Field, value: unknown) {
   const match = field.kind === "select" && choicesOf(field).find((c) => c.value === String(value));
   return match ? pick(match.label) : String(value);
 }
-/** What an empty field means here: the project's value or Quarto's default. */
+/** What an empty field means here: the project's value or the renderer's default. */
 function implied(field: Field) {
   const from = inherited(field.key);
   if (from != null) return `${t("fromProject")} · ${display(field, from)}`;
-  const quarto = fallback(field.key);
-  if (quarto != null && quarto !== "") return `${t("defaultValue")} · ${display(field, quarto)}`;
+  const standard = fallback(field.key);
+  if (standard != null && standard !== "") return `${t("defaultValue")} · ${display(field, standard)}`;
   if (field.empty) return `${t("defaultValue")} · ${t(field.empty)}`;
   return field.kind === "select" ? t("defaultValue") : "";
 }
@@ -397,17 +359,8 @@ function commit(field: Field, event: Event) {
   const numeric = ["linestretch", "number-depth", "toc-depth"].includes(field.key[0]);
   write(field.key, raw === "" ? undefined : numeric ? Number(raw) : raw);
 }
-// Korean disappears from the PDF when the body or heading font has no Hangul
-// and no Korean font is set for it.
-const missingKorean = computed(() => {
-  const latin = new Set<string>(fonts.latin);
-  return (
-    (latin.has(String(effective(["mainfont"]))) || latin.has(String(effective(["sansfont"])))) &&
-    !effective(["CJKmainfont"])
-  );
-});
 
-// Date: none, the day the PDF is made (Quarto's `today`), a fixed date or text.
+// Date: none, the day the PDF is made (`today`), a fixed date or text.
 type DateKind = "none" | "today" | "fixed" | "text";
 const dateText = ref(false);
 const dateKind = computed<DateKind>(() => {
@@ -428,7 +381,7 @@ function setDateKind(kind: DateKind) {
   else if (kind === "fixed") write(["date"], isoToday());
 }
 const dateFormats = ["long", "full", "medium", "short"] as const;
-/** The date as Quarto prints it; both use the browser's ICU date formats. */
+/** The date as the renderer prints it (render.py writes these ICU formats). */
 function formatted(style: (typeof dateFormats)[number] | "") {
   const v = read(["date"]),
     day = dateKind.value === "fixed" ? String(v) : isoToday();
@@ -446,19 +399,30 @@ const inheritedDate = computed(() => {
 });
 const dateValue = computed(() => String(read(["date"]) ?? ""));
 
-// Margins live in the `geometry` list next to options the panel does not show.
+// Margins are Typst's `margin` map (x and y, or each side). Documents made
+// for LaTeX keep a `geometry` list: it is shown here and replaced on the first
+// edit, like `classoption: twocolumn` and `pagestyle: empty` below.
 const sides = ["top", "bottom", "left", "right"] as const;
-const marginKeys = new Set(["margin", ...sides]);
-const geometry = computed<string[]>(() => {
-  const value = read(["geometry"]);
-  return value == null ? [] : (Array.isArray(value) ? value : [value]).map(String);
-});
-const entries = computed(() =>
-  geometry.value.map((entry) => {
+type Side = (typeof sides)[number];
+const asList = (value: unknown) =>
+  value == null ? [] : (Array.isArray(value) ? value : [value]).map(String);
+const legacyMargins = computed(() => {
+  const out: Record<string, string> = {};
+  for (const entry of asList(read(["geometry"]))) {
     const [key, ...rest] = entry.split("=");
-    return { key: key.trim(), value: rest.join("=").trim(), entry };
-  }),
-);
+    const k = key.trim(),
+      v = rest.join("=").trim();
+    if (k === "margin") Object.assign(out, { x: v, y: v });
+    else if ((sides as readonly string[]).includes(k)) out[k] = v;
+  }
+  return out;
+});
+const margins = computed<Record<string, string>>(() => {
+  const value = read(["margin"]);
+  if (value && typeof value === "object")
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, String(v)]));
+  return legacyMargins.value;
+});
 const marginPresets = [
   { value: "15mm", label: ["좁게 · 15mm", "Narrow · 15mm"] as [string, string] },
   { value: "25mm", label: ["보통 · 25mm", "Normal · 25mm"] as [string, string] },
@@ -466,53 +430,59 @@ const marginPresets = [
 ];
 const customMargins = ref(false);
 const marginMode = computed(() => {
-  const margins = entries.value.filter((e) => marginKeys.has(e.key));
-  if (!margins.length) return customMargins.value ? "custom" : "";
-  if (
-    margins.length === 1 &&
-    margins[0].key === "margin" &&
-    marginPresets.some((p) => p.value === margins[0].value)
-  )
-    return customMargins.value ? "custom" : margins[0].value;
+  const m = margins.value,
+    keys = Object.keys(m);
+  if (!keys.length) return customMargins.value ? "custom" : "";
+  if (keys.length === 2 && m.x && m.x === m.y && marginPresets.some((p) => p.value === m.x))
+    return customMargins.value ? "custom" : m.x;
   return "custom";
 });
-function writeGeometry(list: string[]) {
-  write(["geometry"], list.length ? list : undefined);
+function writeMargins(map: Record<string, string>) {
+  if (read(["geometry"]) != null) write(["geometry"], undefined);
+  write(["margin"], Object.keys(map).length ? map : undefined);
 }
 function setMarginMode(mode: string) {
   customMargins.value = mode === "custom";
   if (mode === "custom") return;
-  const others = entries.value.filter((e) => !marginKeys.has(e.key)).map((e) => e.entry);
-  writeGeometry(mode ? [...others, `margin=${mode}`] : others);
+  writeMargins(mode ? { x: mode, y: mode } : {});
 }
-const toMm: Record<string, number> = { mm: 1, cm: 10, in: 25.4, pt: 25.4 / 72.27 };
-/** A side's margin in millimetres, from its own entry or the shared `margin`. */
-function margin(side: (typeof sides)[number]) {
-  const found =
-    entries.value.find((e) => e.key === side) ?? entries.value.find((e) => e.key === "margin");
-  const m = found && /^(\d*\.?\d+)\s*(mm|cm|in|pt)$/.exec(found.value);
-  return m ? String(Math.round(Number(m[1]) * toMm[m[2]] * 10) / 10) : "";
+const toMm: Record<string, number> = { mm: 1, cm: 10, in: 25.4, pt: 25.4 / 72 };
+/** A side's margin in millimetres, from its own entry or the shared x/y value. */
+function margin(side: Side) {
+  const m = margins.value;
+  const v = m[side] ?? (side === "top" || side === "bottom" ? m.y : m.x);
+  const r = v && /^(\d*\.?\d+)\s*(mm|cm|in|pt)$/.exec(v);
+  return r ? String(Math.round(Number(r[1]) * toMm[r[2]] * 10) / 10) : "";
 }
-function setMargin(side: (typeof sides)[number], value: string) {
-  const others = entries.value.filter((e) => e.key !== side).map((e) => e.entry);
+function setMargin(side: Side, value: string) {
+  const next: Record<string, string> = {};
+  for (const s of sides) {
+    const v = margin(s);
+    if (v !== "") next[s] = `${v}mm`;
+  }
   const mm = Number(value);
-  writeGeometry(value !== "" && mm >= 0 ? [...others, `${side}=${mm}mm`] : others);
+  if (value !== "" && mm >= 0) next[side] = `${mm}mm`;
+  else delete next[side];
+  writeMargins(next);
 }
-const classOptions = computed<string[]>(() => {
-  const value = read(["classoption"]);
-  return value == null ? [] : (Array.isArray(value) ? value : [value]).map(String);
-});
+const twoColumns = computed(
+  () => Number(read(["columns"])) === 2 || asList(read(["classoption"])).includes("twocolumn"),
+);
 function setTwoColumn(checked: boolean) {
-  const rest = classOptions.value.filter((o) => o !== "twocolumn");
-  const next = checked ? [...rest, "twocolumn"] : rest;
-  write(["classoption"], next.length ? next : undefined);
+  const rest = asList(read(["classoption"])).filter((o) => o !== "twocolumn");
+  if (read(["classoption"]) != null) write(["classoption"], rest.length ? rest : undefined);
+  write(["columns"], checked ? 2 : undefined);
 }
-const pageStyles: Choice[] = [
-  { value: "plain", label: ["쪽 번호 (아래 가운데)", "Page number (bottom center)"] },
-  { value: "empty", label: ["쪽 번호 없음", "No page numbers"] },
-  { value: "headings", label: ["머리글에 장·절 제목과 쪽 번호", "Running headers with page numbers"] },
-];
-const pageStyleField: Field = { key: ["pagestyle"], label: "fPageStyle", kind: "select", choices: pageStyles };
+const pageNumbers = computed(() => {
+  const own = read(["page-numbering"]);
+  if (own != null) return own !== false;
+  if (read(["pagestyle"]) != null) return read(["pagestyle"]) !== "empty";
+  return inherited(["page-numbering"]) !== false;
+});
+function setPageNumbers(checked: boolean) {
+  if (read(["pagestyle"]) != null) write(["pagestyle"], undefined);
+  write(["page-numbering"], checked === (inherited(["page-numbering"]) !== false) ? undefined : checked);
+}
 const langField: Field = {
   key: ["lang"],
   label: "fLang",
@@ -779,40 +749,21 @@ function applyYaml() {
           <label class="check-field">
             <input
               type="checkbox"
-              :checked="classOptions.includes('twocolumn')"
+              :checked="twoColumns"
               @change="setTwoColumn(($event.target as HTMLInputElement).checked)"
             />
             <span>{{ t("fTwoColumn") }}</span>
           </label>
-          <div class="field">
-            <label :for="id(pageStyleField.key)">{{ t(pageStyleField.label) }}</label>
-            <select
-              :id="id(pageStyleField.key)"
-              class="select"
-              :value="value(pageStyleField)"
-              @change="commit(pageStyleField, $event)"
-            >
-              <option value="">{{ implied(pageStyleField) }}</option>
-              <option
-                v-if="value(pageStyleField) && !pageStyles.some((c) => c.value === value(pageStyleField))"
-                :value="value(pageStyleField)"
-              >
-                {{ value(pageStyleField) }}
-              </option>
-              <option v-for="c in pageStyles" :key="c.value" :value="c.value">
-                {{ pick(c.label) }}
-              </option>
-            </select>
-          </div>
+          <label class="check-field">
+            <input
+              type="checkbox"
+              :checked="pageNumbers"
+              @change="setPageNumbers(($event.target as HTMLInputElement).checked)"
+            />
+            <span>{{ t("fPageNumbers") }}</span>
+          </label>
         </template>
 
-        <p
-          v-if="field.key[0] === 'CJKmainfont' && missingKorean"
-          class="notice"
-          role="status"
-        >
-          {{ t("missingKoreanFont") }}
-        </p>
       </template>
     </fieldset>
 
@@ -828,7 +779,7 @@ function applyYaml() {
             rows="4"
             spellcheck="false"
             :disabled="invalid"
-            placeholder="\usepackage{titlesec}"
+            placeholder="#set par(first-line-indent: 1em)"
             @change="write(['header-includes'], header.trim() ? header : undefined)"
           />
           <span class="field-hint">{{ t("fHeaderHint") }}</span>

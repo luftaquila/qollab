@@ -28,9 +28,9 @@ defineProps<{ configured: boolean }>();
           >{{ t("google") }}</a
         >
         <p v-else class="notice">{{ t("unconfigured") }}</p>
-        <ol class="login-steps" aria-label="Markdown → Quarto → PDF">
+        <ol class="login-steps" aria-label="Markdown → Typst → PDF">
           <li>Markdown</li>
-          <li>Quarto</li>
+          <li>Typst</li>
           <li>PDF</li>
         </ol>
       </section>

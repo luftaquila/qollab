@@ -1,16 +1,16 @@
 import { t, fmt } from "./i18n";
-// Quarto/XeLaTeX logs run to hundreds of lines of warnings. Pull out the
-// line that explains a failure so people do not have to read the whole log.
+// Pandoc/Typst logs mix progress, warnings and the error. Pull out the line
+// that explains a failure so people do not have to read the whole log.
 const known: [RegExp, (m: RegExpMatchArray) => string][] = [
   [/Unsupported render option: (\S+)/, (m) => fmt("errOption", { name: m[1] })],
   [/Font is not installed/, () => t("errFontPolicy")],
+  [/Template partials must be \.typ files in the project/, () => t("errPartials")],
   [/Executable cells and shortcodes are disabled/, () => t("errExecutable")],
   [/Remote images are disabled/, () => t("errRemoteImage")],
   [/RENDER_TIMEOUT/, () => t("errTimeout")],
-  [/The font "([^"]+)" cannot be found/, (m) => fmt("errFont", { name: m[1] })],
-  [/LaTeX Error: File `([^']+)' not found/, (m) => fmt("errFile", { name: m[1] })],
-  [/^! Undefined control sequence\.[\s\S]*?^l\.\d+ .*?(\\[A-Za-z@]+)\s*$/m, (m) => fmt("errCommand", { name: m[1] })],
-  [/^! Missing \$ inserted/m, () => t("errMath")],
+  [/error: file not found \(searched at ([^)]+)\)/, (m) => fmt("errFile", { name: m[1].replace(/^\/work\//, "") })],
+  [/Template partial not found: (\S+)/, (m) => fmt("errFile", { name: m[1] })],
+  [/error: unknown variable: (\S+)/, (m) => fmt("errCommand", { name: m[1] })],
 ];
 export function summarizeLog(log?: string) {
   if (!log) return "";
@@ -19,8 +19,11 @@ export function summarizeLog(log?: string) {
     const match = clean.match(pattern);
     if (match) return describe(match);
   }
-  const tex = /^! (.+)$/m.exec(clean);
-  if (tex) return tex[1];
+  const typst = /^(?:\[typst\]:.*?)?error: (.+)$/m.exec(clean);
+  if (typst) return typst[1].trim();
+  // Pandoc: "Error running filter …", "Error parsing YAML …".
+  const pandoc = /^(Error\b.+)$/m.exec(clean);
+  if (pandoc) return pandoc[1].trim();
   const error = /^ERROR:?\s*(.+)$/m.exec(clean);
   return error ? error[1].trim() : "";
 }
