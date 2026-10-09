@@ -144,6 +144,12 @@ def metadata(options):
     data['qollab-callout']={k:names[k] for k in ('note','tip','warning','important','caution')}
     return data
 
+# What the filters look for. A walk over every paragraph or word costs a
+# noticeable part of a long document's build, so the filters skip it when the
+# source cannot contain what it looks for.
+SCAN={'latex':r'\\[A-Za-z]','labels':r'\\label\b','equations':r'\{#eq-','shortcodes':r'\{\{<',
+      'references':r'@(?:fig|tbl|eq|sec)-'}
+
 # Quarto code cells (```{python}) are shown as code; nothing is executed.
 CELL=re.compile(r'^([ \t]*(?:`{3,}|~{3,})[ \t]*)\{([A-Za-z][\w+-]*)[^}\n]*\}[ \t]*$',re.M)
 
@@ -161,8 +167,11 @@ def render(target,deadline,log):
         elif not p.is_file():raise ValueError(f'Template partial not found: {p.relative_to(ROOT)}')
         else:shutil.copyfile(p,template/p.name)
     header=options.get('header-includes')
-    (work/'metadata.yml').write_text(yaml.safe_dump(metadata(options),allow_unicode=True,sort_keys=False))
-    (work/'input.md').write_text(CELL.sub(r'\1{.\2 .cell-code}',body))
+    source=CELL.sub(r'\1{.\2 .cell-code}',body)
+    data=metadata(options)
+    data['qollab-scan']={k:bool(re.search(pattern,source)) for k,pattern in SCAN.items()}
+    (work/'metadata.yml').write_text(yaml.safe_dump(data,allow_unicode=True,sort_keys=False))
+    (work/'input.md').write_text(source)
     stem=target.stem;cwd=(ROOT/target).parent
     cmd=['pandoc',str(work/'input.md'),'-f','markdown','-t','typst','-s','--template',str(template/'template.typ'),
          '--wrap=none','--syntax-highlighting',str(work/'arrow-light.theme'),'--metadata-file',str(work/'metadata.yml'),

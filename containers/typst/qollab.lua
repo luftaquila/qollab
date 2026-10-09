@@ -145,7 +145,10 @@ local function bare_label(el)
   return el.t == 'RawInline' and is_tex(el) and el.text:match('^\\label{([^}]+)}%s*$')
 end
 
-function Inlines(inlines)
+-- Returning nothing when nothing changed spares Pandoc converting the
+-- elements back (long documents have many inline lists and lists).
+local function convert_inlines(inlines)
+  local changed = false
   for i, el in ipairs(inlines) do
     -- Labels on their own wait for OrderedList (item numbers) and Pandoc.
     if el.t == 'RawInline' and is_tex(el) and not bare_label(el) then
@@ -157,9 +160,10 @@ function Inlines(inlines)
         out = out .. ';'
       end
       inlines[i] = pandoc.RawInline('typst', out)
+      changed = true
     end
   end
-  return inlines
+  if changed then return inlines end
 end
 
 local function item_number(attrs, n)
@@ -176,29 +180,28 @@ local function item_number(attrs, n)
 end
 
 -- Nested lists are handled first, so the walk only meets this list's labels.
-function OrderedList(el)
+local function number_labels(el)
+  local changed = false
   for k, item in ipairs(el.content) do
-    local number = item_number(el.listAttributes, el.listAttributes.start + k - 1)
-    el.content[k] = pandoc.Div(item):walk({
+    local number, found = item_number(el.listAttributes, el.listAttributes.start + k - 1), false
+    local walked = pandoc.Div(item):walk({
       RawInline = function(raw)
         local id = bare_label(raw)
-        if id then return pandoc.RawInline('typst', ref_label(id, number)) end
+        if id then
+          found = true
+          return pandoc.RawInline('typst', ref_label(id, number))
+        end
       end,
-    }).content
+    })
+    if found then
+      el.content[k] = walked.content
+      changed = true
+    end
   end
-  return el
+  if changed then return el end
 end
 
-function Pandoc(doc)
-  return doc:walk({
-    RawInline = function(raw)
-      local id = bare_label(raw)
-      if id then return pandoc.RawInline('typst', ref_label(id, nil)) end
-    end,
-  })
-end
-
-function RawBlock(el)
+local function raw_block(el)
   if not is_tex(el) then return nil end
   local body = el.text:gsub('^%s+', ''):gsub('%s+$', '')
   local name = body:match('^\\([a-zA-Z]+)%s*{?}?$')
@@ -209,17 +212,39 @@ end
 
 -- Typst decides the image format from the extension; some uploads are PNG data
 -- named .jpg, which would stop the build.
-function Image(img)
+local function png_named_jpg(img)
   local src = img.src
   if not src:match('%.[jJ][pP][eE]?[gG]$') then return nil end
   local f = io.open(src, 'rb')
   if not f then return nil end
-  local data = f:read('a'); f:close()
-  if data:sub(1, 4) ~= '\137PNG' then return nil end
+  local magic = f:read(4)
+  if magic ~= '\137PNG' then f:close(); return nil end
+  local data = magic .. f:read('a'); f:close()
   local fixed = src .. '.png'
   local out = io.open(fixed, 'wb')
   if not out then return nil end
   out:write(data); out:close()
   img.src = fixed
   return img
+end
+
+-- render.py says what the source contains (qollab-scan): a document without
+-- LaTeX commands or labels skips those walks, which only find nothing.
+function Pandoc(doc)
+  local scan = doc.meta['qollab-scan'] or {}
+  local function has(key) return scan[key] ~= false end
+  local latex, labels = has('latex'), has('latex') and has('labels')
+  doc = doc:walk({
+    Image = png_named_jpg,
+    Inlines = latex and convert_inlines or nil,
+    OrderedList = labels and number_labels or nil,
+    RawBlock = raw_block,
+  })
+  if not labels then return doc end
+  return doc:walk({
+    RawInline = function(raw)
+      local id = bare_label(raw)
+      if id then return pandoc.RawInline('typst', ref_label(id, nil)) end
+    end,
+  })
 end

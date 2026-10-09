@@ -101,6 +101,14 @@ class Settings(unittest.TestCase):
         self.assertEqual(render.metadata({'date': '2026-01-05', 'date-format': 'medium'})['date'], 'Jan 5, 2026')
         self.assertEqual(render.metadata({'date': '2026년 봄'})['date'], '2026년 봄')
 
+    def test_scan_finds_what_the_filters_look_for(self):
+        def scan(text):
+            return {k for k, pattern in render.SCAN.items() if render.re.search(pattern, text)}
+        self.assertEqual(scan('# 제목\n\n본문만 있다.\n'), set())
+        self.assertEqual(scan('항목\\label{a} \\ref{a}, @fig-x, $$x$$ {#eq-y}, {{< pagebreak >}}'),
+                         {'latex', 'labels', 'references', 'equations', 'shortcodes'})
+        self.assertEqual(scan('\\textcolor{red}{x} 메일 a@b.c'), {'latex'})
+
     def test_code_cells_become_code(self):
         self.assertEqual(render.CELL.sub(r'\1{.\2 .cell-code}', '```{python}\nx\n```\n```{=typst}\n```'),
                          '```{.python .cell-code}\nx\n```\n```{=typst}\n```')

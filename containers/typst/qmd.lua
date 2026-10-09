@@ -26,7 +26,12 @@ local colors = { note = '#0758E5', tip = '#00A047', warning = '#EB9113', importa
 
 function Pandoc(doc)
   local crossref, callouts = doc.meta.crossref or {}, doc.meta['qollab-callout'] or {}
+  -- What render.py found in the source; walks over every paragraph or word
+  -- are skipped when they could only find nothing.
+  local scan = doc.meta['qollab-scan'] or {}
+  local function has(key) return scan[key] ~= false end
   doc.meta['qollab-callout'] = nil
+  doc.meta['qollab-scan'] = nil
   local function name(map, key) return pandoc.utils.stringify(map[key] or '') end
 
   -- As in Quarto, a document without level-one headings has its headings
@@ -40,16 +45,18 @@ function Pandoc(doc)
   local function raw_labels(raw)
     if raw.format == 'typst' then for id in raw.text:gmatch('<([%w_:%.%-]+)>') do label(id) end end
   end
-  doc:walk({
-    Header = function(el) label(el.identifier) end,
-    Figure = function(el) label(el.identifier) end,
-    Table = function(el) label(el.identifier) end,
-    Span = function(el) label(el.identifier) end,
-    Div = function(el) label(el.identifier) end,
-    Str = function(el) label(el.text:match('^{#(eq%-[^}%s]+)}$')) end,
-    RawInline = raw_labels,
-    RawBlock = raw_labels,
-  })
+  if has('references') then
+    doc:walk({
+      Header = function(el) label(el.identifier) end,
+      Figure = function(el) label(el.identifier) end,
+      Table = function(el) label(el.identifier) end,
+      Span = function(el) label(el.identifier) end,
+      Div = function(el) label(el.identifier) end,
+      Str = has('equations') and function(el) label(el.text:match('^{#(eq%-[^}%s]+)}$')) end or nil,
+      RawInline = raw_labels,
+      RawBlock = raw_labels,
+    })
+  end
 
   -- @fig-x → #ref(<fig-x>, supplement: [그림]); a section without a number
   -- (no number-sections) gets a link with its title instead.
@@ -139,6 +146,10 @@ function Pandoc(doc)
     return blocks
   end
 
+  local function paragraph(p)
+    return (has('shortcodes') and shortcode(p)) or (has('equations') and equations(p)) or nil
+  end
+  local paragraphs = (has('shortcodes') or has('equations')) and paragraph or nil
   return doc:walk({
     Header = function(h)
       if not level_one then
@@ -169,8 +180,8 @@ function Pandoc(doc)
         return code
       end
     end,
-    Para = function(p) return shortcode(p) or equations(p) end,
-    Plain = function(p) return shortcode(p) or equations(p) end,
+    Para = paragraphs,
+    Plain = paragraphs,
     -- A table without a caption is a plain table, as Quarto writes it (Pandoc
     -- would make it a numbered figure).
     Table = function(tbl)
