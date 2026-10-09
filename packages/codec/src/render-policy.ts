@@ -66,7 +66,23 @@ const allowed = new Set([
   "eq-prefix",
   "sec-prefix",
   "title-delim",
-  // XeLaTeX by default; LuaLaTeX reproduces LaTeX projects written for it.
+  // Typst output: page margins, columns, numbering style and project
+  // template partials (.typ files in the project).
+  "typst",
+  "margin",
+  "x",
+  "y",
+  "top",
+  "bottom",
+  "left",
+  "right",
+  "columns",
+  "page-numbering",
+  "section-numbering",
+  "template-partials",
+  "keep-typ",
+  // Settings of documents written for LaTeX. The renderer translates what has
+  // a Typst equivalent (geometry, colorlinks) and ignores the rest.
   "pdf-engine",
   "boxlinks",
 ]);
@@ -94,8 +110,18 @@ function check(value: unknown, key = "") {
     !installedFonts.has(value)
   )
     throw new PolicyError("Font is not installed");
-  if (key === "format" && typeof value === "string" && value !== "pdf")
+  if (key === "format" && typeof value === "string" && !["pdf", "typst"].includes(value))
     throw new PolicyError("Only PDF is supported");
+  if (key === "template-partials") {
+    const paths = Array.isArray(value) ? value : [value];
+    for (const p of paths)
+      if (
+        typeof p !== "string" ||
+        !/^[^/\\:]+(?:\/[^/\\:]+)*\.typ$/.test(p) ||
+        p.split("/").some((x) => x === ".." || x === "." || x.startsWith("."))
+      )
+        throw new PolicyError("Template partials must be .typ files in the project");
+  }
   if (key === "pdf-engine" && !pdfEngines.includes(String(value)))
     throw new PolicyError("Unsupported PDF engine");
   if (

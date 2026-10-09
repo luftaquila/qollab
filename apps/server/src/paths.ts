@@ -40,6 +40,7 @@ export function safePath(value: string) {
       ".png",
       ".jpg",
       ".jpeg",
+      ".typ",
       ".tex",
       ".sty",
     ].includes(ext)

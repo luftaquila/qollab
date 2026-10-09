@@ -201,6 +201,38 @@ describe("render and archive boundaries", () => {
         },
       ]),
     ).not.toThrow());
+  it("accepts the Typst options the settings panel and projects write", () =>
+    expect(() =>
+      renderPolicy([
+        {
+          path: "_quarto.yml",
+          source: [
+            "papersize: us-letter",
+            "margin:",
+            "  top: 20mm",
+            "  x: 25mm",
+            "columns: 2",
+            "page-numbering: false",
+            "header-includes: '#set par(first-line-indent: 1em)'",
+            "format:",
+            "  typst:",
+            "    template-partials:",
+            "      - template/typst-template.typ",
+            "      - template/typst-show.typ",
+          ].join("\n"),
+        },
+        { path: "report.qmd", source: "---\nformat: typst\n---\n\n본문" },
+      ]),
+    ).not.toThrow());
+  it.each(["../x.typ", "/etc/x.typ", "template/x.tex", ".qollab/typst-show.typ", "a/../b.typ", "C:/x.typ"])(
+    "rejects the template partial %s",
+    (partial) =>
+      expect(() =>
+        renderPolicy([
+          { path: "_quarto.yml", source: `format:\n  typst:\n    template-partials: ["${partial}"]` },
+        ]),
+      ).toThrow("Template partials must be .typ files in the project"),
+  );
   it("accepts every option the document settings panel writes", () =>
     expect(() =>
       renderPolicy([
