@@ -65,6 +65,7 @@ import {
   relativePath,
   setTextColor,
   underlineKeymap,
+  joinListsPlugin,
   type Heading,
   type ToolbarAction,
   type ToolbarState,
@@ -328,6 +329,7 @@ onMounted(() => {
       .use(labelPlugins)
       .use(texView)
       .use(underlineKeymap)
+      .use(joinListsPlugin)
       .use(referencePlugin)
       .use(flashPlugin)
       .use(texReferenceRule)

@@ -623,6 +623,48 @@ test("labels anywhere, references that jump, and element menus in the editor", a
   await context.close();
 });
 
+test("a list split by the block handle's + becomes one list again when the line goes", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ locale: "en-US" }),
+    user = await login(context),
+    page = await context.newPage(),
+    errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const name = "Lists " + Date.now();
+  const { id } = await project(
+    page,
+    user,
+    name,
+    "# Lists\n\n1. one\n2. two\n3. three\n4. four\n5. five\n\nBetween.\n\n1. kept\n\n1) apart\n",
+  );
+  await open(page, name);
+  // The block handle sits left of the text, where the files panel would cover it.
+  await page.getByRole("button", { name: "Files", exact: true }).click();
+  const editor = page.locator(".ProseMirror"),
+    labels = editor.locator("ol").first().locator(".label-wrapper");
+  await expect(editor.locator("ol")).toHaveCount(3);
+  await editor.getByText("three").hover();
+  await page.locator(".milkdown-block-handle .operation-item").first().click();
+  await expect(editor.locator("ol")).toHaveCount(4);
+  await expect(labels).toHaveText(["1.", "2.", "3."]);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Backspace");
+  await expect(editor.locator("ol")).toHaveCount(3);
+  await expect(labels).toHaveText(["1.", "2.", "3.", "4.", "5."]);
+  await expect
+    .poll(() => source(page, user, id))
+    .toContain("1. one\n2. two\n3. three\n4. four\n5. five\n");
+  // Lists that were already next to each other stay apart.
+  await editor.getByText("Between.").click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" Still.");
+  await expect.poll(() => source(page, user, id)).toContain("Between. Still.");
+  await expect(editor.locator("ol")).toHaveCount(3);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
 test("failed builds explain their cause", async ({ browser }) => {
   const context = await browser.newContext({ locale: "en-US" }),
     user = await login(context),

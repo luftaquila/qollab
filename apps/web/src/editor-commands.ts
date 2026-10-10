@@ -3,9 +3,11 @@ import { commandsCtx, editorViewCtx, parserCtx } from "@milkdown/kit/core";
 import { Slice, type Node as PMNode, type MarkType } from "@milkdown/kit/prose/model";
 import {
   NodeSelection,
+  Plugin,
   TextSelection,
   type EditorState,
 } from "@milkdown/kit/prose/state";
+import { Mapping, canJoin } from "@milkdown/kit/prose/transform";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import {
   blockquoteSchema,
@@ -194,6 +196,56 @@ export const underlineKeymap = $prose(() =>
     "Mod-u": (state, dispatch) =>
       toggleMark(state.schema.marks.qollab_underline)(state, dispatch),
   }),
+);
+/**
+ * Lists of one kind that an edit leaves next to each other, e.g. after the
+ * paragraph that the block handle's + put between list items is deleted,
+ * become one list again so that numbering continues. Lists that were already
+ * next to each other, and changes from other editors, are left alone.
+ */
+export const joinListsPlugin = $prose(
+  (ctx) =>
+    new Plugin({
+      appendTransaction(trs, old, state) {
+        if (
+          !trs.some((tr) => tr.docChanged) ||
+          trs.some((tr) => tr.getMeta(ySyncPluginKey)?.isChangeOrigin)
+        )
+          return null;
+        const lists = [bulletListSchema.type(ctx), orderedListSchema.type(ctx)];
+        const mapping = new Mapping();
+        for (const tr of trs) mapping.appendMapping(tr.mapping);
+        const back = mapping.invert();
+        const adjacent = (doc: PMNode, pos: number) => {
+          const { nodeBefore, nodeAfter } = doc.resolve(pos);
+          return (
+            !!nodeBefore &&
+            nodeBefore.type === nodeAfter?.type &&
+            lists.includes(nodeAfter.type)
+          );
+        };
+        const joins: number[] = [];
+        const scan = (node: PMNode, start: number) =>
+          node.forEach((child, offset, index) => {
+            const pos = start + offset;
+            if (
+              index > 0 &&
+              node.child(index - 1).type === child.type &&
+              lists.includes(child.type) &&
+              !adjacent(old.doc, back.map(pos))
+            )
+              joins.push(pos);
+            if (!child.isTextblock && !child.isLeaf) scan(child, pos + 1);
+          });
+        scan(state.doc, 0);
+        if (!joins.length) return null;
+        const tr = state.tr;
+        // From the end, so earlier positions stay valid.
+        for (const pos of joins.reverse())
+          if (canJoin(tr.doc, pos)) tr.join(pos);
+        return tr;
+      },
+    }),
 );
 export type ToolbarAction =
   | "bold"
