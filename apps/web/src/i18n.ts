@@ -160,6 +160,7 @@ const words = {
   resizeImage: ["이미지 너비 조절", "Resize image width"],
   refresh: ["새로고침", "Refresh"],
   outline: ["문서 개요", "Outline"],
+  searchHeadings: ["제목 검색", "Search headings"],
   refs: ["참조", "References"],
   pending: ["현재 수정 미반영", "New changes pending"],
   welcomeTitle: [
@@ -566,7 +567,7 @@ const words = {
   kindSpan: ["구간", "Span"],
   kindOther: ["기타", "Other"],
   kindLatex: ["LaTeX", "LaTeX"],
-  labelsTitle: ["라벨", "Labels"],
+  labels: ["라벨", "Labels"],
   brokenRefs: ["찾을 수 없는 참조", "Missing targets"],
   refCount: ["참조 {n}", "{n} refs"],
   closePanel: ["패널 닫기", "Close panel"],

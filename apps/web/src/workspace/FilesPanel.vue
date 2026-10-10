@@ -349,6 +349,26 @@ function upload(event: Event) {
   min-height: 0;
   padding: 12px 12px 24px;
 }
+/* A filter above a panel's list; the list scrolls below it. */
+.panel-search {
+  position: relative;
+  display: block;
+  flex: none;
+  padding: 12px 12px 0;
+  color: var(--text-muted);
+}
+.panel-search svg {
+  position: absolute;
+  top: 22px;
+  left: 22px;
+}
+.panel-search .input {
+  padding-left: 34px;
+}
+.panel-note {
+  margin: 4px;
+  font-size: var(--text-md);
+}
 .panel-section-title {
   margin: 18px 4px 8px;
   color: var(--text-muted);

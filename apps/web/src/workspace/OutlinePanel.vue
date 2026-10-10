@@ -1,49 +1,43 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import Icon from "../ui/Icon.vue";
 import { useWorkspace } from "./context";
-import { t, fmt } from "../i18n";
-import { badgeWord } from "../ReferencePicker.vue";
-import { labelKind } from "../../../../packages/codec/src/labels";
+import { t } from "../i18n";
 const ws = useWorkspace();
-// One row per label with how often it is referenced, and references whose
-// numbered target (fig-, tbl-, sec-, eq-) or #link target does not exist.
-const labels = computed(() => {
-  const index = ws.labels.value;
-  if (!index) return [];
-  return index.labels.map((label) => ({
-    ...label,
-    count: index.refs.filter((r) => r.key === label.id).length,
-  }));
-});
-const missing = computed(() => {
-  const index = ws.labels.value;
-  if (!index) return [];
-  const known = new Set(index.labels.map((l) => l.id)),
-    groups = new Map<string, { key: string; pos: number; count: number }>();
-  for (const ref of index.refs) {
-    if (known.has(ref.key) || (!ref.link && labelKind(ref.key) === "span")) continue;
-    const group = groups.get(ref.key) || { key: ref.key, pos: ref.pos, count: 0 };
-    group.count++;
-    groups.set(ref.key, group);
-  }
-  return [...groups.values()];
-});
+const query = ref("");
 const base = computed(() =>
   Math.min(6, ...ws.outline.value.map((h) => h.level)),
 );
+// Matching headings keep their index: scrolling goes by position in the outline.
+const shown = computed(() => {
+  const q = query.value.trim().toLowerCase();
+  return ws.outline.value
+    .map((heading, index) => ({ heading, index }))
+    .filter(({ heading }) => heading.text.toLowerCase().includes(q));
+});
 </script>
 <template>
   <div class="panel-head">
     <h2>{{ t("outline") }}</h2>
   </div>
+  <label v-if="ws.outline.value.length" class="panel-search">
+    <Icon name="search" :size="16" />
+    <input
+      v-model="query"
+      class="input"
+      type="search"
+      :placeholder="t('searchHeadings')"
+      :aria-label="t('searchHeadings')"
+    />
+  </label>
   <div class="panel-body scroll">
     <div v-if="!ws.outline.value.length" class="empty-state compact">
       <span class="empty-icon"><Icon name="outline" :size="22" /></span>
       <span>{{ t("noHeadings") }}</span>
     </div>
+    <p v-else-if="!shown.length" class="muted panel-note">{{ t("noResult") }}</p>
     <ol v-else class="outline-list">
-      <li v-for="(heading, index) in ws.outline.value" :key="index">
+      <li v-for="{ heading, index } in shown" :key="index">
         <button
           type="button"
           :class="['outline-item', 'level-' + heading.level]"
@@ -55,36 +49,6 @@ const base = computed(() =>
         </button>
       </li>
     </ol>
-    <template v-if="labels.length">
-      <h3 class="panel-section-title">{{ t("labelsTitle") }} · {{ labels.length }}</h3>
-      <ul class="label-list">
-        <li v-for="label in labels" :key="label.id">
-          <button type="button" class="label-row" @click="ws.revealLabel(label.id)">
-            <span :class="['badge', label.kind === 'span' ? '' : 'accent']">{{
-              t(badgeWord(label))
-            }}</span>
-            <span class="label-row-text">
-              <span>{{ label.text || label.id }}</span>
-              <code>#{{ label.id }}</code>
-            </span>
-            <span class="label-count">{{ fmt("refCount", { n: label.count }) }}</span>
-          </button>
-        </li>
-      </ul>
-    </template>
-    <template v-if="missing.length">
-      <h3 class="panel-section-title missing-title">
-        <Icon name="alert" :size="14" />{{ t("brokenRefs") }}
-      </h3>
-      <ul class="label-list">
-        <li v-for="ref in missing" :key="ref.key">
-          <button type="button" class="label-row" @click="ws.revealPosition(ref.pos)">
-            <code class="missing-key">@{{ ref.key }}</code>
-            <span class="label-count">{{ fmt("refCount", { n: ref.count }) }}</span>
-          </button>
-        </li>
-      </ul>
-    </template>
   </div>
 </template>
 <style>
@@ -121,59 +85,5 @@ const base = computed(() =>
 .outline-item.level-1 {
   color: var(--text);
   font-weight: 600;
-}
-.label-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.label-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--text-2);
-  text-align: left;
-  cursor: pointer;
-}
-.label-row:hover {
-  background: var(--hover);
-}
-.label-row-text {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-  font-size: var(--text-md);
-}
-.label-row-text span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.label-row-text code,
-.missing-key {
-  color: var(--text-muted);
-  font: var(--text-xs) var(--font-mono);
-}
-.missing-key {
-  flex: 1;
-  color: var(--danger);
-  font-size: var(--text-sm);
-}
-.label-count {
-  flex: none;
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-}
-.missing-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--danger);
 }
 </style>

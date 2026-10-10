@@ -2,6 +2,7 @@
 export type PanelName =
   | "files"
   | "outline"
+  | "labels"
   | "settings"
   | "history"
   | "members";
@@ -15,6 +16,7 @@ const emit = defineEmits<{ select: [PanelName] }>();
 const items: { id: PanelName; icon: IconName }[] = [
   { id: "files", icon: "file" },
   { id: "outline", icon: "outline" },
+  { id: "labels", icon: "tag" },
   { id: "settings", icon: "sliders" },
   { id: "history", icon: "history" },
   { id: "members", icon: "users" },

@@ -21,6 +21,7 @@ import WorkspaceHeader from "../workspace/WorkspaceHeader.vue";
 import ActivityRail, { type PanelName } from "../workspace/ActivityRail.vue";
 import FilesPanel from "../workspace/FilesPanel.vue";
 import OutlinePanel from "../workspace/OutlinePanel.vue";
+import LabelsPanel from "../workspace/LabelsPanel.vue";
 import HistoryPanel from "../workspace/HistoryPanel.vue";
 import MembersPanel from "../workspace/MembersPanel.vue";
 import SettingsPanel from "../workspace/SettingsPanel.vue";
@@ -841,6 +842,7 @@ onBeforeUnmount(() => {
       >
         <FilesPanel v-if="panel === 'files'" :selected="selected" />
         <OutlinePanel v-else-if="panel === 'outline'" />
+        <LabelsPanel v-else-if="panel === 'labels'" />
         <HistoryPanel v-else-if="panel === 'history'" />
         <MembersPanel v-else-if="panel === 'members'" />
         <SettingsPanel v-else-if="panel === 'settings'" />

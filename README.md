@@ -29,7 +29,7 @@ See [operations](docs/operations.md) for socket permissions, HTTPS, limits and b
 ## Included
 
 - Shared Markdown editing, Korean IME, remote cursors and personal undo/redo.
-- Workspace with an activity rail (files, outline, document settings, history, members), resizable PDF preview that follows the editor's position (can be turned off), right-click menus, light and dark themes.
+- Workspace with an activity rail (files, outline, labels, document settings, history, members; outline and labels can be searched), resizable PDF preview that follows the editor's position (can be turned off), right-click menus, light and dark themes.
 - Formatting toolbar for underline, text color, lists, links, images, tables, code and math that never edits YAML front matter by accident; one image dialog uploads or reuses project images.
 - Document settings for paper, margins, date, fonts (including a separate Hangul font), spacing, numbering, contents, link colors, caption labels and Typst preamble, per document or project-wide in `_quarto.yml`, each showing the value that applies when left empty, with free YAML editing.
 - PDFs made by Pandoc and Typst, without Quarto: cross references, numbered equations, callouts, two columns and page breaks of the Quarto syntax are supported; other Quarto-only blocks and shortcodes are reported in the build log. The default style can be replaced per project with `.typ` template partials. The LaTeX inline commands the editor writes (`\textcolor`, `\ul`, `\label`/`\ref`, `\newpage`, `\char`) are translated; LaTeX-only settings and raw LaTeX blocks are left out with a warning in the build log.

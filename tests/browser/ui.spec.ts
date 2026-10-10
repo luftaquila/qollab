@@ -260,6 +260,8 @@ test("panels and in-page dialogs replace browser prompts", async ({ browser }) =
 
   await page.getByRole("button", { name: "Outline", exact: true }).click();
   await expect(page.getByRole("button", { name: "Method" })).toBeVisible();
+  await page.getByRole("searchbox", { name: "Search headings" }).fill("meth");
+  await expect(page.locator(".outline-item")).toHaveText(["Method"]);
   await page.getByRole("button", { name: "Method" }).click();
 
   await page.getByRole("button", { name: "Files", exact: true }).click();
@@ -386,7 +388,7 @@ test("text stays at least 12px and every control has a name, in light and dark",
     await page.waitForTimeout(400);
     results.workspace = await audit(page);
     await page.screenshot({ path: `tmp/ui-workspace-${scheme}.png` });
-    for (const panel of ["문서 개요", "이력", "멤버"]) {
+    for (const panel of ["문서 개요", "라벨", "이력", "멤버"]) {
       await page.getByRole("button", { name: panel, exact: true }).click();
       await page.waitForTimeout(150);
       results[panel] = await audit(page);
@@ -588,11 +590,15 @@ test("labels anywhere, references that jump, and element menus in the editor", a
   // A reference chip jumps to its label.
   await page.locator(".qollab-ref").first().click();
   await expect(page.locator("h1.qollab-flash")).toHaveCount(1);
-  // The outline lists each label once with its references.
-  await page.getByRole("button", { name: "Outline", exact: true }).click();
+  // The labels panel lists each label once with its references and filters them.
+  await page.getByRole("button", { name: "Labels", exact: true }).click();
   const panel = page.locator(".side-panel");
   await expect(panel.locator(".label-row")).toHaveCount(2);
   await expect(panel.getByText("#sec-intro")).toBeVisible();
+  await panel.getByRole("searchbox", { name: "Search labels" }).fill("intro");
+  await expect(panel.locator(".label-row")).toHaveCount(1);
+  await panel.getByRole("searchbox", { name: "Search labels" }).fill("nothing");
+  await expect(panel.getByText("No results")).toBeVisible();
 
   // Element menus: list indent, table rows, formatting a selection.
   await page.getByText("second item").click({ button: "right" });
