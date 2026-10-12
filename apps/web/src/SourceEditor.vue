@@ -8,6 +8,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { yaml } from "@codemirror/lang-yaml";
 import { tags } from "@lezer/highlight";
 import { sourceAnchor, type SyncAnchor } from "./pdf-sync";
+import { renumberLists } from "./source-lists";
 const props = defineProps<{
   value: string;
   readonly: boolean;
@@ -95,7 +96,11 @@ onMounted(() => {
         EditorView.lineWrapping,
         theme,
         syntaxHighlighting(highlight),
-        props.language === "markdown" ? markdown() : props.language === "yaml" ? yaml() : [],
+        props.language === "markdown"
+          ? [markdown(), renumberLists]
+          : props.language === "yaml"
+            ? yaml()
+            : [],
         editable.of(settings(props.readonly)),
         EditorView.contentAttributes.of({ "aria-label": props.label }),
         keymap.of([{ key: "Mod-s", preventDefault: true, run: () => (emit("save"), true) }]),

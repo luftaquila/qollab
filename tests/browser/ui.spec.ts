@@ -665,6 +665,38 @@ test("a list split by the block handle's + becomes one list again when the line 
   await context.close();
 });
 
+test("list numbers in the Markdown editor follow on when an item is deleted", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ locale: "en-US" }),
+    user = await login(context),
+    page = await context.newPage(),
+    errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const name = "Numbers " + Date.now();
+  const { id } = await project(
+    page,
+    user,
+    name,
+    "# Numbers\n\n1. Main\n\n   1. one\n\n   2. two\n\n   3. three\n\n   4. four\n",
+  );
+  await open(page, name);
+  await page.getByRole("button", { name: "View source" }).click();
+  await page.getByRole("button", { name: "Edit Markdown" }).click();
+  const code = page.locator(".source-editor .cm-content"),
+    items = code.locator(".cm-line").filter({ hasText: /\d\. (one|two|three|four)/ });
+  await expect(code).toHaveAttribute("contenteditable", "true");
+  await code.getByText("2. two").click();
+  await page.keyboard.press("Shift+ControlOrMeta+K");
+  await expect(items).toHaveText(["1. one", "2. three", "3. four"]);
+  await expect.poll(() => source(page, user, id)).toContain("   2. three\n\n   3. four\n");
+  // One undo brings back the item and its old numbers.
+  await page.keyboard.press("ControlOrMeta+Z");
+  await expect(items).toHaveText(["1. one", "2. two", "3. three", "4. four"]);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
 test("failed builds explain their cause", async ({ browser }) => {
   const context = await browser.newContext({ locale: "en-US" }),
     user = await login(context),
