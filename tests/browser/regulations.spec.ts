@@ -509,7 +509,7 @@ test("changing shared labels updates web titles, captions and references in the 
   const { readFile } = await import("node:fs/promises");
   const { zipSync } = await import("fflate");
   const source =
-    "# Chapter\n\n## Purpose {#purpose}\n\n1. Requirement \\label{requirement}\n\n# Next chapter\n\n## Scope {#scope}\n\n![Diagram](figure.png){#diagram}\n\nSee \\ref{purpose}, \\ref{scope}, \\ref{requirement} and \\ref{diagram}.\n";
+    "---\nformat:\n  typst:\n    toc: true\n    abstract: Template introduction\n---\n\n# Chapter\n\n## Purpose {#purpose}\n\n1. Requirement \\label{requirement}\n\n# Next chapter\n\n## Scope {#scope}\n\n![Diagram](figure.png){#diagram}\n\nSee \\ref{purpose}, \\ref{scope}, \\ref{requirement} and \\ref{diagram}.\n";
   const zip = zipSync({
     "guide.qmd": new TextEncoder().encode(source),
     "figure.png": await readFile("tests/fixtures/figure.png"),
@@ -587,6 +587,9 @@ test("changing shared labels updates web titles, captions and references in the 
     "Article 1 paragraph 1",
   );
   await verifyPdf("before", [
+    "1 Chapter",
+    "Article 1 (Purpose)",
+    "2 Next chapter",
     "Article 2 (Scope)",
     "Plate 1. Diagram",
     "Article 1 paragraph 1",
@@ -608,6 +611,9 @@ test("changing shared labels updates web titles, captions and references in the 
     "Illustration 1. Diagram",
   );
   await verifyPdf("after", [
+    "1 Chapter",
+    "Clause 1 (Purpose)",
+    "2 Next chapter",
     "Clause 1 (Scope)",
     "Illustration 1. Diagram",
     "Clause 1 paragraph 1",

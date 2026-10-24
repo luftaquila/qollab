@@ -47,8 +47,13 @@
   result.join()
 }
 #let heading-info(el, selector: heading) = {
-  let index = query(selector.before(el.location())).len() - 1
-  data.headings.at(index, default: none)
+  // Outline and abstract titles belong to the template, not the source counters.
+  let selected = selector.before(el.location())
+  if query(<qollab-numbering-start>).len() > 0 {
+    selected = selected.after(<qollab-numbering-start>)
+  }
+  let index = query(selected).len() - 1
+  if index < 0 { none } else { data.headings.at(index, default: none) }
 }
 // Remove only the matched literal source prefix, preserving styled title parts.
 #let without-prefix(body, prefix) = {
@@ -114,6 +119,7 @@
 }
 #let parents = state("qollab-document-list-parents", ())
 #let apply(body) = {
+  let body = [#metadata(none)<qollab-numbering-start>#body]
   if settings.at("pdf", default: (:)).at("mode", default: "automatic") == "template" { return body }
   set heading(numbering: none, outlined: false, bookmarked: false) if enabled("headings")
   show heading: it => if not enabled("headings") or it.outlined { it } else {
