@@ -6,6 +6,7 @@ import {
   readdir,
   stat,
   symlink,
+  rm,
 } from "node:fs/promises";
 import { createReadStream, existsSync } from "node:fs";
 import { resolve, dirname, extname, relative } from "node:path";
@@ -22,15 +23,18 @@ import { content } from "./blobs.js";
 import type { Project } from "./model.js";
 import { renderDocument } from "../../web/src/web-document.js";
 import { webFormatSource } from "../../../packages/codec/src/web-format.js";
+import { WebsiteRefresh } from "./website-refresh.js";
 const exec = promisify(execFile);
 const hash = (s: string) =>
   createHash("sha256").update(s).digest("hex").slice(0, 16);
+// Invalidate generated themes while retaining old chunks for already-open tabs.
+const siteGenerations = ["websites-v3", "websites-v2"];
 export const websiteBase = (id: string) =>
   config.docsProject === id ? "/docs/" : `/docs/p/${id}/`;
 const siteRoot = (id: string, revision: number, portable = false) =>
   resolve(
     config.data,
-    "websites-v2",
+    siteGenerations[0],
     id,
     String(revision),
     portable ? "portable" : "hosted",
@@ -147,7 +151,35 @@ export async function buildWebsite(project: Project, portable = false) {
   // No session, collaboration, editor or project-list dependency in the site.
   await writeFile(
     resolve(root, ".vitepress/theme/index.js"),
-    `import DefaultTheme from 'vitepress/theme';\nimport './style.css';\nimport 'katex/dist/katex.min.css';\nexport default {extends:DefaultTheme,enhanceApp(){if(typeof window === 'undefined')return;let timer;const poll=async()=>{if(document.hidden)return;try{const r=await fetch(import.meta.env.BASE_URL+'site-version.json',{cache:'no-store'});if(r.ok&&(await r.json()).revision!==${project.revision})location.reload()}catch{}};timer=setInterval(poll,3000);window.addEventListener('pagehide',()=>clearInterval(timer),{once:true});}};\n`,
+    `import DefaultTheme from 'vitepress/theme';
+import './style.css';
+import 'katex/dist/katex.min.css';
+export default {extends:DefaultTheme,enhanceApp(){
+  if(typeof window === 'undefined')return;
+  let timer,active=true,checking=false,controller;
+  const poll=async()=>{
+    if(!active||document.hidden||checking)return;
+    checking=true;
+    const request=new AbortController();controller=request;
+    const timeout=setTimeout(()=>request.abort(),5000);
+    try{
+      const r=await fetch(import.meta.env.BASE_URL+'site-version.json',{cache:'no-store',signal:request.signal});
+      if(r.ok){
+        const next=await r.json();
+        if(active&&Number(next.revision)>${project.revision}){
+          active=false;clearInterval(timer);location.reload();
+        }
+      }
+    }catch{}finally{clearTimeout(timeout);checking=false;controller=undefined}
+  };
+  const start=()=>{active=true;clearInterval(timer);timer=setInterval(poll,500);void poll()};
+  document.addEventListener('visibilitychange',poll);
+  window.addEventListener('focus',poll);
+  window.addEventListener('pageshow',start);
+  window.addEventListener('pagehide',()=>{active=false;clearInterval(timer);controller?.abort()});
+  start();
+}};
+`,
   );
   const configuration = {
     vite: { build: { assetsInlineLimit: 0 } },
@@ -205,6 +237,30 @@ export async function buildWebsite(project: Project, portable = false) {
 }
 let queue = Promise.resolve();
 const pending = new Map<string, Promise<string>>();
+const exporting = new Map<string, number>();
+async function recentSites(id: string, generation: string) {
+  const parent = resolve(config.data, generation, id);
+  if (!existsSync(parent)) return [];
+  return (await readdir(parent))
+    .filter((n) => /^\d+$/.test(n))
+    .sort((a, b) => Number(b) - Number(a));
+}
+async function pruneSites(id: string, current: number) {
+  // Continuous editing now publishes during typing. Bound generated artifacts,
+  // preserving recent assets and the snapshot currently served by the routes.
+  for (const generation of siteGenerations) {
+    const revisions = await recentSites(id, generation);
+    for (const revision of revisions.slice(3)) {
+      if (Number(revision) >= current) continue;
+      const root = resolve(config.data, generation, id, revision);
+      if (exporting.has(root)) continue;
+      await rm(root, {
+        recursive: true,
+        force: true,
+      });
+    }
+  }
+}
 async function publish(id: string) {
   if (pending.has(id)) return pending.get(id)!;
   const work = queue.then(async () => {
@@ -218,6 +274,8 @@ async function publish(id: string) {
       "INSERT INTO websites(project_id,revision) VALUES($1,$2) ON CONFLICT(project_id) DO UPDATE SET revision=$2,updated=now()",
       [id, project.revision],
     );
+    // Pruning failure must not roll back a successfully published document.
+    await pruneSites(id, project.revision).catch(() => {});
     return dist;
   });
   pending.set(id, work);
@@ -252,25 +310,33 @@ export async function websiteRoutes(app: FastifyInstance) {
   app.get("/api/projects/:pid/website/export", async (req, reply) => {
     const user = await identity(req),
       project = await access(pool, idOf(req), user.id);
-    let dist = "";
-    const work = queue.then(async () => {
-      dist = await buildWebsite(project, true);
-    });
-    queue = work.catch(() => {});
-    await work;
-    const files: Record<string, Uint8Array> = {};
-    for (const entry of await readdir(dist, {
-      recursive: true,
-      withFileTypes: true,
-    }))
-      if (entry.isFile()) {
-        const path = resolve(entry.parentPath, entry.name);
-        files[relative(dist, path)] = await readFile(path);
-      }
-    return reply
-      .type("application/zip")
-      .header("Content-Disposition", 'attachment; filename="website.zip"')
-      .send(Buffer.from(zipSync(files, { level: 6 })));
+    const root = resolve(siteRoot(project.id, project.revision), "..");
+    exporting.set(root, (exporting.get(root) || 0) + 1);
+    try {
+      let dist = "";
+      const work = queue.then(async () => {
+        dist = await buildWebsite(project, true);
+      });
+      queue = work.catch(() => {});
+      await work;
+      const files: Record<string, Uint8Array> = {};
+      for (const entry of await readdir(dist, {
+        recursive: true,
+        withFileTypes: true,
+      }))
+        if (entry.isFile()) {
+          const path = resolve(entry.parentPath, entry.name);
+          files[relative(dist, path)] = await readFile(path);
+        }
+      return reply
+        .type("application/zip")
+        .header("Content-Disposition", 'attachment; filename="website.zip"')
+        .send(Buffer.from(zipSync(files, { level: 6 })));
+    } finally {
+      const remaining = exporting.get(root)! - 1;
+      if (remaining) exporting.set(root, remaining);
+      else exporting.delete(root);
+    }
   });
   app.get("/docs", async (_req, reply) => reply.redirect("/docs/"));
   app.get("/docs/*", async (req, reply) => {
@@ -302,21 +368,26 @@ export async function websiteRoutes(app: FastifyInstance) {
     // A tab can still request a hashed chunk from the preceding publication
     // before its next version poll. Keep that project's recent chunks usable.
     if (!existsSync(file) && path.startsWith("assets/")) {
-      const parent = resolve(config.data, "websites-v2", id);
-      const revisions = (await readdir(parent))
-        .filter((n) => /^\d+$/.test(n))
-        .sort((a, b) => Number(b) - Number(a))
-        .slice(0, 3);
-      for (const revision of revisions) {
-        const candidate = resolve(
-          siteRoot(id, Number(revision)),
-          ".vitepress/dist",
-          path,
-        );
-        if (existsSync(candidate)) {
-          file = candidate;
-          break;
+      for (const generation of siteGenerations) {
+        for (const revision of (await recentSites(id, generation)).slice(
+          0,
+          3,
+        )) {
+          const candidate = resolve(
+            config.data,
+            generation,
+            id,
+            revision,
+            "hosted",
+            ".vitepress/dist",
+            path,
+          );
+          if (existsSync(candidate)) {
+            file = candidate;
+            break;
+          }
         }
+        if (existsSync(file)) break;
       }
     }
     if (!existsSync(file) || (await stat(file)).isDirectory())
@@ -344,40 +415,33 @@ export async function websiteRoutes(app: FastifyInstance) {
       )
       .send(createReadStream(file));
   });
-  const timers = new Map<string, ReturnType<typeof setTimeout>>();
-  const schedule = (id: string) => {
-    clearTimeout(timers.get(id));
-    const timer = setTimeout(async () => {
-      timers.delete(id);
-      try {
-        const row = (
-          await pool.query(
-            "SELECT w.revision,p.revision AS current FROM websites w JOIN projects p ON p.id=w.project_id WHERE p.id=$1",
-            [id],
-          )
-        ).rows[0];
-        if (!row || row.revision === row.current) return;
-        await publish(id);
-        const latest = (
-          await pool.query(
-            "SELECT w.revision,p.revision AS current FROM websites w JOIN projects p ON p.id=w.project_id WHERE p.id=$1",
-            [id],
-          )
-        ).rows[0];
-        if (latest && latest.revision !== latest.current) schedule(id);
-      } catch (e) {
-        app.log.error(e, "Website refresh failed");
-      }
-    }, 800);
-    timer.unref();
-    timers.set(id, timer);
-  };
+  const refresh = new WebsiteRefresh(
+    async (id) => {
+      const row = (
+        await pool.query(
+          "SELECT w.revision,p.revision AS current FROM websites w JOIN projects p ON p.id=w.project_id WHERE p.id=$1",
+          [id],
+        )
+      ).rows[0];
+      if (!row || row.revision === row.current) return false;
+      await publish(id);
+      const latest = (
+        await pool.query(
+          "SELECT w.revision,p.revision AS current FROM websites w JOIN projects p ON p.id=w.project_id WHERE p.id=$1",
+          [id],
+        )
+      ).rows[0];
+      return !!latest && latest.revision !== latest.current;
+    },
+    (error) => app.log.error(error, "Website refresh failed"),
+  );
+  const schedule = (id: string) => refresh.schedule(id);
   const stop = observeEvents((id, event: any) => {
     if (["changed", "document", "restored"].includes(event?.type)) schedule(id);
   });
   app.addHook("onClose", async () => {
     stop();
-    for (const timer of timers.values()) clearTimeout(timer);
+    await refresh.close();
     await queue;
   });
 }

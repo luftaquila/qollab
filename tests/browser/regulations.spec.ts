@@ -179,7 +179,7 @@ test("project-only VitePress pages search, refresh after collaboration and expor
   const publication = await call(pa, ua, `/projects/${p.id}/website`);
   const { rm } = await import("node:fs/promises");
   await rm(
-    `.data/e2e/websites-v2/${p.id}/${publication.revision}/hosted/.vitepress/dist`,
+    `.data/e2e/websites-v3/${p.id}/${publication.revision}/hosted/.vitepress/dist`,
     { recursive: true },
   );
   await reader.reload();
