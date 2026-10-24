@@ -77,17 +77,38 @@ test("published HTML refreshes during continuous typing and immediately checks w
     );
     expect(versions.length).toBeLessThanOrEqual(3);
 
-    // With periodic timers paused, focus alone must detect the new publication.
-    await reader.clock.install();
-    await reader.clock.pauseAt(new Date());
+    // Start a fresh tab with timers controlled before its first navigation.
+    // Pausing an already-open tab leaves its in-flight poll free to reload it.
+    await reader.close();
+    await call(page, user, `/projects/${p.id}/website`, "POST", {});
+    const returningReader = await context.newPage();
+    await returningReader.clock.install();
+    const initialCheck = returningReader.waitForResponse((r) =>
+      r.url().endsWith("/site-version.json"),
+    );
+    await returningReader.goto(site.url);
+    await (await initialCheck).finished();
+    await expect(returningReader.locator(".VPNavBarTitle")).toHaveText(
+      "Publication timing",
+    );
+    await returningReader.clock.pauseAt(new Date());
     const current = await call(page, user, `/projects/${p.id}`);
     await call(page, user, `/projects/${p.id}`, "PATCH", {
       revision: Number(current.revision),
       name: "Updated while away",
     });
     await call(page, user, `/projects/${p.id}/website`, "POST", {});
-    await reader.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await expect(reader.locator(".VPNavBarTitle")).toHaveText(
+    await expect(returningReader.locator(".VPNavBarTitle")).toHaveText(
+      "Publication timing",
+    );
+    const returnCheck = returningReader.waitForRequest((r) =>
+      r.url().endsWith("/site-version.json"),
+    );
+    await returningReader.evaluate(() =>
+      window.dispatchEvent(new Event("focus")),
+    );
+    await returnCheck;
+    await expect(returningReader.locator(".VPNavBarTitle")).toHaveText(
       "Updated while away",
     );
   } finally {
