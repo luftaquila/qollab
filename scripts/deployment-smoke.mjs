@@ -89,6 +89,9 @@ await api(path + "/files/" + fid + "/raw", "PUT", {
   source: `# 배포 검증\n\n한글 문서와 이미지입니다.\n\n$$E=mc^2$$\n\n| A | B |\n|---|---|\n| 표 | 검증 |\n\n![그림](${uploaded.result.relative}){width=30%}\n`,
 });
 const started = performance.now();
+// Server rendering is explicitly requested; ordinary edits use the browser PDF.
+project = await api(path);
+await api(path + "/builds", "POST", { revision: Number(project.revision) });
 for (let i = 0; i < 180; i++) {
   const builds = await api(path + "/builds");
   if (builds[0]?.status === "failed") throw new Error(builds[0].log);
