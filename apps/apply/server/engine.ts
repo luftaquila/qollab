@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   ApplyError,
   columnIndex,
@@ -10,6 +9,11 @@ import {
   type Draft,
 } from "./model.js";
 const text = (v: unknown) => (v == null ? "" : String(v).trim());
+// UUID v8 derived from source identity survives a lost first-import response.
+const sourceId = (sourceKey: string, reviewSheet: string) => {
+  const h = digest([sourceKey, reviewSheet]);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-8${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+};
 /** Row positions are provenance, not identity. Continuation rows belong to their key. */
 export function sourceClauses(
   values: unknown[][],
@@ -81,7 +85,7 @@ export function sourceClauses(
     return {
       ...previous,
       ...fields,
-      id: previous?.id || randomUUID(),
+      id: previous?.id || sourceId(sourceKey, c.reviewSheet),
       sourceKey,
       sourceHash,
       approvalHash:

@@ -321,7 +321,16 @@ export async function createApplyApp(options: ApplyOptions) {
       const previous = state.clauses.map((clause) =>
         withReview(clause, r.index.get(clause.id)?.values),
       );
-      const incoming = sourceClauses(values, c, previous);
+      const incoming = sourceClauses(values, c, previous).map((clause) => {
+        if (previous.some((p) => p.id === clause.id)) return clause;
+        // Sheets may have accepted the previous import before its response was lost.
+        const restored = withReview(clause, r.index.get(clause.id)?.values);
+        if (restored.approvalHash !== restored.sourceHash) {
+          restored.draft.confirmed = false;
+          restored.approvalHash = restored.sourceHash;
+        }
+        return restored;
+      });
       const missing = previous
         .filter((p) => !incoming.some((c) => c.id === p.id))
         .map((c) => ({ ...c, missing: true }));
@@ -335,14 +344,16 @@ export async function createApplyApp(options: ApplyOptions) {
               values: [reviewValues(clause)],
             },
           ];
-        const before = previous.find((p) => p.id === clause.id)!;
+        const beforeHash =
+          previous.find((p) => p.id === clause.id)?.sourceHash ??
+          String(existing.values[14] || "");
         const data = [
           {
             range: `${quoteSheet(c.reviewSheet)}!A${existing.row}:G${existing.row}`,
             values: [reviewValues(clause).slice(0, 7)],
           },
         ];
-        if (before.sourceHash !== clause.sourceHash) {
+        if (beforeHash !== clause.sourceHash) {
           data.push({
             range: `${quoteSheet(c.reviewSheet)}!J${existing.row}`,
             values: [[false]],

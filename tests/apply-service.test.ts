@@ -171,6 +171,45 @@ async function fixture() {
     review: connection.reviewSheet,
   };
 }
+it("recovers an interrupted first import without duplicate rows or lost review text", async () => {
+  const id = (
+    await api("/projects", "POST", { name: "Import recovery" })
+  ).json().id;
+  const connection = { ...settings, reviewSheet: "Recovery " + id };
+  const configured = await call(`/projects/${id}/connection`, "POST", {
+    version: 0,
+    connection,
+  });
+  expect(configured.statusCode).toBe(200);
+  const write = sheets.write;
+  let lose = true;
+  sheets.write = async (...args: Parameters<typeof write>) => {
+    await write.apply(sheets, args);
+    if (lose) {
+      lose = false;
+      throw new Error("Lost Sheets response");
+    }
+  };
+  try {
+    const body = { version: configured.json().version };
+    expect(
+      (await call(`/projects/${id}/import`, "POST", body)).statusCode,
+    ).toBe(500);
+    const rows = sheets.values[connection.reviewSheet];
+    expect(rows).toHaveLength(3);
+    const ids = rows.slice(1).map((row) => row[0]);
+    rows[1][8] = "Review after interrupted import";
+    const retried = await call(`/projects/${id}/import`, "POST", body);
+    expect(retried.statusCode, retried.body).toBe(200);
+    expect(rows).toHaveLength(3);
+    expect(retried.json().clauses.map((c: any) => c.id)).toEqual(ids);
+    expect(retried.json().clauses[0].draft.final).toBe(
+      "Review after interrupted import",
+    );
+  } finally {
+    sheets.write = write;
+  }
+});
 it("requires a real Qollab identity, role, CSRF and authorized sheet connection administrator", async () => {
   expect((await tool.inject("/apply/api/projects")).statusCode).toBe(401);
   const f = await fixture();
