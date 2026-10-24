@@ -14,11 +14,26 @@ async function download(name, url, hash) {
     bytes = await readFile(new URL(name, cache));
   } catch {}
   if (!bytes || createHash("sha256").update(bytes).digest("hex") !== hash) {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`PDF asset ${name}: HTTP ${r.status}`);
-    bytes = Buffer.from(await r.arrayBuffer());
-    if (createHash("sha256").update(bytes).digest("hex") !== hash)
-      throw new Error(`PDF asset checksum: ${name}`);
+    const urls = Array.isArray(url) ? url : [url, url, url];
+    const errors = [];
+    let downloaded = false;
+    for (const candidate of urls) {
+      try {
+        const r = await fetch(candidate, {
+          signal: AbortSignal.timeout(60000),
+        });
+        if (!r.ok) throw new Error(`PDF asset ${name}: HTTP ${r.status}`);
+        bytes = Buffer.from(await r.arrayBuffer());
+        if (createHash("sha256").update(bytes).digest("hex") !== hash)
+          throw new Error(`PDF asset checksum: ${name}`);
+        downloaded = true;
+        break;
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (!downloaded)
+      throw new AggregateError(errors, `PDF asset download: ${name}`);
     await writeFile(new URL(name, cache), bytes);
   }
   return bytes;
@@ -77,7 +92,11 @@ for (const [name, url, hash] of [
   ],
   [
     "latinmodern-math.otf",
-    "https://mirrors.ctan.org/fonts/lm-math/opentype/latinmodern-math.otf",
+    [
+      "https://mirrors.mit.edu/CTAN/fonts/lm-math/opentype/latinmodern-math.otf",
+      "https://mirrors.ibiblio.org/CTAN/fonts/lm-math/opentype/latinmodern-math.otf",
+      "https://mirrors.ctan.org/fonts/lm-math/opentype/latinmodern-math.otf",
+    ],
     "6075562b771f8b82f0c179e363389684f2dd09de30038269e2628e504bd7be0f",
   ],
   [
