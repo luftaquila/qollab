@@ -1,4 +1,5 @@
 import type { Preservation } from "../../../packages/codec/src/index.js";
+import type { Numbering } from "../../../packages/codec/src/numbering.js";
 export type Role = "owner" | "editor" | "viewer";
 export interface ProjectFile {
   id: string;
@@ -22,6 +23,14 @@ export interface ProjectFile {
   name?: string;
 }
 export interface ProjectData {
+  numbering?: Numbering;
+  /** Opaque metadata from older archives; never interpreted as formatting. */
+  regulations?: {
+    numbering?: unknown;
+    reviews?: Record<string, Record<string, unknown>>;
+  };
+  /** Existing projects retain auto builds until explicitly switched to manual. */
+  autoBuild?: boolean;
   files: ProjectFile[];
   epoch: number;
   target: string;

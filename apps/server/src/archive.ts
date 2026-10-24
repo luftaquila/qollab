@@ -2,8 +2,41 @@ import { unzipSync, zipSync } from "fflate";
 import { safePath } from "./paths.js";
 import { config } from "./config.js";
 import { Fault } from "./db.js";
-import type { ProjectFile } from "./model.js";
+import type { ProjectFile, ProjectData } from "./model.js";
 import { content } from "./blobs.js";
+import { parse, stringify } from "yaml";
+import { z } from "zod";
+import { numberingSchema } from "../../../packages/codec/src/numbering.js";
+export const regulationManifest = "_qollab-regulations.yml";
+export const projectManifest = "_qollab.yml";
+const legacySchema = z.object({
+  version: z.literal(1),
+  numbering: z.unknown().optional(),
+  reviews: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
+});
+export function restoreRegulations(
+  entries: Record<string, Uint8Array>,
+  data: ProjectData,
+) {
+  const current = entries[projectManifest];
+  if (current) {
+    const parsed = z
+      .object({ version: z.literal(2), numbering: numberingSchema.optional() })
+      .parse(parse(new TextDecoder().decode(current), { maxAliasCount: 0 }));
+    data.numbering = parsed.numbering;
+  }
+  // Preserve old metadata on export/import without interpreting any domain-specific fields.
+  const bytes = entries[regulationManifest];
+  if (!bytes) return;
+  const parsed = legacySchema.parse(
+    parse(new TextDecoder().decode(bytes), { maxAliasCount: 0 }),
+  );
+  data.regulations = { numbering: parsed.numbering, reviews: {} };
+  for (const [path, reviews] of Object.entries(parsed.reviews)) {
+    const file = data.files.find((f) => f.path === path);
+    if (file) data.regulations.reviews![file.id] = reviews;
+  }
+}
 export function readZip(data: Buffer): Record<string, Uint8Array> {
   if (data.length > config.projectBytes) throw new Fault("PROJECT_LIMIT", 413);
   // Inspect the central directory before allocation, including Unix file mode.
@@ -57,11 +90,31 @@ export function readZip(data: Buffer): Record<string, Uint8Array> {
   if (Object.keys(out).length !== names.size) throw new Fault("INVALID_ZIP");
   return out;
 }
-export async function writeZip(files: ProjectFile[]) {
+export async function writeZip(files: ProjectFile[], data?: ProjectData) {
   const entries: Record<string, Uint8Array> = {};
   for (const f of files) {
     const data = await content(f);
     entries[f.path] = typeof data === "string" ? Buffer.from(data) : data;
+  }
+  if (data?.regulations) {
+    if (entries[regulationManifest]) throw new Fault("PATH_EXISTS", 409);
+    entries[regulationManifest] = Buffer.from(
+      stringify({
+        version: 1,
+        numbering: data.regulations.numbering,
+        reviews: Object.fromEntries(
+          files
+            .filter((f) => data.regulations?.reviews?.[f.id])
+            .map((f) => [f.path, data.regulations!.reviews![f.id]]),
+        ),
+      }),
+    );
+  }
+  if (data?.numbering) {
+    if (entries[projectManifest]) throw new Fault("PATH_EXISTS", 409);
+    entries[projectManifest] = Buffer.from(
+      stringify({ version: 2, numbering: data.numbering }),
+    );
   }
   return Buffer.from(zipSync(entries, { level: 6 }));
 }

@@ -1,0 +1,40 @@
+/* Content semantics only: VitePress retains all its native typography/theme. */
+.qollab-document li[data-marker] {
+  position: relative;
+  list-style: none;
+}
+.qollab-document li[data-marker]::before {
+  content: attr(data-marker);
+  position: absolute;
+  right: calc(100% + 0.55em);
+  white-space: nowrap;
+}
+.qollab-document .document-table {
+  overflow-x: auto;
+  margin: 20px 0;
+}
+.qollab-document .document-table table {
+  display: table;
+  width: 100%;
+  font-size: 0.9em;
+  margin: 0;
+}
+.qollab-document .document-table td:empty {
+  height: 2.5em;
+  min-width: 3em;
+}
+.qollab-document figure {
+  text-align: center;
+  margin: 24px 0;
+}
+.qollab-document figure img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: auto;
+}
+.qollab-document figcaption {
+  font-size: 0.9em;
+  font-weight: 600;
+  margin: 12px 0;
+}

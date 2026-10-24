@@ -113,8 +113,10 @@ async function run(job: any, input: any) {
       target: job.target,
       timeout: job.timeout,
       files: input.files,
+      documentFormat: input.documentFormat,
     },
-    (blob) => fetchBody(`/builds/${job.id}/blobs/${blob}`, "GET", undefined, lease),
+    (blob) =>
+      fetchBody(`/builds/${job.id}/blobs/${blob}`, "GET", undefined, lease),
     () => request(`/builds/${job.id}/status`, "GET", undefined, lease),
   );
   console.info(

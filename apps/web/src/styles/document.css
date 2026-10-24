@@ -1,0 +1,148 @@
+@import "./document-content.css";
+.qollab-document {
+  color: var(--text, #21352e);
+  font: 16px/1.85 var(--font-ui, sans-serif);
+  overflow-wrap: anywhere;
+}
+.qollab-document h1,
+.qollab-document h2,
+.qollab-document h3,
+.qollab-document h4,
+.qollab-document h5,
+.qollab-document h6 {
+  line-height: 1.45;
+  margin: 1.8em 0 0.7em;
+  font-weight: 650;
+  scroll-margin-top: 80px;
+}
+.qollab-document h1 {
+  font-size: 1.8em;
+}
+.qollab-document h2 {
+  font-size: 1.45em;
+  padding-bottom: 0.45em;
+  border-bottom: 1px solid var(--border, #ddd);
+}
+.qollab-document h3 {
+  font-size: 1.2em;
+}
+.qollab-document h4,
+.qollab-document h5,
+.qollab-document h6 {
+  font-size: 1em;
+}
+.qollab-document p {
+  margin: 0.7em 0;
+}
+.qollab-document img {
+  max-width: 100%;
+  height: auto;
+}
+.qollab-document table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 1em 0;
+}
+.qollab-document td,
+.qollab-document th {
+  border: 1px solid var(--border, #ddd);
+  padding: 0.4em 0.75em;
+}
+.qollab-document th {
+  background: var(--surface-2, #f7f7f7);
+}
+.qollab-document a {
+  color: var(--accent-text, #146153);
+  text-decoration: underline;
+}
+.qollab-document blockquote {
+  margin: 1em 0;
+  border-left: 3px solid var(--border-strong, #bbb);
+  padding: 0 1em;
+}
+.qollab-document pre {
+  background: var(--code-bg, #f4f5f6);
+  padding: 1em;
+  overflow: auto;
+  border-radius: 6px;
+}
+.qollab-document code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.87em;
+}
+.qollab-document ul,
+.qollab-document ol {
+  padding-left: 2.1em;
+}
+.qollab-document li[data-marker] {
+  position: relative;
+  list-style: none;
+}
+.qollab-document li[data-marker]::before {
+  content: attr(data-marker);
+  position: absolute;
+  right: calc(100% + 0.55em);
+  white-space: nowrap;
+}
+.qollab-document .katex-display {
+  overflow-x: auto;
+}
+@media print {
+  html,
+  body {
+    min-height: 0 !important;
+    height: auto !important;
+  }
+  main.qollab-document {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+  }
+  @page {
+    size: A4;
+    margin: 18mm;
+  }
+  body {
+    margin: 0;
+    background: white !important;
+    color: black !important;
+  }
+  .qollab-document {
+    color: #111;
+    font-size: 10.5pt;
+  }
+  .qollab-document h1,
+  .qollab-document h2,
+  .qollab-document h3,
+  .qollab-document h4 {
+    break-after: avoid;
+    color: #111;
+  }
+  .qollab-document img,
+  .qollab-document tr,
+  .qollab-document blockquote {
+    break-inside: avoid;
+  }
+  .qollab-document pre {
+    white-space: pre-wrap;
+  }
+  .qollab-document table {
+    display: table;
+    width: 100%;
+  }
+  .qollab-document thead {
+    display: table-header-group;
+  }
+  .qollab-document p {
+    orphans: 3;
+    widows: 3;
+  }
+  .print-controls {
+    display: none !important;
+  }
+  .print-chapter + .print-chapter {
+    break-before: page;
+  }
+}

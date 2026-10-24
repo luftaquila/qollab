@@ -9,3 +9,4 @@ playwright-report/
 coverage/
 tmp/
 __pycache__/
+apps/web/public/pdf-assets/

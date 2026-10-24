@@ -3,6 +3,8 @@
 // defines it, typst-show.typ applies it with the document's settings.
 // render.py fills in the defaults of every variable used here.
 
+#import "/.qollab/document-format.typ" as document-format
+
 #let horizontalrule = line(start: (25%,0%), end: (75%,0%))
 
 #show terms.item: it => block(breakable: false)[

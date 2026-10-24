@@ -25,6 +25,7 @@ export type Job = {
   target: string;
   timeout: number;
   files: InputFile[];
+  documentFormat?: unknown;
 };
 type Worker = {
   id: string;
@@ -209,7 +210,9 @@ export class Workers {
     let w = pending ? await pending : undefined;
     if (
       w &&
-      (w.closed || w.removing || performance.now() - w.created >= this.limits.warmMs)
+      (w.closed ||
+        w.removing ||
+        performance.now() - w.created >= this.limits.warmMs)
     ) {
       await this.remove(w);
       w = undefined;
@@ -285,13 +288,23 @@ export class Workers {
         if (worker.files.get(f.path) === key) continue;
         sent.set(f.path, key);
         if (f.blob)
-          files.push({ path: f.path, bytes: (await blob(f.blob)).toString("base64") });
-        else if (f.bytes !== undefined) files.push({ path: f.path, bytes: f.bytes });
+          files.push({
+            path: f.path,
+            bytes: (await blob(f.blob)).toString("base64"),
+          });
+        else if (f.bytes !== undefined)
+          files.push({ path: f.path, bytes: f.bytes });
         else files.push({ path: f.path, source: f.source ?? "" });
       }
       const remove = [...worker.files.keys()].filter((p) => !present.has(p));
       worker.child.stdin.write(
-        JSON.stringify({ target: job.target, timeout: job.timeout, files, remove }) + "\n",
+        JSON.stringify({
+          target: job.target,
+          timeout: job.timeout,
+          files,
+          remove,
+          documentFormat: job.documentFormat,
+        }) + "\n",
       );
       const line = await this.read(worker, job.timeout * 1000 + 5000);
       if (line === undefined) {
@@ -321,7 +334,10 @@ export class Workers {
     }
     if (result.reset || worker.closed) void this.remove(worker);
     else
-      worker.idle = setTimeout(() => void this.remove(worker), this.limits.idleMs);
+      worker.idle = setTimeout(
+        () => void this.remove(worker),
+        this.limits.idleMs,
+      );
     return {
       result,
       timings: {

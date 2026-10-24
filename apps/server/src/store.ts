@@ -1,3 +1,4 @@
+import { numberDocument } from "../../../packages/codec/src/document-numbering.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, rename, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
@@ -79,7 +80,17 @@ export async function change<T>(
   return out;
 }
 export function validateSize(data: ProjectData) {
-  const total = data.files.reduce((n, f) => n + fileSize(f), 0);
+  const total =
+    data.files.reduce((n, f) => n + fileSize(f), 0) +
+    Buffer.byteLength(
+      JSON.stringify({ numbering: data.numbering, legacy: data.regulations }),
+    );
+  if (
+    Buffer.byteLength(
+      JSON.stringify({ numbering: data.numbering, legacy: data.regulations }),
+    ) > config.documentBytes
+  )
+    throw new Fault("DOCUMENT_LIMIT", 413);
   if (total > config.projectBytes)
     throw new Fault("PROJECT_LIMIT", 413, { limit: config.projectBytes });
   for (const f of data.files)
@@ -120,6 +131,10 @@ export async function queueBuild(
       p.data.epoch,
       p.data.target,
       {
+        documentFormat: numberDocument(
+          p.data.files.find((f) => f.path === p.data.target)?.source || "",
+          p.data.numbering,
+        ),
         files: p.data.files.map((f) => ({
           path: f.path,
           source: f.source,
@@ -225,9 +240,12 @@ export function mirror(id: string): Promise<void> {
       mirroredBlobs.set(id, images);
       for (const f of data.files) {
         const dest = path.join(root, f.path);
-        if (f.blob && images.get(f.path) === f.blob && (await exists(dest))) continue;
+        if (f.blob && images.get(f.path) === f.blob && (await exists(dest)))
+          continue;
         await mkdir(path.dirname(dest), { recursive: true });
-        await writeFile(dest + ".qollab-tmp", await content(f), { mode: 0o600 });
+        await writeFile(dest + ".qollab-tmp", await content(f), {
+          mode: 0o600,
+        });
         await rename(dest + ".qollab-tmp", dest);
         if (f.blob) images.set(f.path, f.blob);
         else images.delete(f.path);

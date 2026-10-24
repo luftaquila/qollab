@@ -153,11 +153,12 @@ SCAN={'latex':r'\\[A-Za-z]','labels':r'\\label\b','equations':r'\{#eq-','shortco
 # Quarto code cells (```{python}) are shown as code; nothing is executed.
 CELL=re.compile(r'^([ \t]*(?:`{3,}|~{3,})[ \t]*)\{([A-Za-z][\w+-]*)[^}\n]*\}[ \t]*$',re.M)
 
-def convert(target,deadline,log):
+def convert(target,deadline,log,document_format=None):
     """Pandoc (template and filters in /work/.qollab). Returns the exit code,
     the metrics and the Typst source."""
     options,body=settings(target)
     work=ROOT/'.qollab';shutil.copytree(TYPST,work,dirs_exist_ok=True)
+    (work/'document-numbering.json').write_text(json.dumps(document_format or {},ensure_ascii=False))
     template=work/'template'
     template.mkdir(exist_ok=True)
     for name in ('template.typ',*PARTIALS):shutil.copyfile(TYPST/name,template/name)
@@ -166,6 +167,8 @@ def convert(target,deadline,log):
         if p.name not in PARTIALS:warnings.append(f'Template partial {p.name} is not one of {", ".join(sorted(PARTIALS))} and was left out')
         elif not p.is_file():raise ValueError(f'Template partial not found: {p.relative_to(ROOT)}')
         else:shutil.copyfile(p,template/p.name)
+    template_file=template/'template.typ'
+    template_file.write_text(template_file.read_text().replace('$body$', '#show: document-format.apply\n$body$'))
     header=options.get('header-includes')
     source=CELL.sub(r'\1{.\2 .cell-code}',body)
     data=metadata(options)
@@ -300,7 +303,7 @@ class Session:
         # Logs go to a bounded tmpfs file, never to an unbounded memory PIPE.
         logfile=ROOT/'render.log'
         with logfile.open('wb') as log:
-            code,metrics,text=convert(target,deadline,log)
+            code,metrics,text=convert(target,deadline,log,request.get('documentFormat'))
         metrics['prepareMs']=round((prepared-started)*1000)
         with logfile.open('rb') as log:
             log.seek(max(0,logfile.stat().st_size-60000));report=log.read().decode('utf-8','replace')
