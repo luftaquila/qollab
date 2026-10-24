@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { config } from "./config.js";
 import { pool, Fault } from "./db.js";
+import { returnDestination } from "../../../packages/shared/src/navigation.js";
 export const token = () => randomBytes(32).toString("base64url");
 export const hash = (v: string) => createHash("sha256").update(v).digest("hex");
 export interface Identity {
@@ -22,6 +23,8 @@ export async function identity(req: FastifyRequest): Promise<Identity> {
     [hash(raw)],
   );
   if (!r.rowCount) throw new Fault("UNAUTHENTICATED", 401);
+  if (r.rows[0].id === guest.id && !config.anonymous)
+    throw new Fault("UNAUTHENTICATED", 401);
   return r.rows[0];
 }
 /** The shared account for ANONYMOUS_ACCESS. Google subjects never use this id. */
@@ -74,6 +77,26 @@ export function validateClaims(
     name: String(claims.name || claims.email),
     picture: profilePicture(claims.picture),
   };
+}
+/** Invitations admit verified people; project membership still requires acceptance. */
+export async function authorizeClaims(claims: oidc.IDToken) {
+  const user = validateClaims(claims, {
+    workspace: config.workspace,
+    admission: "all",
+    approved: config.approved,
+  });
+  if (
+    config.admission === "approval" &&
+    !config.approved.includes(user.email.toLowerCase())
+  ) {
+    const result = await pool.query(
+      `SELECT EXISTS(SELECT 1 FROM members WHERE user_id=$1)
+        OR EXISTS(SELECT 1 FROM invites WHERE lower(email)=$2 AND expires>now()) AS allowed`,
+      [user.id, user.email.toLowerCase()],
+    );
+    if (!result.rows[0].allowed) throw new Fault("ACCOUNT_APPROVAL", 403);
+  }
+  return user;
 }
 /** Google profile photos only; anything else is ignored rather than embedded. */
 export function profilePicture(value: unknown) {
@@ -184,8 +207,13 @@ export async function authRoutes(
       verifier = oidc.randomPKCECodeVerifier(),
       nonce = oidc.randomNonce();
     await pool.query(
-      "INSERT INTO oidc_states VALUES($1,$2,$3,now()+interval '10 minutes')",
-      [hash(state), verifier, nonce],
+      "INSERT INTO oidc_states(id,verifier,nonce,expires,return_to) VALUES($1,$2,$3,now()+interval '10 minutes',$4)",
+      [
+        hash(state),
+        verifier,
+        nonce,
+        returnDestination((req.query as any).returnTo),
+      ],
     );
     reply.setCookie("qollab_oidc", state, {
       httpOnly: true,
@@ -221,10 +249,10 @@ export async function authRoutes(
       expectedNonce: row.nonce,
       idTokenExpected: true,
     });
-    const user = validateClaims(tokens.claims()!);
+    const user = await authorizeClaims(tokens.claims()!);
     await establishSession(user, reply);
     reply.clearCookie("qollab_oidc", { path: "/api/auth" });
-    return reply.redirect("/");
+    return reply.redirect(returnDestination(row.return_to));
   });
   app.post("/api/logout", async (req, reply) => {
     const u = await mutation(req);

@@ -72,7 +72,7 @@ test("published HTML refreshes during continuous typing and immediately checks w
       marker + " x".repeat(60),
       { timeout: 30000 },
     );
-    const versions = (await readdir(`.data/e2e/websites-v3/${p.id}`)).filter(
+    const versions = (await readdir(`.data/e2e/websites-v4/${p.id}`)).filter(
       (n) => /^\d+$/.test(n),
     );
     expect(versions.length).toBeLessThanOrEqual(3);

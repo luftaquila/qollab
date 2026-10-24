@@ -8,6 +8,8 @@ import {
 import { generateKeyPair, exportJWK, SignJWT } from "jose";
 import { createApp } from "../apps/server/src/app.js";
 import { pool } from "../apps/server/src/db.js";
+import { config } from "../apps/server/src/config.js";
+import { randomUUID } from "node:crypto";
 const provider = Fastify();
 let app: Awaited<ReturnType<typeof createApp>> | undefined;
 afterAll(async () => {
@@ -41,7 +43,7 @@ it("completes a signed OIDC code+PKCE flow and rejects nonce, audience, signatur
     ).toBe(challenge);
     const id_token = await new SignJWT({
       email: "oidc@example.com",
-      email_verified: true,
+      email_verified: mode !== "unverified",
       name: "OIDC fixture",
       nonce: mode === "nonce" ? "bad" : nonce,
     })
@@ -68,9 +70,11 @@ it("completes a signed OIDC code+PKCE flow and rejects nonce, audience, signatur
   allowInsecureRequests(c);
   enableNonRepudiationChecks(c);
   app = await createApp({ oidc: c, logger: false });
-  async function flow(next: string) {
+  async function flow(next: string, destination = "/") {
     mode = next;
-    const start = await app!.inject("/api/auth/google");
+    const start = await app!.inject(
+      "/api/auth/google?returnTo=" + encodeURIComponent(destination),
+    );
     const url = new URL(start.headers.location!);
     nonce = url.searchParams.get("nonce")!;
     challenge = url.searchParams.get("code_challenge")!;
@@ -103,4 +107,52 @@ it("completes a signed OIDC code+PKCE flow and rejects nonce, audience, signatur
     headers: { cookie: "qollab_oidc=different" },
   });
   expect(mismatched.statusCode).toBe(403);
+  const admission = config.admission,
+    approved = config.approved;
+  const project = randomUUID();
+  await pool.query(
+    "INSERT INTO projects(id,name,data) VALUES($1,'Admission fixture','{}')",
+    [project],
+  );
+  try {
+    config.admission = "approval";
+    config.approved = [];
+    expect((await flow("valid")).result.json().code).toBe("ACCOUNT_APPROVAL");
+    await pool.query(
+      "INSERT INTO invites VALUES($1,$2,'OIDC@example.com','viewer',now()+interval '1 hour')",
+      [randomUUID(), project],
+    );
+    const invited = await flow("valid", "/?invite=original-token");
+    expect(invited.result.statusCode).toBe(302);
+    expect(invited.result.headers.location).toBe("/?invite=original-token");
+    expect((await flow("unverified")).result.json().code).toBe(
+      "IDENTITY_CLAIMS",
+    );
+    await pool.query(
+      "UPDATE invites SET expires=now()-interval '1 second' WHERE project_id=$1",
+      [project],
+    );
+    expect((await flow("valid")).result.json().code).toBe("ACCOUNT_APPROVAL");
+    await pool.query("INSERT INTO members VALUES($1,'oidc-sub','viewer')", [
+      project,
+    ]);
+    expect(
+      (await flow("valid", "/docs/p/" + project + "/chapter.html#rule")).result
+        .headers.location,
+    ).toBe("/docs/p/" + project + "/chapter.html#rule");
+    expect(
+      (await flow("valid", "https://evil.example/steal")).result.headers
+        .location,
+    ).toBe("/");
+    await pool.query("DELETE FROM members WHERE project_id=$1", [project]);
+    expect((await flow("valid")).result.json().code).toBe("ACCOUNT_APPROVAL");
+    config.approved = ["oidc@example.com"];
+    expect((await flow("valid", "/apply/")).result.headers.location).toBe(
+      "/apply/",
+    );
+  } finally {
+    config.admission = admission;
+    config.approved = approved;
+    await pool.query("DELETE FROM projects WHERE id=$1", [project]);
+  }
 });

@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { t, languageChoice, setLanguage, type LanguageChoice } from "../i18n";
+import { returnDestination } from "../../../../packages/shared/src/navigation";
 defineProps<{ configured: boolean }>();
+const destination = returnDestination(
+  new URLSearchParams(location.search).get("returnTo") ||
+    location.pathname + location.search + location.hash,
+);
+const loginUrl = "/api/auth/google?returnTo=" + encodeURIComponent(destination);
 </script>
 <template>
   <div class="login-page">
@@ -11,7 +17,11 @@ defineProps<{ configured: boolean }>();
         class="select login-language"
         :aria-label="t('language')"
         :value="languageChoice"
-        @change="setLanguage(($event.target as HTMLSelectElement).value as LanguageChoice)"
+        @change="
+          setLanguage(
+            ($event.target as HTMLSelectElement).value as LanguageChoice,
+          )
+        "
       >
         <option value="system">{{ t("languageSystem") }}</option>
         <option value="ko">한국어</option>
@@ -23,7 +33,7 @@ defineProps<{ configured: boolean }>();
         <p class="eyebrow">{{ t("loginEyebrow") }}</p>
         <h1>{{ t("tagline") }}</h1>
         <p class="login-intro">{{ t("intro") }}</p>
-        <a v-if="configured" href="/api/auth/google" class="btn primary lg google"
+        <a v-if="configured" :href="loginUrl" class="btn primary lg google"
           ><span class="google-mark" aria-hidden="true">G</span
           >{{ t("google") }}</a
         >
@@ -98,8 +108,7 @@ defineProps<{ configured: boolean }>();
 h1 {
   max-width: 620px;
   margin-bottom: 20px;
-  font:
-    500 clamp(36px, 4.6vw, 64px) / 1.2 var(--font-doc);
+  font: 500 clamp(36px, 4.6vw, 64px) / 1.2 var(--font-doc);
   letter-spacing: -0.03em;
 }
 .login-intro {

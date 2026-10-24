@@ -28,7 +28,7 @@ const exec = promisify(execFile);
 const hash = (s: string) =>
   createHash("sha256").update(s).digest("hex").slice(0, 16);
 // Invalidate generated themes while retaining old chunks for already-open tabs.
-const siteGenerations = ["websites-v3", "websites-v2"];
+const siteGenerations = ["websites-v4", "websites-v3", "websites-v2"];
 export const websiteBase = (id: string) =>
   config.docsProject === id ? "/docs/" : `/docs/p/${id}/`;
 const siteRoot = (id: string, revision: number, portable = false) =>
@@ -164,6 +164,9 @@ export default {extends:DefaultTheme,enhanceApp(){
     const timeout=setTimeout(()=>request.abort(),5000);
     try{
       const r=await fetch(import.meta.env.BASE_URL+'site-version.json',{cache:'no-store',signal:request.signal});
+      if(r.status===401||r.status===403){
+        active=false;clearInterval(timer);document.documentElement.replaceChildren();location.reload();return;
+      }
       if(r.ok){
         const next=await r.json();
         if(active&&Number(next.revision)>${project.revision}){
@@ -338,8 +341,11 @@ export async function websiteRoutes(app: FastifyInstance) {
       else exporting.delete(root);
     }
   });
-  app.get("/docs", async (_req, reply) => reply.redirect("/docs/"));
+  app.get("/docs", async (_req, reply) =>
+    reply.header("Cache-Control", "private, no-store").redirect("/docs/"),
+  );
   app.get("/docs/*", async (req, reply) => {
+    reply.header("Cache-Control", "private, no-store").header("Vary", "Cookie");
     const url = new URL(req.url, "http://local");
     let path = decodeURIComponent(url.pathname.slice("/docs/".length)),
       id = config.docsProject;
@@ -347,10 +353,31 @@ export async function websiteRoutes(app: FastifyInstance) {
     if (match) {
       id = z.string().uuid().parse(match[1]);
       path = match[2] || "";
-      if (id === config.docsProject)
-        return reply.redirect("/docs/" + path + url.search);
     }
     if (!id) throw new Fault("NOT_FOUND", 404);
+    const pageRequest =
+      !extname(path) || extname(path) === ".html" || path.endsWith("/");
+    try {
+      const user = await identity(req);
+      await access(pool, id, user.id);
+    } catch (error) {
+      if (!(error instanceof Fault)) throw error;
+      if (error.status === 401 && pageRequest)
+        return reply.redirect("/?returnTo=" + encodeURIComponent(req.url));
+      if (error.status === 404 || error.status === 403) {
+        if (pageRequest)
+          return reply
+            .code(403)
+            .type("text/html; charset=utf-8")
+            .send(
+              '<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>문서 접근 권한</title><main><h1>이 문서에 접근할 권한이 없습니다</h1><p>프로젝트 소유자에게 초대를 요청해 주세요.</p><a href="/">내 프로젝트로 이동</a></main></html>',
+            );
+        throw new Fault("FORBIDDEN", 403);
+      }
+      throw error;
+    }
+    if (match && id === config.docsProject)
+      return reply.redirect("/docs/" + path + url.search);
     const site = (
       await pool.query(
         "SELECT w.revision,p.revision AS current FROM websites w JOIN projects p ON p.id=w.project_id WHERE p.id=$1",
@@ -407,12 +434,6 @@ export async function websiteRoutes(app: FastifyInstance) {
     };
     return reply
       .type(mime[extname(file)] || "application/octet-stream")
-      .header(
-        "Cache-Control",
-        path.startsWith("assets/")
-          ? "public, max-age=31536000, immutable"
-          : "no-cache",
-      )
       .send(createReadStream(file));
   });
   const refresh = new WebsiteRefresh(

@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users(id text PRIMARY KEY, email text NOT NULL, name 
 CREATE TABLE IF NOT EXISTS sessions(id text PRIMARY KEY,user_id text REFERENCES users(id),csrf text NOT NULL,expires timestamptz NOT NULL);
 CREATE TABLE IF NOT EXISTS session_profiles(session_id text PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,display_name text NOT NULL);
 CREATE TABLE IF NOT EXISTS oidc_states(id text PRIMARY KEY,verifier text NOT NULL,nonce text NOT NULL,expires timestamptz NOT NULL);
+ALTER TABLE oidc_states ADD COLUMN IF NOT EXISTS return_to text NOT NULL DEFAULT '/';
 CREATE TABLE IF NOT EXISTS projects(id uuid PRIMARY KEY,name text NOT NULL,revision bigint NOT NULL DEFAULT 0,data jsonb NOT NULL,created timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS members(project_id uuid REFERENCES projects(id) ON DELETE CASCADE,user_id text REFERENCES users(id),role text NOT NULL CHECK(role IN ('owner','editor','viewer')),PRIMARY KEY(project_id,user_id));
 CREATE TABLE IF NOT EXISTS invites(id text PRIMARY KEY,project_id uuid REFERENCES projects(id) ON DELETE CASCADE,email text NOT NULL,role text NOT NULL CHECK(role IN ('editor','viewer')),expires timestamptz NOT NULL);

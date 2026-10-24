@@ -6,6 +6,7 @@ import { fail } from "./ui/feedback";
 import FeedbackHost from "./ui/FeedbackHost.vue";
 import Login from "./pages/Login.vue";
 import Projects from "./pages/Projects.vue";
+import { returnDestination } from "../../../packages/shared/src/navigation";
 const Workspace = defineAsyncComponent(() => import("./pages/Workspace.vue"));
 const user = ref<any>(),
   configured = ref(false),
@@ -57,6 +58,13 @@ onMounted(async () => {
     configured.value = s.oauthConfigured;
     anonymous.value = !!s.anonymous;
     setCsrf(s.csrf || "");
+    const destination = returnDestination(
+      new URLSearchParams(location.search).get("returnTo"),
+    );
+    if (s.user && destination !== "/") {
+      location.replace(destination);
+      return;
+    }
     const invite = new URLSearchParams(location.search).get("invite");
     if (s.user && invite) {
       const p = await api("/invites/accept", "POST", { token: invite });

@@ -11,6 +11,8 @@ import { config } from "../apps/server/src/config.js";
 import { subscribe } from "../apps/server/src/store.js";
 import { blobId, migrateBlobs } from "../apps/server/src/blobs.js";
 import { defaultNumbering } from "../packages/codec/src/numbering.js";
+import { mkdir, writeFile, rm } from "node:fs/promises";
+import { resolve } from "node:path";
 let app: Awaited<ReturnType<typeof createApp>>;
 const people: any = {};
 const sockets: WebSocket[] = [];
@@ -121,6 +123,131 @@ it("keeps manual PDF projects idle and builds only on request", async () => {
   expect(
     (await request("owner", `/projects/${p.id}/builds`)).json(),
   ).toHaveLength(1);
+});
+it("guards every hosted document resource, old asset and alias with current project membership", async () => {
+  const p = await project();
+  await pool.query("INSERT INTO members VALUES($1,'viewer','viewer')", [p.id]);
+  await pool.query("INSERT INTO websites(project_id,revision) VALUES($1,$2)", [
+    p.id,
+    p.revision,
+  ]);
+  const root = resolve(
+    config.data,
+    "websites-v4",
+    p.id,
+    String(p.revision),
+    "hosted/.vitepress/dist",
+  );
+  const older = resolve(
+    config.data,
+    "websites-v3",
+    p.id,
+    "0",
+    "hosted/.vitepress/dist",
+  );
+  const paths = [
+    "index.html",
+    "chapter.html",
+    "site-version.json",
+    "assets/search.js",
+    "media/figure.png",
+  ];
+  for (const path of paths) {
+    const destination = resolve(root, path);
+    await mkdir(resolve(destination, ".."), { recursive: true });
+    await writeFile(destination, "project private content");
+  }
+  await mkdir(resolve(older, "assets"), { recursive: true });
+  await writeFile(
+    resolve(older, "assets/previous.js"),
+    "previous private content",
+  );
+  const base = `/docs/p/${p.id}/`;
+  const previousDefault = config.docsProject;
+  try {
+    const anonymous = await app.inject(base + "chapter.html");
+    expect(anonymous.statusCode).toBe(302);
+    expect(anonymous.headers.location).toBe(
+      "/?returnTo=" + encodeURIComponent(base + "chapter.html"),
+    );
+    for (const path of [...paths, "assets/previous.js"]) {
+      const denied = await app.inject({
+        url: base + path,
+        headers: { cookie: "qollab=" + people.editor.raw },
+      });
+      expect(denied.statusCode, path).toBe(403);
+      expect(denied.body).not.toContain("private content");
+      const allowed = await app.inject({
+        url: base + path,
+        headers: { cookie: "qollab=" + people.viewer.raw },
+      });
+      expect(allowed.statusCode, path).toBe(200);
+      expect(allowed.headers["cache-control"]).toBe("private, no-store");
+      expect(allowed.headers.vary).toBe("Cookie");
+    }
+    expect((await app.inject(base + "assets/search.js")).statusCode).toBe(401);
+    expect((await app.inject(base + "site-version.json")).statusCode).toBe(401);
+    config.docsProject = p.id;
+    expect((await app.inject("/docs/")).statusCode).toBe(302);
+    expect(
+      (
+        await app.inject({
+          url: "/docs/",
+          headers: { cookie: "qollab=" + people.viewer.raw },
+        })
+      ).statusCode,
+    ).toBe(200);
+    await pool.query(
+      "DELETE FROM members WHERE project_id=$1 AND user_id='viewer'",
+      [p.id],
+    );
+    expect(
+      (
+        await app.inject({
+          url: "/docs/site-version.json",
+          headers: { cookie: "qollab=" + people.viewer.raw },
+        })
+      ).statusCode,
+    ).toBe(403);
+  } finally {
+    config.docsProject = previousDefault;
+    await pool.query("DELETE FROM websites WHERE project_id=$1", [p.id]);
+    await rm(resolve(config.data, "websites-v4", p.id), {
+      recursive: true,
+      force: true,
+    });
+    await rm(resolve(config.data, "websites-v3", p.id), {
+      recursive: true,
+      force: true,
+    });
+  }
+});
+it("rejects existing guest cookies immediately when anonymous access is disabled", async () => {
+  const previous = config.anonymous;
+  try {
+    config.anonymous = true;
+    const response = await app.inject("/api/session");
+    const cookie = response.cookies.find((c) => c.name === "qollab")!;
+    config.anonymous = false;
+    expect(
+      (
+        await app.inject({
+          url: "/api/session",
+          headers: { cookie: `qollab=${cookie.value}` },
+        })
+      ).json().user,
+    ).toBeNull();
+    expect(
+      (
+        await app.inject({
+          url: "/api/projects",
+          headers: { cookie: `qollab=${cookie.value}` },
+        })
+      ).statusCode,
+    ).toBe(401);
+  } finally {
+    config.anonymous = previous;
+  }
 });
 it("snapshots resolved numbering with a PDF build independently of later settings", async () => {
   const p = await project();

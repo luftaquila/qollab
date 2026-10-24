@@ -24,6 +24,8 @@ export async function createApp(
   options: { oidc?: Configuration; logger?: boolean } = {},
 ) {
   await migrate();
+  if (!config.anonymous)
+    await pool.query("DELETE FROM sessions WHERE user_id='anonymous'");
   await migrateBlobs();
   await initCodec();
   await recover();
