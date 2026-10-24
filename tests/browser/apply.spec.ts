@@ -37,7 +37,6 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
     .getByLabel("스프레드시트 주소 또는 ID")
     .fill("fixture-spreadsheet");
   await page.getByLabel("원본 시트 이름", { exact: true }).fill("Source");
-  await page.getByLabel("반영 관리 시트 이름").fill("Review " + p.id);
   await page.getByLabel("본문 시작 행").fill("2");
   await page.getByLabel("본문 마지막 행").fill("4");
   await page.getByLabel("대상 시행연도").fill("2027");
@@ -66,9 +65,11 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
     .selectOption("scope");
   await page.getByLabel("최종 문안", { exact: true }).fill("new condition");
   await page.getByLabel("문안·시행연도·반영 위치를 확인했습니다").check();
-  await page.getByRole("button", { name: "시트에 저장", exact: true }).click();
+  await page
+    .getByRole("button", { name: "검토 내용 저장", exact: true })
+    .click();
   await expect(page.locator(".success")).toContainText(
-    "반영 관리 시트에 저장했습니다",
+    "반영 관리 검토 내용 저장했습니다",
   );
   await page
     .getByRole("checkbox", { name: "Rule one 선택", exact: true })
@@ -80,7 +81,7 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
   await page.screenshot({ path: "tmp/apply-review.png", fullPage: true });
   await dialog.getByRole("button", { name: "이 내용으로 문서에 반영" }).click();
   await expect(page.locator(".success")).toContainText(
-    "문서에 반영하고 시트에 결과를 기록했습니다",
+    "문서에 반영하고 이력을 저장했습니다",
   );
   const current = await call(page, user, `/projects/${p.id}`);
   expect(current.data.files[0].source).toBe(

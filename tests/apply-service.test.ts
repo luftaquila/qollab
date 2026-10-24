@@ -15,7 +15,6 @@ const users: Record<string, { raw: string; csrf: string }> = {},
 const settings: Connection = {
   spreadsheetId: "fixture-spreadsheet",
   sheet: "Source",
-  reviewSheet: "Review",
   firstRow: 2,
   lastRow: 100,
   year: 2027,
@@ -79,7 +78,6 @@ beforeAll(async () => {
     origin: config.origin,
     qollabOrigin: config.origin,
     database: ":memory:",
-    adminEmails: ["owner@example.com"],
     sheets,
     logger: false,
     upstream: (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -137,7 +135,7 @@ async function fixture() {
     source,
     visual: true,
   });
-  const connection = { ...settings, reviewSheet: "Review " + id };
+  const connection = settings;
   let response = await call(`/projects/${id}/connection`, "POST", {
     version: 0,
     connection,
@@ -168,49 +166,20 @@ async function fixture() {
     fileId: file.id,
     state,
     clauseId: clause.id,
-    review: connection.reviewSheet,
   };
 }
-it("recovers an interrupted first import without duplicate rows or lost review text", async () => {
-  const id = (
-    await api("/projects", "POST", { name: "Import recovery" })
-  ).json().id;
-  const connection = { ...settings, reviewSheet: "Recovery " + id };
-  const configured = await call(`/projects/${id}/connection`, "POST", {
-    version: 0,
-    connection,
+it("preserves local review drafts when public source rows are refreshed", async () => {
+  const f = await fixture();
+  const sourceBefore = JSON.stringify(sheets.values);
+  const refreshed = await call(`/projects/${f.id}/import`, "POST", {
+    version: f.state.version,
   });
-  expect(configured.statusCode).toBe(200);
-  const write = sheets.write;
-  let lose = true;
-  sheets.write = async (...args: Parameters<typeof write>) => {
-    await write.apply(sheets, args);
-    if (lose) {
-      lose = false;
-      throw new Error("Lost Sheets response");
-    }
-  };
-  try {
-    const body = { version: configured.json().version };
-    expect(
-      (await call(`/projects/${id}/import`, "POST", body)).statusCode,
-    ).toBe(500);
-    const rows = sheets.values[connection.reviewSheet];
-    expect(rows).toHaveLength(3);
-    const ids = rows.slice(1).map((row) => row[0]);
-    rows[1][8] = "Review after interrupted import";
-    const retried = await call(`/projects/${id}/import`, "POST", body);
-    expect(retried.statusCode, retried.body).toBe(200);
-    expect(rows).toHaveLength(3);
-    expect(retried.json().clauses.map((c: any) => c.id)).toEqual(ids);
-    expect(retried.json().clauses[0].draft.final).toBe(
-      "Review after interrupted import",
-    );
-  } finally {
-    sheets.write = write;
-  }
+  expect(refreshed.statusCode).toBe(200);
+  expect(refreshed.json().clauses[0].draft.final).toBe("new condition");
+  expect(refreshed.json().clauses[0].id).toBe(f.clauseId);
+  expect(JSON.stringify(sheets.values)).toBe(sourceBefore);
 });
-it("requires a real Qollab identity, role, CSRF and authorized sheet connection administrator", async () => {
+it("requires a real Qollab identity, role, CSRF and project-owner connection settings", async () => {
   expect((await tool.inject("/apply/api/projects")).statusCode).toBe(401);
   const f = await fixture();
   expect(
@@ -275,7 +244,6 @@ it("previews exact changes, saves as the operator, checkpoints and makes retries
   expect(saved.json().run).toMatchObject({
     status: "applied",
     actor: "editor",
-    sheetSynced: true,
   });
   const current = (await api(`/projects/${f.id}`)).json();
   expect(current.data.files[0].source).toBe(plan.after);
@@ -298,11 +266,6 @@ it("previews exact changes, saves as the operator, checkpoints and makes retries
       .json()
       .some((c: any) => c.label.startsWith("문서 반영 전")),
   ).toBe(true);
-  expect(sheets.values[f.review][1].slice(15)).toEqual([
-    "반영 완료",
-    current.revision,
-    "editor",
-  ]);
   const cloned = await call("/clone", "POST", {
     project: f.id,
     name: "Next edition",
@@ -320,13 +283,13 @@ it("stops when the sheet or document changes after review without writing stale 
       ids: [f.clauseId],
     })
   ).json();
-  sheets.values[f.review][1][8] = "Changed by another reviewer";
+  sheets.values.Source[1][1] = "Changed source wording";
   expect(
     (
       await call(`/projects/${f.id}/apply`, "POST", { planId: preview.plan.id })
     ).json().code,
-  ).toBe("REVIEW_CHANGED");
-  sheets.values[f.review][1][8] = "new condition";
+  ).toBe("SOURCE_CHANGED");
+  sheets.values.Source[1][1] = "New condition";
   const p = (await api(`/projects/${f.id}`)).json();
   await api(`/projects/${f.id}`, "PATCH", {
     revision: p.revision,
@@ -359,7 +322,7 @@ it("recovers an acknowledged write whose HTTP response was lost without duplicat
     source.replace("old condition", "new condition"),
   );
 });
-it("releases its raw editing lock on rejected content and retries sheet recording separately", async () => {
+it("releases its raw editing lock on rejected content and safely retries the document change", async () => {
   const f = await fixture(),
     p = (
       await call(`/projects/${f.id}/preview`, "POST", {
@@ -387,15 +350,12 @@ it("releases its raw editing lock on rejected content and retries sheet recordin
       ids: [f.clauseId],
     })
   ).json();
-  sheets.failWrites = true;
   const done = await call(`/projects/${f.id}/apply`, "POST", {
     planId: next.plan.id,
   });
-  sheets.failWrites = false;
   expect(done.statusCode, done.body).toBe(200);
   expect(done.json().run).toMatchObject({
     status: "applied",
-    sheetSynced: false,
   });
   const revision = (await api(`/projects/${f.id}`)).json().revision;
   const retry = await call(
@@ -404,6 +364,6 @@ it("releases its raw editing lock on rejected content and retries sheet recordin
     {},
   );
   expect(retry.statusCode, retry.body).toBe(200);
-  expect(retry.json().run.sheetSynced).toBe(true);
+  expect(retry.json().run.status).toBe("applied");
   expect((await api(`/projects/${f.id}`)).json().revision).toBe(revision);
 });

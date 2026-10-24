@@ -13,28 +13,18 @@ import {
   draftSchema,
   digest,
   changeDigest,
-  quoteSheet,
   sourceRange,
-  reviewHeaders,
-  reviewValues,
   type State,
   type Clause,
   type Plan,
   type Run,
 } from "./model.js";
-import {
-  sourceClauses,
-  reviewRows,
-  withReview,
-  sections,
-  patchDocument,
-} from "./engine.js";
+import { sourceClauses, sections, patchDocument } from "./engine.js";
 
 export interface ApplyOptions {
   origin: string;
   qollabOrigin: string;
   database: string;
-  adminEmails: string[];
   sheets?: Sheets;
   upstream?: typeof fetch;
   staticRoot?: string;
@@ -95,8 +85,6 @@ export async function createApplyApp(options: ApplyOptions) {
       .string()
       .uuid()
       .parse((req.params as any).pid);
-  const canConnect = (user: any) =>
-    options.adminEmails.includes(String(user.email).toLowerCase());
   async function context(req: FastifyRequest, id?: string, role = "viewer") {
     const session = await upstream(req, "/session");
     if (!session.user || session.user.id === "anonymous")
@@ -127,27 +115,10 @@ export async function createApplyApp(options: ApplyOptions) {
     if (!state.connection) throw new ApplyError("CONNECTION_REQUIRED", 409);
     return state.connection;
   };
-  async function review(state: State) {
-    const c = connection(state),
-      rows = await sheets.read(
-        c.spreadsheetId,
-        quoteSheet(c.reviewSheet) + "!A1:R10000",
-      );
-    if (JSON.stringify(rows[0]) !== JSON.stringify(reviewHeaders))
-      throw new ApplyError("REVIEW_SHEET_FORMAT", 409);
-    return { rows, index: reviewRows(rows) };
-  }
   async function fresh(state: State) {
     const c = connection(state);
     const values = await sheets.read(c.spreadsheetId, sourceRange(c));
-    const current = sourceClauses(values, c, state.clauses),
-      r = await review(state);
-    return {
-      clauses: current.map((clause) =>
-        withReview(clause, r.index.get(clause.id)?.values),
-      ),
-      review: r,
-    };
+    return { clauses: sourceClauses(values, c, state.clauses) };
   }
   const selected = (clauses: Clause[], ids: string[]) =>
     ids.map((id) => {
@@ -155,31 +126,6 @@ export async function createApplyApp(options: ApplyOptions) {
       if (!clause) throw new ApplyError("CLAUSE_NOT_FOUND", 409);
       return clause;
     });
-  async function syncResults(state: State, run: Run) {
-    const c = connection(state),
-      r = await review(state);
-    await sheets.write(
-      c.spreadsheetId,
-      run.ids.map((id) => {
-        const row = r.index.get(id),
-          clause = state.clauses.find((c) => c.id === id);
-        if (!row || !clause) throw new ApplyError("REVIEW_ROW_MISSING", 409);
-        const latest = withReview(clause, row.values);
-        return {
-          range: `${quoteSheet(c.reviewSheet)}!P${row.row}:R${row.row}`,
-          values: [
-            [
-              changeDigest(latest) === clause.appliedHash
-                ? "반영 완료"
-                : "변경 후 재검토",
-              run.revision,
-              run.actorName,
-            ],
-          ],
-        };
-      }),
-    );
-  }
   app.addHook("onSend", async (_req, reply, payload) => {
     reply
       .header("Cache-Control", "private, no-store")
@@ -212,8 +158,6 @@ export async function createApplyApp(options: ApplyOptions) {
     return {
       ...s,
       user: s.user?.id === "anonymous" ? null : s.user,
-      canConnect: s.user ? canConnect(s.user) : false,
-      sheetsConfigured: sheets.configured,
     };
   });
   app.get("/apply/api/projects", async (req) => {
@@ -273,19 +217,23 @@ export async function createApplyApp(options: ApplyOptions) {
     };
   });
   app.post("/apply/api/projects/:pid/connection", async (req) => {
-    const id = pid(req),
-      { user } = await context(req, id, "owner");
-    if (!canConnect(user))
-      throw new ApplyError("CONNECTION_ADMIN_REQUIRED", 403);
+    const id = pid(req);
+    await context(req, id, "owner");
     const body = z
       .object({ version: z.number(), connection: connectionSchema })
       .parse(req.body);
     return lock(id, async () => {
       const state = store.get(id);
       expectVersion(state, body.version);
-      const metadata = await sheets.metadata(body.connection.spreadsheetId);
-      if (!metadata.sheets.some((s) => s.title === body.connection.sheet))
-        throw new ApplyError("SHEET_NOT_FOUND", 404);
+      const clauses = sourceClauses(
+        await sheets.read(
+          body.connection.spreadsheetId,
+          sourceRange(body.connection),
+        ),
+        body.connection,
+        [],
+      );
+      if (!clauses.length) throw new ApplyError("SHEET_EMPTY", 400);
       // Existing identities must not silently be attached to a different sheet.
       if (
         state.clauses.length &&
@@ -315,58 +263,11 @@ export async function createApplyApp(options: ApplyOptions) {
       const state = store.get(id);
       expectVersion(state, (req.body as any).version);
       const c = connection(state);
-      await sheets.createReview(c.spreadsheetId, c.reviewSheet);
-      const r = await review(state);
       const values = await sheets.read(c.spreadsheetId, sourceRange(c));
-      const previous = state.clauses.map((clause) =>
-        withReview(clause, r.index.get(clause.id)?.values),
-      );
-      const incoming = sourceClauses(values, c, previous).map((clause) => {
-        if (previous.some((p) => p.id === clause.id)) return clause;
-        // Sheets may have accepted the previous import before its response was lost.
-        const restored = withReview(clause, r.index.get(clause.id)?.values);
-        if (restored.approvalHash !== restored.sourceHash) {
-          restored.draft.confirmed = false;
-          restored.approvalHash = restored.sourceHash;
-        }
-        return restored;
-      });
-      const missing = previous
+      const incoming = sourceClauses(values, c, state.clauses);
+      const missing = state.clauses
         .filter((p) => !incoming.some((c) => c.id === p.id))
         .map((c) => ({ ...c, missing: true }));
-      let nextRow = Math.max(1, r.rows.length) + 1;
-      const writes = incoming.flatMap((clause) => {
-        const existing = r.index.get(clause.id);
-        if (!existing)
-          return [
-            {
-              range: `${quoteSheet(c.reviewSheet)}!A${nextRow++}:R${nextRow - 1}`,
-              values: [reviewValues(clause)],
-            },
-          ];
-        const beforeHash =
-          previous.find((p) => p.id === clause.id)?.sourceHash ??
-          String(existing.values[14] || "");
-        const data = [
-          {
-            range: `${quoteSheet(c.reviewSheet)}!A${existing.row}:G${existing.row}`,
-            values: [reviewValues(clause).slice(0, 7)],
-          },
-        ];
-        if (beforeHash !== clause.sourceHash) {
-          data.push({
-            range: `${quoteSheet(c.reviewSheet)}!J${existing.row}`,
-            values: [[false]],
-          });
-          data.push({
-            range: `${quoteSheet(c.reviewSheet)}!O${existing.row}:P${existing.row}`,
-            values: [[clause.sourceHash, "원본 변경 · 재확인 필요"]],
-          });
-        }
-        return data;
-      });
-      if (nextRow > 10001) throw new ApplyError("REVIEW_ROW_LIMIT", 413);
-      if (writes.length) await sheets.write(c.spreadsheetId, writes);
       state.clauses = [...incoming, ...missing];
       return store.put(id, state, state.version);
     });
@@ -390,19 +291,8 @@ export async function createApplyApp(options: ApplyOptions) {
         actual = current.clauses.find((c) => c.id === cid);
       if (!actual || actual.sourceHash !== clause.sourceHash)
         throw new ApplyError("SOURCE_CHANGED", 409);
-      if (digest(actual.draft) !== digest(clause.draft))
-        throw new ApplyError("REVIEW_CHANGED", 409);
-      const row = current.review.index.get(cid);
-      if (!row) throw new ApplyError("REVIEW_ROW_MISSING", 409);
       clause.draft = body.draft;
       clause.approvalHash = clause.sourceHash;
-      const c = connection(state);
-      await sheets.write(c.spreadsheetId, [
-        {
-          range: `${quoteSheet(c.reviewSheet)}!H${row.row}:O${row.row}`,
-          values: [reviewValues(clause).slice(7, 15)],
-        },
-      ]);
       return store.put(id, state, state.version);
     });
   });
@@ -434,7 +324,7 @@ export async function createApplyApp(options: ApplyOptions) {
         connection(state).year,
         fileId,
       );
-      // Remember externally edited review fields so the UI and preview describe the same change.
+      // Keep the preview tied to the exact imported source and reviewed draft.
       state.clauses = state.clauses.map(
         (c) =>
           current.clauses.find((n) => n.id === c.id) || { ...c, missing: true },
@@ -453,9 +343,6 @@ export async function createApplyApp(options: ApplyOptions) {
           clauses.map((c) => [c.id, changeDigest(c)]),
         ),
         sourceDigest: digest(clauses.map((c) => c.sourceHash)),
-        reviewDigest: digest(
-          clauses.map((c) => current.review.index.get(c.id)?.values),
-        ),
         expires: Date.now() + 10 * 60 * 1000,
       };
       store.plan(plan);
@@ -494,16 +381,8 @@ export async function createApplyApp(options: ApplyOptions) {
         clause.appliedRevision = revision;
         clause.appliedBy = run.actorName;
       }
-    let saved = store.put(id, state, state.version);
-    const actual = saved.runs.find((r) => r.id === run.id)!;
-    try {
-      await syncResults(saved, actual);
-      actual.sheetSynced = true;
-    } catch {
-      actual.sheetSynced = false;
-    }
-    saved = store.put(id, saved, saved.version);
-    return { state: saved, run: saved.runs.find((r) => r.id === run.id) };
+    const saved = store.put(id, state, state.version);
+    return { state: saved, run: saved.runs.find((r) => r.id === run.id)! };
   }
   app.post("/apply/api/projects/:pid/apply", async (req) => {
     const id = pid(req),
@@ -520,11 +399,6 @@ export async function createApplyApp(options: ApplyOptions) {
         clauses = selected(current.clauses, plan.ids);
       if (digest(clauses.map((c) => c.sourceHash)) !== plan.sourceDigest)
         throw new ApplyError("SOURCE_CHANGED", 409);
-      if (
-        digest(clauses.map((c) => current.review.index.get(c.id)?.values)) !==
-        plan.reviewDigest
-      )
-        throw new ApplyError("REVIEW_CHANGED", 409);
       if (
         patchDocument(
           plan.before,
@@ -644,11 +518,7 @@ export async function createApplyApp(options: ApplyOptions) {
       const state = store.get(id),
         run = state.runs.find((r) => r.id === rid);
       if (!run) throw new ApplyError("NOT_FOUND", 404);
-      if (run.status === "applied") {
-        await syncResults(state, run);
-        run.sheetSynced = true;
-        return { state: store.put(id, state, state.version), run };
-      }
+      if (run.status === "applied") return { state, run };
       const project = await upstream(req, `/projects/${id}`),
         file = project.data.files.find((f: any) => f.id === run.fileId);
       if (file && digest(file.source) === run.afterHash)

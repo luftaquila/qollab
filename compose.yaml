@@ -45,11 +45,8 @@ services:
       QOLLAB_INTERNAL_ORIGIN: http://app:3000
       APPLY_HOST: 0.0.0.0
       APPLY_DATABASE: /data/state.sqlite
-      APPLY_ADMIN_EMAILS: ${APPLY_ADMIN_EMAILS:-}
-      GOOGLE_APPLICATION_CREDENTIALS: /run/credentials/service-account.json
     volumes:
       - apply-data:/data
-      - ${SHEETS_CREDENTIALS_DIRECTORY:-./.data/apply-credentials}:/run/credentials:ro
     depends_on: [app]
     restart: unless-stopped
   renderer:

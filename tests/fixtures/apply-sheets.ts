@@ -1,7 +1,6 @@
 import type { Sheets } from "../../apps/apply/server/sheets";
-import { columnIndex, reviewHeaders } from "../../apps/apply/server/model";
+import { columnIndex } from "../../apps/apply/server/model";
 export class FixtureSheets implements Sheets {
-  configured = true;
   values: Record<string, unknown[][]> = {
     Source: [
       ["Key", "Reference", "Existing", "Note", "Decision", "Timing"],
@@ -17,15 +16,6 @@ export class FixtureSheets implements Sheets {
       ["Rule two", "Future proposal", "", "Discuss later", "Hold", "2028"],
     ],
   };
-  failWrites = false;
-  async metadata(_id: string) {
-    return {
-      sheets: Object.keys(this.values).map((title, sheetId) => ({
-        title,
-        sheetId,
-      })),
-    };
-  }
   parse(range: string) {
     const m = /^'((?:[^']|'')+)'!([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/.exec(range);
     if (!m) throw new Error("Invalid fixture range " + range);
@@ -45,21 +35,5 @@ export class FixtureSheets implements Sheets {
         .slice(p.row, p.endRow + 1)
         .map((row) => row.slice(p.col, p.endCol + 1)),
     );
-  }
-  async write(_id: string, data: { range: string; values: unknown[][] }[]) {
-    if (this.failWrites) throw new Error("Sheets unavailable");
-    for (const d of data) {
-      const p = this.parse(d.range);
-      this.values[p.sheet] ||= [];
-      for (let r = 0; r < d.values.length; r++) {
-        const rows = this.values[p.sheet];
-        rows[p.row + r] ||= [];
-        for (let c = 0; c < d.values[r].length; c++)
-          rows[p.row + r][p.col + c] = d.values[r][c];
-      }
-    }
-  }
-  async createReview(_id: string, name: string) {
-    this.values[name] ||= [[...reviewHeaders]];
   }
 }

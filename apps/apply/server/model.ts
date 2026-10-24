@@ -5,7 +5,6 @@ export const connectionSchema = z
   .object({
     spreadsheetId: z.string().regex(/^[\w-]{15,150}$/),
     sheet: z.string().trim().min(1).max(100),
-    reviewSheet: z.string().trim().min(1).max(100),
     firstRow: z.number().int().min(1).max(10000),
     lastRow: z.number().int().min(1).max(10000),
     year: z.number().int().min(2000).max(2200),
@@ -35,10 +34,7 @@ export const connectionSchema = z
       )
       .max(30),
   })
-  .refine(
-    (c) => c.lastRow >= c.firstRow && c.sheet !== c.reviewSheet,
-    "Invalid source or review range",
-  );
+  .refine((c) => c.lastRow >= c.firstRow, "Invalid source range");
 export type Connection = z.infer<typeof connectionSchema>;
 export const draftSchema = z.object({
   year: z.number().int().min(2000).max(2200).nullable(),
@@ -83,7 +79,6 @@ export interface Run {
   actor: string;
   actorName: string;
   at: string;
-  sheetSynced?: boolean;
   error?: string;
 }
 export interface State {
@@ -103,7 +98,6 @@ export interface Plan {
   ids: string[];
   digests: Record<string, string>;
   sourceDigest: string;
-  reviewDigest: string;
   expires: number;
 }
 export const digest = (value: unknown) =>
@@ -133,49 +127,3 @@ export function sourceRange(connection: Connection) {
   );
   return `${quoteSheet(connection.sheet)}!A${connection.firstRow}:${last}${connection.lastRow}`;
 }
-export const reviewHeaders = [
-  "처리 ID",
-  "원본 식별자",
-  "원본 위치",
-  "원문",
-  "기존 문안",
-  "검토의견",
-  "판단",
-  "시행연도",
-  "최종 문안",
-  "확정",
-  "대상 문서 ID",
-  "대상 라벨",
-  "작업",
-  "교체할 원문",
-  "원본 버전",
-  "반영 상태",
-  "반영 버전",
-  "반영자",
-];
-export const reviewValues = (c: Clause) => [
-  c.id,
-  c.key,
-  `${c.firstRow}:${c.lastRow}`,
-  c.source,
-  c.current,
-  c.notes,
-  c.decision,
-  c.draft.year ?? "",
-  c.draft.final,
-  c.draft.confirmed,
-  c.draft.fileId,
-  c.draft.anchor,
-  c.draft.action,
-  c.draft.before,
-  c.approvalHash,
-  c.missing
-    ? "원본 없음"
-    : c.appliedHash === changeDigest(c)
-      ? "반영 완료"
-      : c.draft.confirmed
-        ? "확정"
-        : "검토 중",
-  c.appliedRevision ?? "",
-  c.appliedBy ?? "",
-];

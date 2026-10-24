@@ -4,19 +4,16 @@ import {
   sourceClauses,
   patchDocument,
   sections,
-  withReview,
 } from "../apps/apply/server/engine";
 import {
   changeDigest,
   sourceRange,
-  reviewValues,
   type Connection,
   type Clause,
 } from "../apps/apply/server/model";
 const connection: Connection = {
   spreadsheetId: "test-spreadsheet",
   sheet: "Source",
-  reviewSheet: "Review",
   firstRow: 3,
   lastRow: 100,
   year: 2027,
@@ -102,7 +99,14 @@ describe("sheet-driven document changes", () => {
     expect(sections(before).map((s) => s.label)).toEqual(["scope", "other"]);
     c.draft.before = "  indented\n";
     c.draft.final = "  replacement\n";
-    expect(withReview(c, reviewValues(c)).draft.before).toBe(c.draft.before);
+    expect(
+      patchDocument(
+        "# Chapter {#scope}\n  indented\n",
+        [c],
+        2027,
+        c.draft.fileId,
+      ),
+    ).toBe("# Chapter {#scope}\n  replacement\n");
   });
   it("requires explicit confirmation and current source, year and unique old text", () => {
     const c = clause(),

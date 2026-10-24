@@ -37,7 +37,6 @@ const apply = await createApplyApp({
   origin: "http://127.0.0.1:3200",
   qollabOrigin: "http://127.0.0.1:3200",
   database: ".data/e2e/apply.sqlite",
-  adminEmails: ["alice@example.com"],
   sheets: new FixtureSheets(),
   logger: false,
 });

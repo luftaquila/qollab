@@ -1,127 +1,65 @@
-import { GoogleAuth } from "google-auth-library";
-import { existsSync } from "node:fs";
-import { ApplyError, quoteSheet, reviewHeaders } from "./model.js";
+import { parse } from "csv-parse/sync";
+import { ApplyError } from "./model.js";
 export interface Sheets {
-  configured: boolean;
-  metadata(
-    id: string,
-  ): Promise<{ sheets: { sheetId: number; title: string }[] }>;
   read(id: string, range: string): Promise<unknown[][]>;
-  write(
-    id: string,
-    data: { range: string; values: unknown[][] }[],
-  ): Promise<void>;
-  createReview(id: string, name: string): Promise<void>;
 }
+/** Public link access only. No user tokens and no spreadsheet writes. */
 export class GoogleSheets implements Sheets {
-  configured =
-    !!process.env.GOOGLE_APPLICATION_CREDENTIALS &&
-    existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS);
-  private auth = new GoogleAuth({
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
-  private async request(
-    id: string,
-    suffix: string,
-    method = "GET",
-    data?: unknown,
-  ): Promise<any> {
-    if (!this.configured) throw new ApplyError("SHEETS_NOT_CONFIGURED", 503);
+  constructor(private fetcher: typeof fetch = fetch) {}
+  async read(id: string, range: string): Promise<unknown[][]> {
+    const match = /^'((?:[^']|'')+)'!(A\d+:[A-Z]+\d+)$/.exec(range);
+    if (!match || !/^[\w-]{15,150}$/.test(id))
+      throw new ApplyError("INVALID_REQUEST");
+    const rows = /A(\d+):[A-Z]+(\d+)/.exec(match[2])!;
+    const maxRows = Number(rows[2]) - Number(rows[1]) + 1;
+    if (maxRows < 1 || maxRows > 10000) throw new ApplyError("INVALID_REQUEST");
+    const url = new URL(`https://docs.google.com/spreadsheets/d/${id}/gviz/tq`);
+    url.search = new URLSearchParams({
+      tqx: "out:csv",
+      headers: "0",
+      sheet: match[1].replaceAll("''", "'"),
+      range: match[2],
+      _: String(Date.now()),
+    }).toString();
     try {
-      const client = await this.auth.getClient();
-      const response = await client.request({
-        url: `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(id)}${suffix}`,
-        method: method as any,
-        data,
-        timeout: 20000,
+      const response = await this.fetcher(url, {
+        signal: AbortSignal.timeout(20000),
+        headers: { "cache-control": "no-cache" },
       });
-      return response.data;
-    } catch (error: any) {
+      if (
+        [401, 403].includes(response.status) ||
+        response.url.includes("accounts.google.com")
+      )
+        throw new ApplyError("SHEET_PERMISSION", 403);
+      if (
+        !response.ok ||
+        !response.headers.get("content-type")?.includes("csv")
+      )
+        throw new ApplyError("SHEET_NOT_FOUND", 400);
+      const reader = response.body!.getReader();
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > 16 * 1024 * 1024)
+            throw new ApplyError("SHEET_TOO_LARGE", 413);
+          chunks.push(value);
+        }
+      } finally {
+        await reader.cancel();
+      }
+      return parse(Buffer.concat(chunks), {
+        bom: true,
+        relax_column_count: true,
+        max_record_size: 2 * 1024 * 1024,
+        to: maxRows,
+      });
+    } catch (error) {
       if (error instanceof ApplyError) throw error;
-      const status = Number(error.response?.status);
-      throw new ApplyError(
-        status === 403
-          ? "SHEET_PERMISSION"
-          : status === 404
-            ? "SHEET_NOT_FOUND"
-            : "SHEETS_UNAVAILABLE",
-        status === 403 ? 403 : 502,
-      );
+      throw new ApplyError("SHEETS_UNAVAILABLE", 502);
     }
-  }
-  async metadata(
-    id: string,
-  ): Promise<{ sheets: { sheetId: number; title: string }[] }> {
-    const value = await this.request(id, "?fields=sheets.properties");
-    return {
-      sheets: value.sheets.map((s: any) => ({
-        sheetId: s.properties.sheetId,
-        title: s.properties.title,
-      })),
-    };
-  }
-  async read(id: string, range: string) {
-    const value = await this.request(
-      id,
-      "/values/" +
-        encodeURIComponent(range) +
-        "?valueRenderOption=UNFORMATTED_VALUE",
-    );
-    return value.values || [];
-  }
-  async write(id: string, data: { range: string; values: unknown[][] }[]) {
-    await this.request(id, "/values:batchUpdate", "POST", {
-      valueInputOption: "RAW",
-      data,
-    });
-  }
-  async createReview(id: string, name: string) {
-    const metadata = await this.metadata(id);
-    if (metadata.sheets.some((s) => s.title === name)) {
-      const rows = await this.read(id, quoteSheet(name) + "!A1:R1");
-      if (JSON.stringify(rows[0]) !== JSON.stringify(reviewHeaders))
-        throw new ApplyError("REVIEW_SHEET_FORMAT", 409);
-      return;
-    }
-    const made = await this.request(id, ":batchUpdate", "POST", {
-      requests: [
-        {
-          addSheet: {
-            properties: {
-              title: name,
-              gridProperties: {
-                rowCount: 10000,
-                columnCount: 18,
-                frozenRowCount: 1,
-              },
-            },
-          },
-        },
-      ],
-    });
-    const sheetId = made.replies[0].addSheet.properties.sheetId;
-    await this.write(id, [
-      { range: quoteSheet(name) + "!A1:R1", values: [reviewHeaders] },
-    ]);
-    await this.request(id, ":batchUpdate", "POST", {
-      requests: [
-        {
-          setDataValidation: {
-            range: {
-              sheetId,
-              startRowIndex: 1,
-              endRowIndex: 10000,
-              startColumnIndex: 9,
-              endColumnIndex: 10,
-            },
-            rule: {
-              condition: { type: "BOOLEAN" },
-              strict: true,
-              showCustomUi: true,
-            },
-          },
-        },
-      ],
-    });
   }
 }

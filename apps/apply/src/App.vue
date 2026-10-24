@@ -24,7 +24,6 @@ const applied = ref<Record<string, boolean>>({});
 const fields = ref({
   spreadsheet: "",
   sheet: "",
-  reviewSheet: "반영 관리",
   firstRow: 2,
   lastRow: 2000,
   year: new Date().getFullYear() + 1,
@@ -41,12 +40,12 @@ const fields = ref({
 const messages: Record<string, string> = {
   UNAUTHENTICATED: "로그인이 필요합니다.",
   FORBIDDEN: "이 작업을 수행할 권한이 없습니다.",
-  CONNECTION_ADMIN_REQUIRED:
-    "시트 연결은 연결 관리자와 프로젝트 소유자만 설정할 수 있습니다.",
-  SHEETS_NOT_CONFIGURED:
-    "시트 연결을 위한 서버 인증정보가 아직 설정되지 않았습니다.",
-  SHEET_PERMISSION: "연결 계정에 스프레드시트 접근 권한이 없습니다.",
+  SHEET_PERMISSION:
+    "링크가 있는 사용자가 볼 수 있도록 스프레드시트 공유 설정을 확인해 주세요.",
   SHEET_NOT_FOUND: "스프레드시트 또는 시트 이름을 확인해 주세요.",
+  SHEET_EMPTY:
+    "읽을 조항이 없습니다. 시트 이름·본문 범위·식별자 열을 확인해 주세요.",
+  SHEET_TOO_LARGE: "시트 범위가 너무 큽니다. 읽을 범위를 줄여 주세요.",
   SHEETS_UNAVAILABLE:
     "스프레드시트에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.",
   STATE_CHANGED:
@@ -83,10 +82,6 @@ const messages: Record<string, string> = {
     "저장 결과를 확인해야 합니다. 아래 반영 이력에서 결과 확인을 눌러 주세요.",
   DOCUMENT_CHANGED_AFTER_APPLY:
     "문서가 추가로 수정되었습니다. 편집 이력에서 저장 결과를 확인해 주세요.",
-  REVIEW_SHEET_FORMAT:
-    "반영 관리 시트의 열 구성이 다릅니다. 새 시트 이름을 지정해 주세요.",
-  INVALID_REVIEW_ROW:
-    "반영 관리 시트의 연도·확정·대상·작업 값을 확인해 주세요.",
   INVALID_REQUEST: "입력값을 확인해 주세요.",
   NO_DOCUMENT_CHANGE:
     "문서 변경 없이 작업이 종료되었습니다. 다시 비교할 수 있습니다.",
@@ -206,7 +201,6 @@ function settingsFromState() {
   fields.value = {
     spreadsheet: c.spreadsheetId,
     sheet: c.sheet,
-    reviewSheet: c.reviewSheet,
     firstRow: c.firstRow,
     lastRow: c.lastRow,
     year: c.year,
@@ -285,7 +279,6 @@ async function saveConnection() {
   const connection: Connection = {
     spreadsheetId: id,
     sheet: f.sheet.trim(),
-    reviewSheet: f.reviewSheet.trim(),
     firstRow: Number(f.firstRow),
     lastRow: Number(f.lastRow),
     year: Number(f.year),
@@ -315,7 +308,7 @@ async function saveConnection() {
   );
   settingsOpen.value = false;
   notice.value =
-    "시트를 연결했습니다. 항목 가져오기로 반영 관리 시트를 준비할 수 있습니다.";
+    "시트를 연결했습니다. 항목 가져오기로 검토할 조항을 불러오세요.";
 }
 async function importRows() {
   plan.value = undefined;
@@ -342,7 +335,7 @@ async function saveDraft() {
     ),
   );
   plan.value = undefined;
-  notice.value = "반영 관리 시트에 저장했습니다.";
+  notice.value = "검토 내용을 저장했습니다.";
 }
 async function preview() {
   const r = await call(`/projects/${projectId.value}/preview`, "POST", {
@@ -360,9 +353,7 @@ async function apply() {
   plan.value = undefined;
   selected.value = [];
   if (current.value) await showClause(current.value);
-  notice.value = r.run.sheetSynced
-    ? "문서에 반영하고 시트에 결과를 기록했습니다."
-    : "문서 반영은 완료했습니다. 반영 이력에서 시트 기록을 다시 시도해 주세요.";
+  notice.value = "문서에 반영하고 이력을 저장했습니다.";
 }
 async function reconcile(id: string) {
   const r = await call(
@@ -373,7 +364,7 @@ async function reconcile(id: string) {
   await setState(r.state);
   notice.value =
     r.run.status === "applied"
-      ? "반영 결과와 시트 기록을 확인했습니다."
+      ? "문서의 반영 결과를 확인했습니다."
       : "문서 변경이 없음을 확인했습니다. 다시 비교할 수 있습니다.";
 }
 async function cloneProject() {
@@ -437,10 +428,7 @@ onMounted(() =>
         "
       >
         프로젝트 복제</button
-      ><button
-        v-if="owner && session?.canConnect"
-        @click="settingsOpen = !settingsOpen"
-      >
+      ><button v-if="owner" @click="settingsOpen = !settingsOpen">
         시트 연결 설정</button
       ><button v-if="project" @click="perform('새로 불러오는 중', loadProject)">
         새로고침
@@ -450,9 +438,6 @@ onMounted(() =>
       {{ error }}<button @click="error = ''" aria-label="오류 닫기">×</button>
     </p>
     <p v-if="notice" role="status" class="message success">{{ notice }}</p>
-    <p v-if="session && !session.sheetsConfigured" class="message">
-      시트 자동 연결을 위한 서버 인증정보 설정이 필요합니다.
-    </p>
     <form
       v-if="settingsOpen"
       class="settings card"
@@ -460,8 +445,8 @@ onMounted(() =>
     >
       <h2>시트 연결</h2>
       <p>
-        원본 범위와 열을 지정합니다. 최종 문안과 반영 결과는 별도의 반영 관리
-        시트에 저장합니다.
+        링크로 공개된 시트의 범위와 열을 지정합니다. 원본 시트는 읽기만 하며,
+        최종 문안·시행연도·반영 이력은 이 도구에 저장합니다.
       </p>
       <div class="formgrid">
         <label class="wide"
@@ -469,10 +454,6 @@ onMounted(() =>
             v-model="fields.spreadsheet"
             required /></label
         ><label>원본 시트 이름<input v-model="fields.sheet" required /></label
-        ><label
-          >반영 관리 시트 이름<input
-            v-model="fields.reviewSheet"
-            required /></label
         ><label
           >본문 시작 행<input
             v-model.number="fields.firstRow"
@@ -559,8 +540,8 @@ onMounted(() =>
         프로젝트를 복제한 뒤 원본 시트와 반영 위치를 연결하면 변경 전후를
         확인하면서 적용할 수 있습니다.
       </p>
-      <p v-if="!session?.canConnect">
-        시트 연결 관리자가 프로젝트에 원본 시트를 연결하면 사용할 수 있습니다.
+      <p v-if="!owner">
+        프로젝트 소유자가 원본 시트를 연결하면 사용할 수 있습니다.
       </p>
       <button v-else @click="settingsOpen = true">시트 연결 설정</button>
     </section>
@@ -674,7 +655,7 @@ onMounted(() =>
           </div>
           <form
             class="card draft"
-            @submit.prevent="perform('시트에 저장하는 중', saveDraft)"
+            @submit.prevent="perform('검토 내용 저장하는 중', saveDraft)"
           >
             <div class="formgrid">
               <label
@@ -779,9 +760,9 @@ onMounted(() =>
               />문안·시행연도·반영 위치를 확인했습니다</label
             >
             <div class="actions">
-              <span>저장은 반영 관리 시트에 기록합니다.</span
+              <span>검토 내용을 저장한 뒤 반영 예정 내용을 비교하세요.</span
               ><button class="primary" :disabled="!editable || !!busy">
-                시트에 저장
+                검토 내용 저장
               </button>
             </div>
           </form>
@@ -821,12 +802,10 @@ onMounted(() =>
             >
           </div>
           <button
-            v-if="editable && (r.status !== 'applied' || !r.sheetSynced)"
+            v-if="editable && r.status !== 'applied'"
             @click="perform('반영 결과 확인 중', () => reconcile(r.id))"
           >
-            {{
-              r.status === "applied" ? "시트 기록 재시도" : "결과 확인"
-            }}</button
+            결과 확인</button
           ><a
             :href="`/projects/${projectId}/files/${r.fileId}`"
             target="_blank"

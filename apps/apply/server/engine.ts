@@ -2,7 +2,6 @@ import {
   ApplyError,
   columnIndex,
   digest,
-  draftSchema,
   changeDigest,
   type Clause,
   type Connection,
@@ -10,8 +9,8 @@ import {
 } from "./model.js";
 const text = (v: unknown) => (v == null ? "" : String(v).trim());
 // UUID v8 derived from source identity survives a lost first-import response.
-const sourceId = (sourceKey: string, reviewSheet: string) => {
-  const h = digest([sourceKey, reviewSheet]);
+const sourceId = (sourceKey: string) => {
+  const h = digest(sourceKey);
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-8${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 };
 /** Row positions are provenance, not identity. Continuation rows belong to their key. */
@@ -85,7 +84,7 @@ export function sourceClauses(
     return {
       ...previous,
       ...fields,
-      id: previous?.id || sourceId(sourceKey, c.reviewSheet),
+      id: previous?.id || sourceId(sourceKey),
       sourceKey,
       sourceHash,
       approvalHash:
@@ -98,32 +97,6 @@ export function sourceClauses(
       draft,
     };
   });
-}
-export function reviewRows(rows: unknown[][]) {
-  const records = new Map<string, { row: number; values: unknown[] }>();
-  for (let i = 1; i < rows.length; i++) {
-    const id = text(rows[i][0]);
-    if (!id) continue;
-    if (records.has(id)) throw new ApplyError("DUPLICATE_REVIEW_ID", 409, id);
-    records.set(id, { row: i + 1, values: rows[i] });
-  }
-  return records;
-}
-export function withReview(c: Clause, row?: unknown[]): Clause {
-  if (!row) return c;
-  const year = text(row[7]);
-  const checked = row[9] === true || text(row[9]).toUpperCase() === "TRUE";
-  const parsed = draftSchema.safeParse({
-    year: year ? Number(year) : null,
-    final: String(row[8] ?? ""),
-    confirmed: checked,
-    fileId: text(row[10]),
-    anchor: text(row[11]),
-    action: text(row[12]),
-    before: String(row[13] ?? ""),
-  });
-  if (!parsed.success) throw new ApplyError("INVALID_REVIEW_ROW", 409, c.key);
-  return { ...c, draft: parsed.data, approvalHash: text(row[14]) };
 }
 export interface Section {
   label: string;
