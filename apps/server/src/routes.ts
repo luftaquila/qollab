@@ -1,6 +1,8 @@
 import { indexHistory, summarizeEdit } from "./edit-history.js";
 import { randomUUID, createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type { FastifyInstance } from "fastify";
+import type { ServerResponse } from "node:http";
 import sharp from "sharp";
 import { z } from "zod";
 import { pool, transaction, Fault } from "./db.js";
@@ -25,9 +27,16 @@ import {
   resolveReference,
 } from "./paths.js";
 import { config } from "./config.js";
-import { readZip, writeZip } from "./archive.js";
+import {
+  readZip,
+  writeZip,
+  restoreRegulations,
+  regulationManifest,
+  projectManifest,
+} from "./archive.js";
 import { blobId, content, storeBlobs } from "./blobs.js";
 import type { Project, ProjectFile, ProjectData } from "./model.js";
+import { numberingSchema } from "../../../packages/codec/src/numbering.js";
 const rev = z.number().int().nonnegative();
 const name = z.string().min(1).max(160);
 const params = (r: any) =>
@@ -35,7 +44,16 @@ const params = (r: any) =>
 // rawOwner/rawUntil tell other members who holds the Markdown editing lock.
 export const publicFile = (f: ProjectFile) => {
   const { state, preservation, bytes, blob, ...rest } = f;
-  return rest;
+  return f.kind === "image"
+    ? {
+        ...rest,
+        contentHash:
+          blob ||
+          (bytes !== undefined
+            ? blobId(Buffer.from(bytes, "base64"))
+            : undefined),
+      }
+    : rest;
 };
 export function file(p: Project, id: string) {
   const f = p.data.files.find((f) => f.id === id);
@@ -127,6 +145,11 @@ export async function routes(
   app: FastifyInstance,
   disconnect: (project: string) => void,
 ) {
+  const feeds = new Set<ServerResponse>();
+  app.addHook("preClose", async () => {
+    for (const response of feeds) response.end();
+    feeds.clear();
+  });
   app.get("/api/projects", async (req) => {
     const u = await identity(req);
     return (
@@ -142,6 +165,7 @@ export async function routes(
     const b = z.object({ name }).parse(req.body);
     const id = randomUUID();
     const data: ProjectData = {
+      autoBuild: false,
       files: [textFile("report.qmd", "# Untitled\n\n")],
       epoch: 1,
       target: "report.qmd",
@@ -176,10 +200,19 @@ export async function routes(
           revision: rev,
           name: name.optional(),
           target: z.string().optional(),
+          autoBuild: z.boolean().optional(),
         })
         .parse(req.body);
-    return change(params(req).pid, u, b.revision, "owner", async (p) => {
+    return change(params(req).pid, u, b.revision, "owner", async (p, db) => {
       if (b.name) p.name = b.name;
+      if (b.autoBuild !== undefined) {
+        p.data.autoBuild = b.autoBuild;
+        if (!b.autoBuild)
+          await db.query(
+            "UPDATE builds SET status='cancelled',finished=now() WHERE project_id=$1 AND status IN ('queued','running')",
+            [p.id],
+          );
+      }
       if (b.target) {
         if (
           !p.data.files.some(
@@ -190,6 +223,32 @@ export async function routes(
         p.data.target = b.target;
       }
     });
+  });
+  app.patch("/api/projects/:pid/numbering", async (req) => {
+    const u = await mutation(req);
+    const b = z
+      .object({
+        expected: numberingSchema.nullable(),
+        numbering: numberingSchema,
+      })
+      .parse(req.body);
+    return change(
+      params(req).pid,
+      u,
+      undefined,
+      "owner",
+      async (p) => {
+        if (
+          !isDeepStrictEqual(
+            p.data.numbering ? numberingSchema.parse(p.data.numbering) : null,
+            b.expected,
+          )
+        )
+          throw new Fault("REVISION_CONFLICT", 409);
+        p.data.numbering = b.numbering;
+      },
+      { build: false },
+    );
   });
   app.delete("/api/projects/:pid", async (req) => {
     const u = await mutation(req),
@@ -210,6 +269,7 @@ export async function routes(
       id = params(req).pid;
     await access(pool, id, u.id);
     reply.hijack();
+    feeds.add(reply.raw);
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
@@ -220,7 +280,8 @@ export async function routes(
       try {
         await identity(req);
         await access(pool, id, u.id);
-        reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+        if (!reply.raw.writableEnded)
+          reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
       } catch {
         reply.raw.end();
       }
@@ -230,6 +291,7 @@ export async function routes(
       void send({ type: "heartbeat" });
     }, 15000);
     req.raw.on("close", () => {
+      feeds.delete(reply.raw);
       off();
       clearInterval(interval);
     });
@@ -351,7 +413,10 @@ export async function routes(
     const result = await change(id, u, b.revision, "editor", async (p) => {
       const folders = p.data.folders || [],
         moving = p.data.files.filter((f) => inside(f.path, b.from));
-      if (!moving.length && !folders.some((f) => f === b.from || inside(f, b.from)))
+      if (
+        !moving.length &&
+        !folders.some((f) => f === b.from || inside(f, b.from))
+      )
         throw new Fault("NOT_FOUND", 404);
       if (
         folders.includes(b.to) ||
@@ -379,7 +444,10 @@ export async function routes(
     const result = await change(id, u, b.revision, "editor", async (p) => {
       const removed = p.data.files.filter((f) => inside(f.path, b.path)),
         folders = p.data.folders || [];
-      if (!removed.length && !folders.some((f) => f === b.path || inside(f, b.path)))
+      if (
+        !removed.length &&
+        !folders.some((f) => f === b.path || inside(f, b.path))
+      )
         throw new Fault("NOT_FOUND", 404);
       // Files outside the folder must not reference anything being deleted.
       for (const doc of p.data.files)
@@ -606,7 +674,7 @@ export async function routes(
     if (!r.rowCount) throw new Fault("NOT_FOUND", 404);
     return reply
       .type("application/zip")
-      .send(await writeZip(r.rows[0].snapshot.files));
+      .send(await writeZip(r.rows[0].snapshot.files, r.rows[0].snapshot));
   });
   app.post("/api/projects/:pid/history/:cid/restore", async (req) => {
     const u = await mutation(req),
@@ -784,7 +852,7 @@ export async function routes(
     return reply
       .type("application/zip")
       .header("Content-Disposition", 'attachment; filename="project.zip"')
-      .send(await writeZip(p.data.files));
+      .send(await writeZip(p.data.files, p.data));
   });
   app.post("/api/import", async (req) => {
     const u = await mutation(req),
@@ -792,6 +860,7 @@ export async function routes(
     const entries = readZip(Buffer.from(b.bytes, "base64")),
       files: ProjectFile[] = [];
     for (const [path, bytes] of Object.entries(entries)) {
+      if (path === regulationManifest || path === projectManifest) continue;
       if (/\.(png|jpe?g)$/i.test(path)) {
         const meta = await image(Buffer.from(bytes));
         files.push({
@@ -812,9 +881,11 @@ export async function routes(
     }
     const data: ProjectData = {
       epoch: 1,
+      autoBuild: false,
       files,
       target: files.find((f) => f.kind === "document")?.path || "",
     };
+    restoreRegulations(entries, data);
     validateSize(data);
     const id = randomUUID();
     await transaction(async (db) => {

@@ -11,6 +11,7 @@ const flag = (key: string) => {
   return value === "true";
 };
 export const config = {
+  docsProject: process.env.DOCS_PROJECT || "",
   port: number("PORT", 3000),
   host: process.env.HOST || "127.0.0.1",
   origin: process.env.PUBLIC_ORIGIN || "http://localhost:3000",

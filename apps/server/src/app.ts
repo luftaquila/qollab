@@ -1,3 +1,4 @@
+import { websiteRoutes } from "./website.js";
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
@@ -42,7 +43,7 @@ export async function createApp(
       .header("X-Frame-Options", "DENY")
       .header(
         "Content-Security-Policy",
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.googleusercontent.com; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.googleusercontent.com; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
       );
     return payload;
   });
@@ -66,12 +67,14 @@ export async function createApp(
   await routes(app, disconnectProject);
   await collaboration(app);
   await builds(app);
+  await websiteRoutes(app);
   const root = resolve("apps/web/dist");
   if (existsSync(root)) {
     await app.register(staticPlugin, { root });
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith("/api/"))
         return reply.code(404).send({ code: "NOT_FOUND" });
+
       return reply.sendFile("index.html");
     });
   }

@@ -10,6 +10,7 @@ import { token, hash, validateClaims } from "../apps/server/src/auth.js";
 import { config } from "../apps/server/src/config.js";
 import { subscribe } from "../apps/server/src/store.js";
 import { blobId, migrateBlobs } from "../apps/server/src/blobs.js";
+import { defaultNumbering } from "../packages/codec/src/numbering.js";
 let app: Awaited<ReturnType<typeof createApp>>;
 const people: any = {};
 const sockets: WebSocket[] = [];
@@ -31,11 +32,16 @@ async function request(
     payload: body as any,
   });
 }
-async function project() {
+async function project(autoBuild = false) {
   const r = await request("owner", "/projects", "POST", {
     name: "Integration " + randomUUID(),
   });
   expect(r.statusCode, r.body).toBe(200);
+  if (autoBuild)
+    await pool.query(
+      "UPDATE projects SET data=jsonb_set(data,'{autoBuild}','true') WHERE id=$1",
+      [r.json().id],
+    );
   return (await request("owner", "/projects/" + r.json().id)).json();
 }
 async function ws(p: any, who = "owner", epoch = 1) {
@@ -83,10 +89,294 @@ beforeAll(async () => {
   }
   await app.listen({ host: "127.0.0.1", port: 3100 });
 });
+let feedController: AbortController | undefined;
+let feedEnded: Promise<boolean> | undefined;
 afterAll(async () => {
   for (const ws of sockets) ws.terminate();
+  const deadline = setTimeout(() => feedController?.abort(), 2000);
   await app.close();
+  clearTimeout(deadline);
   await pool.end();
+  if (feedEnded) expect(await feedEnded).toBe(true);
+});
+it("keeps manual PDF projects idle and builds only on request", async () => {
+  const p = await project();
+  expect(p.data.autoBuild).toBe(false);
+  const created = await request("owner", `/projects/${p.id}/files`, "POST", {
+    revision: 0,
+    path: "EV.qmd",
+    source: "# EV\n\n## EV2 전기\n",
+  });
+  expect(created.statusCode).toBe(200);
+  expect(
+    (await request("owner", `/projects/${p.id}/builds`)).json(),
+  ).toHaveLength(0);
+  expect(
+    (
+      await request("owner", `/projects/${p.id}/builds`, "POST", {
+        revision: created.json().revision,
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect(
+    (await request("owner", `/projects/${p.id}/builds`)).json(),
+  ).toHaveLength(1);
+});
+it("snapshots resolved numbering with a PDF build independently of later settings", async () => {
+  const p = await project();
+  const url = `/projects/${p.id}/files/${p.data.files[0].id}/raw`;
+  const lock = (await request("owner", url, "POST", { revision: 0 })).json();
+  expect(
+    (
+      await request("owner", url, "PUT", {
+        revision: lock.revision,
+        epoch: lock.result.epoch,
+        rawVersion: lock.result.rawVersion,
+        source:
+          "# Chapter {#chapter}\n\n## First {#first}\n\n# Next\n\n## Second {#second}\n",
+      })
+    ).statusCode,
+  ).toBe(200);
+  const numbering = defaultNumbering();
+  numbering.headings.enabled = true;
+  Object.assign(numbering.headings.levels[1], {
+    format: "Article {n}",
+    reset: "document",
+  });
+  const saved = await request("owner", `/projects/${p.id}/numbering`, "PATCH", {
+    expected: null,
+    numbering,
+  });
+  expect(saved.statusCode).toBe(200);
+  expect(
+    (
+      await request("owner", `/projects/${p.id}/builds`, "POST", {
+        revision: saved.json().revision,
+      })
+    ).statusCode,
+  ).toBe(200);
+  const next = structuredClone(numbering);
+  next.headings.levels[1].format = "Clause {n}";
+  expect(
+    (
+      await request("owner", `/projects/${p.id}/numbering`, "PATCH", {
+        expected: numbering,
+        numbering: next,
+      })
+    ).statusCode,
+  ).toBe(200);
+  const { rows } = await pool.query(
+    "SELECT input FROM builds WHERE project_id=$1",
+    [p.id],
+  );
+  expect(rows).toHaveLength(1);
+  expect(rows[0].input.documentFormat.settings).toEqual(numbering);
+  expect(rows[0].input.documentFormat.references).toMatchObject({
+    first: "Article 1",
+    second: "Article 2",
+  });
+});
+it("preserves optional numbering through ZIPs and rejects stale settings and removed review endpoints", async () => {
+  const p = await project();
+  await pool.query("INSERT INTO members VALUES($1,'editor','editor')", [p.id]);
+  const settings = defaultNumbering();
+  settings.headings.enabled = true;
+  settings.headings.levels[0].format = "제{n}조";
+  const url = `/projects/${p.id}/numbering`;
+  expect(
+    (
+      await request("editor", url, "PATCH", {
+        expected: null,
+        numbering: settings,
+      })
+    ).statusCode,
+  ).toBe(403);
+  expect(
+    (
+      await request("owner", url, "PATCH", {
+        expected: null,
+        numbering: settings,
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect(
+    (
+      await request("owner", url, "PATCH", {
+        expected: null,
+        numbering: settings,
+      })
+    ).statusCode,
+  ).toBe(409);
+  const zip = await request("owner", `/projects/${p.id}/export`);
+  const restored = await request("owner", "/import", "POST", {
+    name: "Imported numbering",
+    bytes: zip.rawPayload.toString("base64"),
+  });
+  expect(restored.statusCode, restored.body).toBe(200);
+  const copy = (
+    await request("owner", `/projects/${restored.json().id}`)
+  ).json();
+  expect(copy.data.numbering).toEqual(settings);
+  expect(
+    (await request("owner", `/projects/${p.id}/regulations/import`, "POST", {}))
+      .statusCode,
+  ).toBe(404);
+  expect(
+    (
+      await request(
+        "owner",
+        `/projects/${p.id}/files/${p.data.files[0].id}/rules/EV2`,
+        "PUT",
+        {},
+      )
+    ).statusCode,
+  ).toBe(404);
+});
+it("records the authenticated actor and exact before/after delta for each edit, including after checkpoints", async () => {
+  const p = await project();
+  await pool.query(
+    "INSERT INTO members VALUES($1,'editor','editor'),($1,'viewer','viewer')",
+    [p.id],
+  );
+  const created = await request("owner", `/projects/${p.id}/files`, "POST", {
+    revision: 0,
+    path: "notes.md",
+    source: "original\n",
+  });
+  expect(created.statusCode, created.body).toBe(200);
+  const fid = created.json().result.id;
+  const edit = await request(
+    "editor",
+    `/projects/${p.id}/files/${fid}/text`,
+    "PUT",
+    {
+      revision: created.json().revision,
+      source: "changed by editor\n",
+      actor: "owner",
+    },
+  );
+  expect(edit.statusCode, edit.body).toBe(200);
+  const checkpoint = await request(
+    "owner",
+    `/projects/${p.id}/history`,
+    "POST",
+    { revision: edit.json().revision, label: "Snapshot" },
+  );
+  const list = (await request("viewer", `/projects/${p.id}/changes`)).json();
+  expect(list[0]).toMatchObject({
+    actor: "editor",
+    actor_name: "editor",
+    files: [
+      {
+        path: "notes.md",
+        kind: "edited",
+        before: "original",
+        after: "changed by editor",
+      },
+    ],
+  });
+  const detail = (
+    await request("viewer", `/projects/${p.id}/changes/${list[0].id}`)
+  ).json();
+  expect(detail.changes[0].patch.hunks[0].lines).toEqual([
+    "-original",
+    "+changed by editor",
+  ]);
+  expect(list[1].actor).toBe("owner");
+  expect(
+    (
+      await request(
+        "editor",
+        `/projects/${p.id}/changes?before=${list[0].revision}`,
+      )
+    ).json(),
+  ).toHaveLength(1);
+  const other = await project();
+  expect(
+    (await request("owner", `/projects/${other.id}/changes/${list[0].id}`))
+      .statusCode,
+  ).toBe(404);
+  const stale = await request(
+    "editor",
+    `/projects/${p.id}/files/${fid}/text`,
+    "PUT",
+    { revision: 0, source: "rejected" },
+  );
+  expect(stale.statusCode).toBe(409);
+  expect(
+    (await request("owner", `/projects/${p.id}/changes`)).json(),
+  ).toHaveLength(2);
+});
+it("groups consecutive typing by actor and file, preserves atomic records, and rebuilds old history", async () => {
+  const p = await project();
+  await pool.query("INSERT INTO members VALUES($1,'editor','editor')", [p.id]);
+  const created = (
+    await request("owner", `/projects/${p.id}/files`, "POST", {
+      revision: 0,
+      path: "history.md",
+      source: "# 제목\n\n원래 문장\n",
+    })
+  ).json();
+  const id = created.result.id;
+  let revision = created.revision;
+  for (const source of [
+    "# 제목\n\n새",
+    "# 제목\n\n새 문",
+    "# 제목\n\n새 문장\n",
+  ]) {
+    const response = await request(
+      "editor",
+      `/projects/${p.id}/files/${id}/text`,
+      "PUT",
+      { revision, source },
+    );
+    expect(response.statusCode, response.body).toBe(200);
+    revision = response.json().revision;
+  }
+  const list = (await request("owner", `/projects/${p.id}/changes`)).json();
+  expect(list).toHaveLength(2);
+  expect(list[0].files[0]).toMatchObject({
+    section: "제목",
+    before: "원래 문장",
+    after: "새 문장",
+  });
+  expect(list[0].revision - list[0].first_revision).toBe(2);
+  const detail = (
+    await request("owner", `/projects/${p.id}/changes/${list[0].id}`)
+  ).json();
+  expect(detail.changes[0].patch.hunks[0].lines).toContain("-원래 문장");
+  expect(detail.changes[0].patch.hunks[0].lines).toContain("+새 문장");
+  expect(
+    (
+      await pool.query(
+        "SELECT count(*) FROM content_changes WHERE project_id=$1",
+        [p.id],
+      )
+    ).rows[0].count,
+  ).toBe("4");
+  await pool.query("DELETE FROM edit_batches WHERE project_id=$1", [p.id]);
+  await pool.query("DELETE FROM edit_index WHERE project_id=$1", [p.id]);
+  const rebuilt = (await request("owner", `/projects/${p.id}/changes`)).json();
+  expect(rebuilt.map((r: any) => r.files)).toEqual(
+    list.map((r: any) => r.files),
+  );
+  for (const actor of ["owner", "editor"]) {
+    const response = await request(
+      actor,
+      `/projects/${p.id}/files/${id}/text`,
+      "PUT",
+      { revision, source: `# 제목\n\n${actor} 수정\n` },
+    );
+    expect(response.statusCode, response.body).toBe(200);
+    revision = response.json().revision;
+  }
+  const authors = (await request("owner", `/projects/${p.id}/changes`)).json();
+  expect(authors.map((r: any) => r.actor)).toEqual([
+    "editor",
+    "owner",
+    "editor",
+    "owner",
+  ]);
 });
 it("exposes no bypass login and enforces Origin, CSRF and viewer on every write", async () => {
   expect((await app.inject("/api/session")).json().user).toBeNull();
@@ -129,7 +419,12 @@ it("exposes no bypass login and enforces Origin, CSRF and viewer on every write"
 it("keeps only Google profile photo URLs from identity claims", () => {
   const claims = (picture: unknown) =>
     validateClaims(
-      { sub: "p", email: "p@example.com", email_verified: true, picture } as any,
+      {
+        sub: "p",
+        email: "p@example.com",
+        email_verified: true,
+        picture,
+      } as any,
       { workspace: undefined, admission: "all", approved: [] },
     ).picture;
   expect(claims("https://lh3.googleusercontent.com/a/abc=s96-c")).toBe(
@@ -244,6 +539,14 @@ it("uploads valid images idempotently, rejects invalid images and protects refer
     };
   const a = await request("owner", `/projects/${p.id}/images`, "POST", upload);
   expect(a.statusCode, a.body).toBe(200);
+  expect(a.json().result.file.contentHash).toBe(blobId(bytes));
+  expect(a.json().result.file.blob).toBeUndefined();
+  expect(a.json().result.file.bytes).toBeUndefined();
+  const metadata = (await request("owner", `/projects/${p.id}`)).json();
+  expect(
+    metadata.data.files.find((f: any) => f.id === a.json().result.file.id)
+      .contentHash,
+  ).toBe(blobId(bytes));
   const b = await request("owner", `/projects/${p.id}/images`, "POST", upload);
   expect(b.json().result.file.id).toBe(a.json().result.file.id);
   const bad = await request("owner", `/projects/${p.id}/images`, "POST", {
@@ -314,12 +617,19 @@ it("keeps images in blobs, serves them and gives the renderer only the blobs of 
   });
   const renderer = { authorization: "Bearer " + config.rendererToken };
   const job = (
-    await app.inject({ method: "POST", url: "/api/renderer/lease", headers: renderer })
+    await app.inject({
+      method: "POST",
+      url: "/api/renderer/lease",
+      headers: renderer,
+    })
   ).json();
   expect(job.project).toBe(p.id);
   const lease = { ...renderer, "x-render-lease": job.lease };
   const input = (
-    await app.inject({ url: `/api/renderer/builds/${job.id}/input`, headers: lease })
+    await app.inject({
+      url: `/api/renderer/builds/${job.id}/input`,
+      headers: lease,
+    })
   ).json();
   const image = input.files.find((f: any) => f.path === stored.path);
   expect(image).toEqual({ path: stored.path, blob: stored.blob });
@@ -333,19 +643,31 @@ it("keeps images in blobs, serves them and gives the renderer only the blobs of 
     headers: lease,
   });
   expect(other.statusCode).toBe(404);
-  await pool.query("UPDATE builds SET status='cancelled' WHERE id=$1", [job.id]);
+  await pool.query("UPDATE builds SET status='cancelled' WHERE id=$1", [
+    job.id,
+  ]);
   // Projects saved before blobs: the images move out on startup.
   const legacy = randomUUID();
-  await pool.query("INSERT INTO projects(id,name,data) VALUES($1,'Legacy',$2)", [
-    legacy,
-    {
-      epoch: 1,
-      target: "",
-      files: [
-        { id: randomUUID(), path: "a.png", kind: "image", mime: "image/png", epoch: 1, bytes: bytes.toString("base64") },
-      ],
-    },
-  ]);
+  await pool.query(
+    "INSERT INTO projects(id,name,data) VALUES($1,'Legacy',$2)",
+    [
+      legacy,
+      {
+        epoch: 1,
+        target: "",
+        files: [
+          {
+            id: randomUUID(),
+            path: "a.png",
+            kind: "image",
+            mime: "image/png",
+            epoch: 1,
+            bytes: bytes.toString("base64"),
+          },
+        ],
+      },
+    ],
+  );
   await migrateBlobs();
   const moved = (
     await pool.query("SELECT data FROM projects WHERE id=$1", [legacy])
@@ -486,7 +808,7 @@ it("coalesces edits and leases only the final snapshot after its quiet period", 
     "UPDATE builds SET status='cancelled' WHERE status IN ('queued','running')",
   );
   expect(config.debounce).toBe(1000);
-  const p = await project();
+  const p = await project(true);
   const url = `/projects/${p.id}/files/${p.data.files[0].id}/raw`;
   let edit = (await request("owner", url, "POST", { revision: 0 })).json();
   for (const source of ["# First\n", "# Second\n", "# Final\n"]) {
@@ -523,9 +845,13 @@ it("coalesces edits and leases only the final snapshot after its quiet period", 
         )
       ).rows[0].ms,
     );
-  await new Promise(async (r) => setTimeout(r, Math.max(0, (await left()) - 300)));
+  await new Promise(async (r) =>
+    setTimeout(r, Math.max(0, (await left()) - 300)),
+  );
   expect((await lease()).json()).toBeNull();
-  await new Promise(async (r) => setTimeout(r, Math.max(0, (await left()) + 30)));
+  await new Promise(async (r) =>
+    setTimeout(r, Math.max(0, (await left()) + 30)),
+  );
   const ready = (await lease()).json();
   expect(ready.id).toBe(queued.rows[0].id);
   expect(ready.revision).toBe(edit.revision);
@@ -534,7 +860,7 @@ it("coalesces edits and leases only the final snapshot after its quiet period", 
   ]);
 });
 it("stops a running build of older content when an edit queues a new one", async () => {
-  const p = await project();
+  const p = await project(true);
   const running = async (revision: number) => {
     const id = randomUUID(),
       lease = randomUUID();
@@ -546,18 +872,25 @@ it("stops a running build of older content when an edit queues a new one", async
       app.inject({
         method: "GET",
         url: `/api/renderer/builds/${id}/status`,
-        headers: { authorization: "Bearer " + config.rendererToken, "x-render-lease": lease },
+        headers: {
+          authorization: "Bearer " + config.rendererToken,
+          "x-render-lease": lease,
+        },
       });
     return { id, status };
   };
   // A rebuild of unchanged content leaves the running build alone.
   const current = await running(0);
-  const rebuilt = await request("owner", `/projects/${p.id}/builds`, "POST", { revision: 0 });
+  const rebuilt = await request("owner", `/projects/${p.id}/builds`, "POST", {
+    revision: 0,
+  });
   expect(rebuilt.statusCode, rebuilt.body).toBe(200);
   expect((await current.status()).statusCode).toBe(200);
   // An edit makes it stale: the renderer is told to stop.
   const url = `/projects/${p.id}/files/${p.data.files[0].id}/raw`;
-  const edit = (await request("owner", url, "POST", { revision: rebuilt.json().revision })).json();
+  const edit = (
+    await request("owner", url, "POST", { revision: rebuilt.json().revision })
+  ).json();
   const saved = await request("owner", url, "PUT", {
     revision: edit.revision,
     epoch: edit.result.epoch,
@@ -566,10 +899,15 @@ it("stops a running build of older content when an edit queues a new one", async
   });
   expect(saved.statusCode, saved.body).toBe(200);
   expect((await current.status()).statusCode).toBe(409);
-  const rows = await pool.query("SELECT id,status FROM builds WHERE project_id=$1", [p.id]);
+  const rows = await pool.query(
+    "SELECT id,status FROM builds WHERE project_id=$1",
+    [p.id],
+  );
   expect(rows.rows.find((r) => r.id === current.id).status).toBe("cancelled");
   expect(rows.rows.filter((r) => r.status === "queued")).toHaveLength(1);
-  await pool.query("UPDATE builds SET status='cancelled' WHERE project_id=$1", [p.id]);
+  await pool.query("UPDATE builds SET status='cancelled' WHERE project_id=$1", [
+    p.id,
+  ]);
 });
 it("retains the displayed PDF through superseded results and publishes only current content", async () => {
   const p = await project();
@@ -767,7 +1105,10 @@ it("signs visitors into one shared guest account only when anonymous access is e
       second = await app.inject("/api/session"),
       a = first.json(),
       b = second.json();
-    expect(a.user).toMatchObject({ id: "anonymous", name: "Guest" });
+    expect(a.user).toMatchObject({
+      id: "anonymous",
+      name: expect.stringMatching(/^Guest /),
+    });
     expect(a.anonymous).toBe(true);
     expect(cookie(first)).not.toBe(cookie(second));
     expect(a.csrf).not.toBe(b.csrf);
@@ -776,6 +1117,24 @@ it("signs visitors into one shared guest account only when anonymous access is e
       origin: config.origin,
       ...(csrf ? { "x-csrf-token": csrf } : {}),
     });
+    expect(a.user.name).not.toBe(b.user.name);
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: "/api/session/name",
+      headers: headers(first, a.csrf),
+      payload: { name: "Test editor" },
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect(
+      (
+        await app.inject({ url: "/api/session", headers: headers(first) })
+      ).json().user.name,
+    ).toBe("Test editor");
+    expect(
+      (
+        await app.inject({ url: "/api/session", headers: headers(second) })
+      ).json().user.name,
+    ).toBe(b.user.name);
     // Writes still need the session's CSRF token.
     expect(
       (
@@ -870,9 +1229,9 @@ it("creates, renames and deletes folders atomically, rewriting references", asyn
   };
   await ok(call("/folders", "POST", { path: "chapters" }));
   expect((await current()).data.folders).toEqual(["chapters"]);
-  expect((await call("/folders", "POST", { path: "chapters" })).statusCode).toBe(
-    409,
-  );
+  expect(
+    (await call("/folders", "POST", { path: "chapters" })).statusCode,
+  ).toBe(409);
   const bytes = await sharp({
     create: { width: 8, height: 8, channels: 3, background: "#237f79" },
   })
@@ -904,7 +1263,9 @@ it("creates, renames and deletes folders atomically, rewriting references", asyn
   );
   expect(await source("chapters/one.qmd")).toContain(`](../${moved})`);
   // Moving a folder deeper updates its own documents' relative links.
-  await ok(call("/folders", "PATCH", { from: "chapters", to: "parts/chapters" }));
+  await ok(
+    call("/folders", "PATCH", { from: "chapters", to: "parts/chapters" }),
+  );
   expect(await source("parts/chapters/one.qmd")).toContain(`](../../${moved})`);
   expect((await current()).data.folders).toEqual(["parts/chapters"]);
   expect(
@@ -924,4 +1285,25 @@ it("creates, renames and deletes folders atomically, rewriting references", asyn
   await pool.query(
     "UPDATE builds SET status='cancelled' WHERE status IN ('queued','running')",
   );
+});
+
+it("closes an active live-document event stream during application shutdown", async () => {
+  const p = await project();
+  feedController = new AbortController();
+  const response = await fetch(
+    `http://127.0.0.1:3100/api/projects/${p.id}/events`,
+    {
+      headers: { cookie: "qollab=" + people.owner.raw },
+      signal: feedController.signal,
+    },
+  );
+  expect(response.status).toBe(200);
+  const reader = response.body!.getReader();
+  expect(new TextDecoder().decode((await reader.read()).value)).toContain(
+    "event: ready",
+  );
+  feedEnded = reader
+    .read()
+    .then((r) => r.done)
+    .catch(() => false);
 });

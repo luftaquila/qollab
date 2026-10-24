@@ -1,4 +1,3 @@
-import { changeSnapshot, recordChange } from "./changes.js";
 import { numberDocument } from "../../../packages/codec/src/document-numbering.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, rename, readdir, rm, stat } from "node:fs/promises";
@@ -11,6 +10,7 @@ import { config } from "./config.js";
 import type { Identity } from "./auth.js";
 import type { Project, ProjectData, Role } from "./model.js";
 import { content, fileSize, storeBlobs } from "./blobs.js";
+import { changeSnapshot, recordChange } from "./changes.js";
 const exec = promisify(execFile);
 export const ranks = { viewer: 0, editor: 1, owner: 2 };
 export async function access(
@@ -109,6 +109,7 @@ export async function queueBuild(
   p: Project,
   immediate = false,
 ) {
+  if (!immediate && p.data.autoBuild !== true) return;
   if (!p.data.files.some((f) => f.path === p.data.target)) return;
   const pending = await db.query(
     "SELECT created FROM builds WHERE project_id=$1 AND status='queued' ORDER BY created LIMIT 1",
@@ -198,7 +199,13 @@ export async function checkpoint(
   return id;
 }
 const listeners = new Map<string, Set<(event: unknown) => void>>();
+const observers = new Set<(id: string, event: unknown) => void>();
+export function observeEvents(fn: (id: string, event: unknown) => void) {
+  observers.add(fn);
+  return () => observers.delete(fn);
+}
 export function events(id: string, event: unknown) {
+  observers.forEach((fn) => fn(id, event));
   listeners.get(id)?.forEach((fn) => fn(event));
 }
 export function subscribe(id: string, fn: (event: unknown) => void) {

@@ -18,6 +18,7 @@ ALTER TABLE content_changes ADD COLUMN IF NOT EXISTS actor_key text;
 CREATE TABLE IF NOT EXISTS edit_batches(id uuid PRIMARY KEY,project_id uuid REFERENCES projects(id) ON DELETE CASCADE,first_revision bigint NOT NULL,revision bigint NOT NULL,actor text NOT NULL,actor_key text NOT NULL,actor_name text NOT NULL,changes jsonb NOT NULL,created timestamptz NOT NULL,updated timestamptz NOT NULL);
 CREATE INDEX IF NOT EXISTS edit_batches_project ON edit_batches(project_id,revision DESC);
 CREATE TABLE IF NOT EXISTS edit_index(project_id uuid PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS websites(project_id uuid PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,revision bigint NOT NULL,updated timestamptz NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS content_changes_project ON content_changes(project_id,revision DESC);
 CREATE TABLE IF NOT EXISTS restores(id uuid PRIMARY KEY,project_id uuid REFERENCES projects(id) ON DELETE CASCADE,target uuid NOT NULL,status text NOT NULL,created timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS builds(id uuid PRIMARY KEY,project_id uuid REFERENCES projects(id) ON DELETE CASCADE,revision bigint NOT NULL,epoch integer NOT NULL,target text NOT NULL,status text NOT NULL,input jsonb NOT NULL,lease text,lease_until timestamptz,log text,pdf bytea,image text,created timestamptz NOT NULL DEFAULT now(),finished timestamptz);
