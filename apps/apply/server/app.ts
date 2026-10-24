@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { z, ZodError } from "zod";
 import { createTwoFilesPatch } from "diff";
+import { numberDocument } from "../../../packages/codec/src/document-numbering.js";
 import { ApplyStore } from "./store.js";
 import { GoogleSheets, type Sheets } from "./sheets.js";
 import {
@@ -24,6 +25,7 @@ import {
   sections,
   patchDocument,
   scheduledText,
+  schedulePlacement,
 } from "./engine.js";
 
 export interface ApplyOptions {
@@ -215,9 +217,15 @@ export async function createApplyApp(options: ApplyOptions) {
       (f: any) => f.id === id && f.kind === "document",
     );
     if (!file) throw new ApplyError("NOT_FOUND", 404);
+    const references = project.data.numbering?.headings.enabled
+      ? numberDocument(file.source, project.data.numbering).references
+      : {};
     return {
       source: file.source,
-      sections: sections(file.source),
+      sections: sections(file.source).map((s) => ({
+        ...s,
+        number: references[s.label],
+      })),
       revision: project.revision,
     };
   });
@@ -328,6 +336,7 @@ export async function createApplyApp(options: ApplyOptions) {
         clauses,
         connection(state).year,
         fileId,
+        current.clauses,
       );
       // Keep the preview tied to the exact imported source and reviewed draft.
       state.clauses = state.clauses.map(
@@ -384,6 +393,9 @@ export async function createApplyApp(options: ApplyOptions) {
     for (const clause of state.clauses)
       if (plan.ids.includes(clause.id)) {
         if (clause.draft.action === "schedule") {
+          clause.draft.placement =
+            schedulePlacement(plan.before, clause.draft.anchor) ||
+            clause.draft.placement;
           clause.draft.before = scheduledText(
             clause.draft,
             plan.year ?? connection(state).year,
@@ -417,6 +429,7 @@ export async function createApplyApp(options: ApplyOptions) {
           clauses,
           connection(state).year,
           plan.fileId,
+          current.clauses,
         ) !== plan.after
       )
         throw new ApplyError("PLAN_CHANGED", 409);

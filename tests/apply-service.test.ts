@@ -7,6 +7,7 @@ import { token, hash } from "../apps/server/src/auth";
 import { FixtureSheets } from "./fixtures/apply-sheets";
 import type { Connection, State } from "../apps/apply/server/model";
 import { changeDigest } from "../apps/apply/server/model";
+import { defaultNumbering } from "../packages/codec/src/numbering";
 let core: Awaited<ReturnType<typeof createApp>>,
   tool: Awaited<ReturnType<typeof createApplyApp>>;
 let failSave = false,
@@ -169,6 +170,24 @@ async function fixture() {
     clauseId: clause.id,
   };
 }
+it("shows computed document numbers when choosing a clause target", async () => {
+  const f = await fixture();
+  const numbering = defaultNumbering();
+  numbering.headings.enabled = true;
+  numbering.headings.levels[0].format = "Article {n}";
+  const saved = await api(`/projects/${f.id}/numbering`, "PATCH", {
+    expected: null,
+    numbering,
+  });
+  expect(saved.statusCode).toBe(200);
+  const document = (
+    await call(`/projects/${f.id}/document?fileId=${f.fileId}`)
+  ).json();
+  expect(document.sections.map((s: any) => s.number)).toEqual([
+    "Article 1",
+    "Article 2",
+  ]);
+});
 it("preserves local review drafts when public source rows are refreshed", async () => {
   const f = await fixture();
   const sourceBefore = JSON.stringify(sheets.values);
@@ -197,7 +216,7 @@ it("records a deferred introduction and can later put the preserved proposal bac
     });
     expect(preview.statusCode, preview.body).toBe(200);
     const plan = preview.json().plan;
-    expect(plan.after).toContain("# Chapter {#scope}");
+    expect(plan.after.includes("# Chapter {#scope}")).toBe(year === 2027);
     expect(plan.after).toContain("#custom[untouched]");
     expect(plan.after.includes("new condition")).toBe(year === 2027);
     const saved = await call(`/projects/${f.id}/apply`, "POST", {

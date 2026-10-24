@@ -709,10 +709,23 @@ onMounted(() =>
                     }}
                   </option>
                   <option
+                    v-if="
+                      draft.placement &&
+                      draft.anchor &&
+                      !document?.sections.some(
+                        (s: any) => s.label === draft?.anchor,
+                      )
+                    "
+                    :value="draft.anchor"
+                  >
+                    원래 위치에 다시 포함 · {{ current?.key }}
+                  </option>
+                  <option
                     v-for="s in document?.sections || []"
                     :value="s.label"
+                    :title="s.label"
                   >
-                    {{ s.title }} · {{ s.label }}
+                    {{ s.number ? s.number + " " : "" }}{{ s.title }}
                   </option>
                 </select></label
               >

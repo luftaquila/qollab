@@ -4,7 +4,10 @@ import {
   sourceClauses,
   patchDocument,
   sections,
+  schedulePlacement,
 } from "../apps/apply/server/engine";
+import { numberDocument } from "../packages/codec/src/document-numbering";
+import { defaultNumbering } from "../packages/codec/src/numbering";
 import {
   changeDigest,
   sourceRange,
@@ -168,7 +171,7 @@ describe("sheet-driven document changes", () => {
       "TARGET_REQUIRED",
     );
   });
-  it("includes or defers a whole clause by introduction year while retaining its anchor", () => {
+  it("removes deferred headings and restores their position without placeholders", () => {
     const c = clause();
     c.draft.action = "schedule";
     const source =
@@ -178,10 +181,9 @@ describe("sheet-driven document changes", () => {
       "CLAUSE_NOT_READY",
     );
     c.draft.year = 2028;
+    c.draft.placement = schedulePlacement(source, c.draft.anchor);
     const deferred = patchDocument(source, [c], 2027, c.draft.fileId);
-    expect(deferred).toBe(
-      "# Chapter {#scope}\n\n# Other {#other}\n\nuntouched\n",
-    );
+    expect(deferred).toBe("# Other {#other}\n\nuntouched\n");
     c.draft.before = "";
     c.draft.year = 2027;
     const included = patchDocument(deferred, [c], 2027, c.draft.fileId);
@@ -204,5 +206,71 @@ describe("sheet-driven document changes", () => {
     expect(() => patchDocument(source, [c], 2027, c.draft.fileId)).toThrow(
       "ANCHOR_NOT_FOUND",
     );
+  });
+  it("prunes empty parents, renumbers only included clauses, and restores source order", () => {
+    const source =
+      "# First {#first}\n\n## Group {#group}\n\n### Clause {#scope}\n\nold text\n\n# Second {#second}\n\n## Other {#other}\n\n### Clause {#later}\n\nlater text\n";
+    const a = clause();
+    a.draft.action = "schedule";
+    a.draft.final = "old text";
+    a.draft.year = 2028;
+    a.draft.placement = schedulePlacement(source, "scope");
+    const b = structuredClone(a);
+    b.id = randomUUID();
+    b.draft.anchor = "later";
+    b.draft.before = "later text";
+    b.draft.final = "later text";
+    const deferred = patchDocument(source, [a], 2027, a.draft.fileId, [a, b]);
+    expect(deferred.startsWith("# Second")).toBe(true);
+    const settings = defaultNumbering();
+    settings.headings.enabled = true;
+    settings.headings.levels[2].format = "{1}.{2}.{3}";
+    expect(numberDocument(deferred, settings).references.later).toBe("1.1.1");
+    a.draft.before = "";
+    a.draft.year = 2027;
+    expect(patchDocument(deferred, [a], 2027, a.draft.fileId, [a, b])).toBe(
+      source,
+    );
+    expect(numberDocument(source, settings).references.later).toBe("2.1.1");
+  });
+  it("restores any combination of deferred clauses across shared and missing parents", () => {
+    const fileId = randomUUID();
+    let source = "Introduction\n\n";
+    const clauses = Array.from({ length: 6 }, (_, i) => {
+      if (i % 3 === 0)
+        source += `# Chapter {#chapter-${Math.floor(i / 3)}}\n\n`;
+      if (i % 3 !== 1) source += `## Group {#group-${i}}\n\n`;
+      source += `### Clause {#item-${i}}\n\ntext ${i}\n\n`;
+      const c = clause();
+      c.id = randomUUID();
+      c.draft = {
+        ...c.draft,
+        action: "schedule",
+        fileId,
+        anchor: `item-${i}`,
+        before: `text ${i}`,
+        final: `text ${i}`,
+        year: 2028,
+      };
+      return c;
+    });
+    for (const c of clauses)
+      c.draft.placement = schedulePlacement(source, c.draft.anchor);
+    for (let mask = 1; mask < 64; mask++) {
+      const selected = structuredClone(
+        clauses.filter((_, i) => mask & (1 << i)),
+      );
+      const deferred = patchDocument(source, selected, 2027, fileId, clauses);
+      expect(
+        sections(deferred).filter((s) => s.label.startsWith("item-")),
+      ).toHaveLength(6 - selected.length);
+      for (const c of selected) {
+        c.draft.before = "";
+        c.draft.year = 2027;
+      }
+      expect(
+        patchDocument(deferred, selected.toReversed(), 2027, fileId, clauses),
+      ).toBe(source);
+    }
   });
 });

@@ -117,10 +117,16 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
     expect(dated.data.files[0].source.includes("new condition")).toBe(
       year === 2027,
     );
-    expect(dated.data.files[0].source).toContain("# Chapter {#scope}");
+    expect(dated.data.files[0].source.includes("# Chapter {#scope}")).toBe(
+      year === 2027,
+    );
     await expect(page.getByLabel("교체할 원문", { exact: true })).toHaveValue(
       year === 2027 ? "new condition" : "",
     );
+    if (year === 2028)
+      await expect(
+        page.getByRole("combobox", { name: "반영 위치", exact: true }),
+      ).toHaveValue("scope");
   }
   expect(errors).toEqual([]);
   const stranger = await browser.newContext();

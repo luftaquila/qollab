@@ -153,12 +153,134 @@ export function sections(source: string): Section[] {
     return [{ ...h, end, body: source.slice(h.start, end) }];
   });
 }
+export function schedulePlacement(
+  source: string,
+  anchor: string,
+): Draft["placement"] {
+  const scopes = sections(source),
+    scope = scopes.find((s) => s.label === anchor);
+  if (!scope) return undefined;
+  const heading = (s: Section) => s.body.split("\n")[0];
+  return {
+    heading: heading(scope),
+    parents: scopes
+      .filter((s) => s.start < scope.start && s.end >= scope.end)
+      .map((s) => ({ label: s.label, heading: heading(s) })),
+    next: scopes.find((s) => s.start >= scope.end)?.label,
+    previous: scopes.filter((s) => s.end <= scope.start).at(-1)?.label,
+  };
+}
+function scheduleClause(
+  source: string,
+  clause: Clause,
+  year: number,
+  all: Clause[],
+) {
+  const d = clause.draft,
+    scopes = sections(source),
+    scope = scopes.find((s) => s.label === d.anchor);
+  if (!d.anchor) throw new ApplyError("ANCHOR_NOT_FOUND", 409, clause.key);
+  const wanted = scheduledText(d, year);
+  if (scope) {
+    const headerEnd = scope.body.indexOf("\n") + 1;
+    if (!headerEnd || scope.body.slice(headerEnd).trim() !== d.before.trim())
+      throw new ApplyError("BEFORE_TEXT_CHANGED", 409, clause.key);
+    if (wanted)
+      return (
+        source.slice(0, scope.start + headerEnd) +
+        "\n" +
+        wanted +
+        "\n\n" +
+        source.slice(scope.end)
+      );
+    let result = source.slice(0, scope.start) + source.slice(scope.end);
+    // Empty parents must not keep consuming display numbers after their last clause is deferred.
+    for (const parent of schedulePlacement(
+      source,
+      d.anchor,
+    )!.parents.toReversed()) {
+      const remaining = sections(result).find((s) => s.label === parent.label);
+      if (
+        remaining &&
+        !remaining.body.slice(remaining.body.indexOf("\n") + 1).trim()
+      )
+        result = result.slice(0, remaining.start) + result.slice(remaining.end);
+    }
+    return result;
+  }
+  if (d.before.trim())
+    throw new ApplyError("BEFORE_TEXT_CHANGED", 409, clause.key);
+  if (!wanted) return source;
+  const placement = d.placement;
+  if (!placement || sections(placement.heading + "\n\n")[0]?.label !== d.anchor)
+    throw new ApplyError("ANCHOR_NOT_FOUND", 409, clause.key);
+  for (const parent of placement.parents)
+    if (sections(parent.heading + "\n\n")[0]?.label !== parent.label)
+      throw new ApplyError("ANCHOR_NOT_FOUND", 409, clause.key);
+  const at = all.findIndex((c) => c.id === clause.id);
+  const following =
+    all
+      .slice(at + 1)
+      .filter((c) => c.draft.fileId === d.fileId)
+      .map((c) => scopes.find((s) => s.label === c.draft.anchor))
+      .find(Boolean) || scopes.find((s) => s.label === placement.next);
+  const parents = placement.parents,
+    existingParent = parents
+      .map((p) => scopes.find((s) => s.label === p.label))
+      .filter(Boolean)
+      .at(-1);
+  let offset = source.length;
+  if (following) {
+    const path = [
+      ...scopes.filter(
+        (s) => s.start < following.start && s.end >= following.end,
+      ),
+      following,
+    ];
+    offset = (
+      path.find((s) => !parents.some((p) => p.label === s.label)) || following
+    ).start;
+  } else if (existingParent) offset = existingParent.end;
+  else {
+    const previous = scopes.find((s) => s.label === placement.previous);
+    if (previous) offset = previous.end;
+  }
+  const prefix = parents
+    .filter((p) => !scopes.some((s) => s.label === p.label))
+    .map((p) => p.heading + "\n\n")
+    .join("");
+  return (
+    source.slice(0, offset) +
+    prefix +
+    placement.heading +
+    "\n\n" +
+    wanted +
+    "\n\n" +
+    source.slice(offset)
+  );
+}
 export function patchDocument(
   source: string,
   clauses: Clause[],
   year: number,
   fileId: string,
+  allClauses: Clause[] = clauses,
+  validate = true,
 ) {
+  if (
+    clauses.length > 1 &&
+    clauses.some((c) => c.draft.action === "schedule")
+  ) {
+    let result = source;
+    const ordered = [...clauses].sort(
+      (a, b) =>
+        allClauses.findIndex((c) => c.id === a.id) -
+        allClauses.findIndex((c) => c.id === b.id),
+    );
+    for (const c of ordered)
+      result = patchDocument(result, [c], year, fileId, allClauses, false);
+    return validate ? validatePatched(source, result) : result;
+  }
   const scopes = sections(source);
   const edits: { start: number; end: number; value: string; key: string }[] =
     [];
@@ -184,20 +306,11 @@ export function patchDocument(
     const scope = d.anchor
       ? scopes.find((s) => s.label === d.anchor)
       : undefined;
-    if (d.anchor && !scope)
+    if (d.anchor && !scope && d.action !== "schedule")
       throw new ApplyError("ANCHOR_NOT_FOUND", 409, c.key);
     if (d.action === "schedule") {
-      if (!scope) throw new ApplyError("ANCHOR_NOT_FOUND", 409, c.key);
-      const headerEnd = scope.body.indexOf("\n") + 1;
-      if (!headerEnd || scope.body.slice(headerEnd).trim() !== d.before.trim())
-        throw new ApplyError("BEFORE_TEXT_CHANGED", 409, c.key);
-      const value = scheduledText(d, year);
-      edits.push({
-        start: scope.start + headerEnd,
-        end: scope.end,
-        value: value ? "\n" + value + "\n\n" : "\n",
-        key: c.key,
-      });
+      const result = scheduleClause(source, c, year, allClauses);
+      return validate ? validatePatched(source, result) : result;
     } else if (d.action === "insert") {
       const at = scope?.end ?? source.length;
       edits.push({
@@ -234,6 +347,9 @@ export function patchDocument(
     offset = edit.end;
   }
   result += source.slice(offset);
+  return validate ? validatePatched(source, result) : result;
+}
+function validatePatched(source: string, result: string) {
   // Reject duplicate labels and broken explicit references introduced by this batch.
   const labels = (s: string) =>
     [...s.matchAll(/(?:\{#|\\label\{)([a-zA-Z][\w:-]*)\}/g)].map((m) => m[1]);

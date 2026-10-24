@@ -44,6 +44,21 @@ export const draftSchema = z.object({
   before: z.string().max(100000),
   final: z.string().max(100000),
   confirmed: z.boolean(),
+  placement: z
+    .object({
+      heading: z.string().max(1000),
+      parents: z
+        .array(
+          z.object({
+            label: z.string().max(200),
+            heading: z.string().max(1000),
+          }),
+        )
+        .max(5),
+      next: z.string().max(200).optional(),
+      previous: z.string().max(200).optional(),
+    })
+    .optional(),
 });
 export type Draft = z.infer<typeof draftSchema>;
 export interface Clause {
