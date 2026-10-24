@@ -29,6 +29,8 @@
 
 ## 문서 표시와 Typst 템플릿
 
+- 프로젝트 파일 `_qollab-web.yml`은 사용자 정의 함수의 웹 태그·스타일을 선언한다. 일반 텍스트 파일 API로 생성·수정하며, 저장한 정의를 웹 미리보기와 VitePress 발행에 함께 사용한다. PDF 입력은 변경하지 않는다. 문법과 지원 범위는 [프로젝트 웹 서식](web-format.md)을 참고한다.
+
 - `headings: { enabled, levels, rules }`, `lists: { enabled, levels }`. 레벨의 `style`, `format`, `symbols`가 숫자 모양을 정한다. `format`은 임의 문자열과 현재 숫자 `{n}`, 상위 숫자 `{1}`~`{8}`을 지원한다. 제목의 `title`은 `{label}`, `{title}`, `{h1}`~`{h6}`를 지원한다. 제목의 `reset: "parent" | "document"`로 상위 제목에서 초기화할지 문서 전체에서 이어 셀지 정한다.
 - 레벨의 `reference`는 본문 참조 문구이며 `{label}`, `{n}`, `{1}`~`{8}`, `{h1}`~`{h6}`를 지원한다. `referenceStyle`은 참조의 숫자 모양을 정한다. 따라서 목록에는 원문자를, 참조에는 십진 숫자와 임의 접미사를 쓸 수 있다. `headings.rules`는 레벨 설정에 `match`를 추가한 배열이며 지정한 문자 접두사와 숫자만 비교한다. 사전 정의된 코드나 규칙은 없다.
 - `figures: { enabled, label, caption }`: `label`은 번호 레벨 설정, `caption`은 `{label}`과 `{caption}`을 포함한 자유 형식이다. Markdown의 독립 이미지와 해당 라벨 참조에 적용한다. `bullets: { enabled, symbols }`는 깊이별 글머리표다.

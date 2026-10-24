@@ -16,6 +16,7 @@ const props = defineProps<{
   path: string;
   source: string;
   numbering?: Numbering;
+  webFormat?: string;
   pdfBusy?: boolean;
 }>();
 const emit = defineEmits<{ pdf: [] }>();
@@ -43,6 +44,7 @@ const rendered = computed(() =>
     project: props.project,
     path: props.path,
     numbering: props.numbering,
+    webFormat: props.webFormat,
   }),
 );
 const site = ref<{ published: boolean; url: string }>();
@@ -120,7 +122,9 @@ async function publish() {
           {{
             warning.startsWith("Typst:")
               ? "실행하지 않는 사용자 정의 함수: " + warning.slice(7)
-              : t(warning as "webUnsupported")
+              : warning === "webUnsupported"
+                ? t("webUnsupported")
+                : warning
           }}
         </p>
       </details>

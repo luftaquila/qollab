@@ -1,6 +1,8 @@
 import MarkdownIt from "markdown-it";
 import katex from "katex";
 import { typstHtml } from "./web-typst";
+import { readWebFormat } from "../../../packages/codec/src/web-format";
+import type Token from "markdown-it/lib/token.mjs";
 import {
   documentBody,
   numberTokens,
@@ -17,6 +19,7 @@ export interface WebDocumentOptions {
   resource?: (path: string, image: boolean, hash: string) => string;
   path: string;
   numbering?: Numbering;
+  webFormat?: string;
 }
 export interface DocumentHeading {
   id: string;
@@ -29,6 +32,10 @@ export function renderDocument(source: string, options: WebDocumentOptions) {
   );
   const headings: DocumentHeading[] = [];
   const warnings = new Set<string>();
+  const web = readWebFormat(options.webFormat);
+  if (web.warning) warnings.add(web.warning);
+  const used = new Set<string>();
+  const tokenHeadings = new WeakMap<object, DocumentHeading[]>();
   const references: Record<string, string> = Object.create(null);
   const rawCache = new WeakMap<object, string>();
   const counterValues = new Map<string, number>();
@@ -39,12 +46,32 @@ export function renderDocument(source: string, options: WebDocumentOptions) {
     counterValues.set(name, n);
     return formatNumber([n], [spec]);
   };
-  const rawHtml = (token: { content: string }) => {
-    if (!rawCache.has(token))
+  const rawHtml = (token: Token) => {
+    if (!rawCache.has(token)) {
+      const entries: DocumentHeading[] = [];
       rawCache.set(
         token,
-        typstHtml(token.content, reference, warnings, counter),
+        typstHtml(token.content, reference, warnings, counter, {
+          format: web.format,
+          inline: token.type === "raw_typst",
+          heading: (level, text) => {
+            const base =
+              "web-" +
+              (text
+                .toLowerCase()
+                .replace(/[^\p{L}\p{N}]+/gu, "-")
+                .replace(/^-|-$/g, "") || "section");
+            let id = base,
+              suffix = 1;
+            while (used.has(id)) id = base + "-" + ++suffix;
+            used.add(id);
+            entries.push({ id, level, text });
+            return id;
+          },
+        }),
       );
+      tokenHeadings.set(token, entries);
+    }
     return rawCache.get(token)!;
   };
   const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
@@ -192,7 +219,6 @@ export function renderDocument(source: string, options: WebDocumentOptions) {
   const tokens = md.parse(body, {});
   Object.assign(references, numberTokens(tokens, settings).references);
   const visible = tokens;
-  const used = new Set<string>();
   for (let i = 0; i < visible.length; i++) {
     const token = visible[i];
     if (token.type === "heading_open") {
@@ -215,11 +241,24 @@ export function renderDocument(source: string, options: WebDocumentOptions) {
       token.attrSet("id", id);
       inline.content = text;
       inline.children = md.parseInline(text, {})[0].children;
-      headings.push({ id, text, level: Number(token.tag.slice(1)) });
+      tokenHeadings.set(token, [
+        { id, text, level: Number(token.tag.slice(1)) },
+      ]);
     }
   }
   const html = md.renderer.render(visible, md.options, {});
-  const chapterLevel = Math.min(...headings.map((h) => h.level));
+  const collectHeadings = (tokens: Token[]): DocumentHeading[] =>
+    tokens.flatMap((t) => [
+      ...(tokenHeadings.get(t) || []),
+      ...collectHeadings(t.children || []),
+    ]);
+  headings.push(...collectHeadings(visible));
+  // Project headings join the outline without changing Markdown chapter boundaries.
+  const chapterLevel = Math.min(
+    ...visible
+      .filter((t) => t.type === "heading_open")
+      .map((t) => Number(t.tag.slice(1))),
+  );
   const starts = visible.flatMap((token, i) =>
     token.type === "heading_open" && Number(token.tag.slice(1)) === chapterLevel
       ? [i]
@@ -228,11 +267,7 @@ export function renderDocument(source: string, options: WebDocumentOptions) {
   const pages = starts.map((start, i) => {
     const end = starts[i + 1] ?? visible.length;
     const id = visible[start].attrGet("id")!;
-    const pageHeadings = headings.filter((h) =>
-      visible
-        .slice(start, end)
-        .some((t) => t.type === "heading_open" && t.attrGet("id") === h.id),
-    );
+    const pageHeadings = collectHeadings(visible.slice(start, end));
     return {
       id,
       title: pageHeadings[0].text,

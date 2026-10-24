@@ -21,6 +21,7 @@ import { access, observeEvents } from "./store.js";
 import { content } from "./blobs.js";
 import type { Project } from "./model.js";
 import { renderDocument } from "../../web/src/web-document.js";
+import { webFormatSource } from "../../../packages/codec/src/web-format.js";
 const exec = promisify(execFile);
 const hash = (s: string) =>
   createHash("sha256").update(s).digest("hex").slice(0, 16);
@@ -69,6 +70,7 @@ export async function buildWebsite(project: Project, portable = false) {
       project: project.id,
       path: file.path,
       numbering: project.data.numbering,
+      webFormat: webFormatSource(project.data.files),
       resource: (path, image, anchor) =>
         image
           ? media.get(path) || ""
@@ -93,9 +95,9 @@ export async function buildWebsite(project: Project, portable = false) {
           : all,
       )
       .replace(
-        /<h([1-6]) id="([^"]+)">([\s\S]*?)<\/h\1>/g,
-        (_, level, id, title) =>
-          `<h${level} id="${id}" tabindex="-1">${title}<a class="header-anchor" href="#${id}" aria-label="Permalink to this heading">​</a></h${level}>`,
+        /<h([1-6])\b([^>]*\bid="([^"]+)"[^>]*)>([\s\S]*?)<\/h\1>/g,
+        (_, level, attrs, id, title) =>
+          `<h${level}${attrs} tabindex="-1">${title}<a class="header-anchor" href="#${id}" aria-label="Permalink to this heading">​</a></h${level}>`,
       );
   const writePage = async (
     path: string,

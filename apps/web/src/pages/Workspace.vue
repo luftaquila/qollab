@@ -30,6 +30,7 @@ import ImageDialog from "../workspace/ImageDialog.vue";
 import DiffDialog from "../workspace/DiffDialog.vue";
 import SplitHandle from "../workspace/SplitHandle.vue";
 import type { SyncAnchor } from "../editor-sync";
+import { webFormatSource } from "../../../../packages/codec/src/web-format";
 const Editor = defineAsyncComponent(() => import("../Editor.vue"));
 const BrowserPdf = defineAsyncComponent(() => import("../BrowserPdf.vue"));
 const browserPdf = ref<{
@@ -988,6 +989,7 @@ onBeforeUnmount(() => {
           :path="file.path"
           :source="sourcePane ? sourceText : liveSource"
           :numbering="project.data.numbering"
+          :web-format="webFormatSource(project.data.files)"
           :pdf-busy="browserPdf?.busy"
           @pdf="printPdf"
         />

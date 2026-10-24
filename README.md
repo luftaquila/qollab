@@ -51,7 +51,7 @@ See [operations](docs/operations.md) for socket permissions, HTTPS, limits and b
 
 Commenting, suggestions, full offline editing, simultaneous Visual/Source editing, executable user code and advanced page layout are outside 0.1.0. Google sign-in with a real account requires deployment credentials; automated OIDC tests use a signed local provider.
 
-Web documents use Markdown headings, lists, tables, images, math and links. A non-executing compatibility reader extracts text and tables from existing raw Typst blocks while discarding print-only sizes, spacing, alignment and page breaks. It does not execute arbitrary Typst; those programs are handled by the actual PDF compiler. Web pages use the document structure rather than PDF pagination. Browser PDF generation preserves the original template and fonts; the separate server renderer retains its own build settings.
+Web documents use Markdown headings, lists, tables, images, math and links. A non-executing compatibility reader handles text, tables, literal text styles, alignment and fixed spacing in raw Typst. Projects can declare their own function wrappers and web styles in [`_qollab-web.yml`](docs/web-format.md); the live preview and published site share those definitions. Unsupported functions remain visible as warnings. Arbitrary Typst programs still require the actual PDF compiler. Web pages use the document structure rather than PDF pagination. Browser PDF generation preserves the original template and fonts; the separate server renderer retains its own build settings.
 
 ## Development
 

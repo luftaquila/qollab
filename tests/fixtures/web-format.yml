@@ -1,0 +1,23 @@
+version: 1
+variables:
+  unit: 2.5pt
+functions:
+  hero:
+    tag: header
+    style:
+      text-align: center
+      margin-block: 1.5rem
+  notice:
+    tag: span
+    style:
+      color: "#0000ff"
+  appendix-heading:
+    tag: h2
+    style:
+      text-align: center
+  field:
+    tag: span
+    style:
+      display: inline-block
+      border-bottom: 0.5pt solid currentColor
+      min-width: 4em

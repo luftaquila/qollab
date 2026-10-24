@@ -113,9 +113,8 @@ describe("web chapters and optional numbering", () => {
       '```{=typst}\n#title-page[#text(weight: "bold", size: 24pt)[Rule book]]\n#rule-table(columns: (1fr, 1fr,), shade-rows: (0,), [A], [B], [one], [<script>two</script>])\n```';
     const out = renderDocument(source, options);
     expect(out.html).toContain("Rule book");
-    expect(out.html).not.toMatch(
-      /font-size|text-align|document-title-page|document-vspace/,
-    );
+    expect(out.html).toContain("font-size:24pt");
+    expect(out.html).not.toMatch(/document-title-page|document-vspace/);
     expect(out.html).toContain("<table");
     expect(out.html).toContain("&lt;script&gt;two&lt;/script&gt;");
     expect(out.html).not.toMatch(/#title-page|#rule-table|<script>/);

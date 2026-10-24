@@ -1,6 +1,7 @@
-// Extract readable content from legacy raw Typst blocks without executing them.
-// Print-only dimensions, spacing, alignment and page breaks are discarded.
-// New content uses Markdown; this bridge keeps existing tables and text readable.
+import type { WebFormat } from "../../../packages/codec/src/web-format";
+
+// Interpret a limited set of formatting primitives, with project-owned mappings
+// for custom wrappers. This does not execute arbitrary Typst functions.
 export const escapeHtml = (s: string) =>
   s
     .replaceAll("&", "&amp;")
@@ -53,13 +54,94 @@ function split(source: string): string[] {
   out.push(source.slice(start).trim());
   return out.filter(Boolean);
 }
+export interface TypstWebOptions {
+  format?: WebFormat;
+  inline?: boolean;
+  heading?: (level: number, text: string) => string;
+}
+const unquote = (value: string) => {
+  try {
+    return value.startsWith('"') ? String(JSON.parse(value)) : value;
+  } catch {
+    return value;
+  }
+};
+function variable(value: string, format?: WebFormat, depth = 0): string {
+  const v = value.trim();
+  return depth < 8 && format && Object.hasOwn(format.variables, v)
+    ? variable(format.variables[v], format, depth + 1)
+    : unquote(v);
+}
+function length(
+  value: string,
+  format?: WebFormat,
+  depth = 0,
+): string | undefined {
+  if (depth > 8) return;
+  const v = variable(value, format);
+  if (v === "0") return "0";
+  if (/^-?(?:\d+(?:\.\d+)?|\.\d+)(?:pt|px|em|rem|cm|mm|in|%)$/.test(v))
+    return v;
+  const product = /^(-?[\d.]+)\s*\*\s*(.+)$/.exec(v);
+  if (product) {
+    const right = length(product[2], format, depth + 1);
+    const parts = right && /^(-?[\d.]+)(.*)$/.exec(right);
+    const n = parts ? Number(product[1]) * Number(parts[1]) : NaN;
+    if (parts && Number.isFinite(n)) return n + parts[2];
+  }
+}
+function color(value: string, format?: WebFormat) {
+  let v = variable(value, format);
+  const rgb = /^rgb\((.*)\)$/.exec(v);
+  if (rgb) {
+    v = unquote(rgb[1].trim());
+    if (/^[\d.]+%?\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?$/.test(v)) return `rgb(${v})`;
+  }
+  return /^(?:#[\da-f]{3,8}|[a-z]+)$/i.test(v) ? v : undefined;
+}
+const styles = (values: Record<string, string | undefined>) => {
+  const css = Object.entries(values)
+    .filter(([, v]) => v !== undefined)
+    .map(([k, v]) => `${k}:${v}`)
+    .join(";");
+  return css ? ` style="${escapeHtml(css)}"` : "";
+};
+function textStyle(args: string, format?: WebFormat) {
+  const values: Record<string, string | undefined> = {};
+  for (const arg of split(args)) {
+    const match = /^(\w+):\s*(.*)$/.exec(arg);
+    if (!match) continue;
+    const [, name, raw] = match,
+      v = variable(raw, format);
+    if (name === "size") values["font-size"] = length(raw, format);
+    if (name === "tracking") values["letter-spacing"] = length(raw, format);
+    if (name === "fill") values.color = color(raw, format);
+    if (name === "weight" && /^(?:normal|bold|[1-9]00)$/.test(v))
+      values["font-weight"] = v;
+    if (name === "style" && /^(?:normal|italic|oblique)$/.test(v))
+      values["font-style"] = v;
+  }
+  return styles(values);
+}
+function headingText(html: string) {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(
+      /&(?:lt|gt|quot|amp);/g,
+      (s) => ({ "&lt;": "<", "&gt;": ">", "&quot;": '"', "&amp;": "&" })[s]!,
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+}
 export function typstHtml(
   source: string,
   reference: (id: string) => string,
   warnings: Set<string>,
   counter?: (name: string) => string | undefined,
+  options: TypstWebOptions = {},
 ): string {
-  const render = (s: string) => typstHtml(s, reference, warnings, counter);
+  const render = (s: string, inline = options.inline) =>
+    typstHtml(s, reference, warnings, counter, { ...options, inline });
   let out = "";
   for (let i = 0; i < source.length; ) {
     if (source[i] === "\\" && i + 1 < source.length) {
@@ -96,15 +178,44 @@ export function typstHtml(
       }
     }
     if (source[i] === ";") i++;
+    // Content may be passed as a positional argument instead of trailing [].
+    if (!body) {
+      const content = split(args).find((a) => a.startsWith("["));
+      if (content) body = group(content, 0)?.body || "";
+    }
     const count = counter?.(name);
+    const custom =
+      options.format && Object.hasOwn(options.format.functions, name)
+        ? options.format.functions[name]
+        : undefined;
     if (count !== undefined)
       out += `<span class="document-counter">${escapeHtml(count)}</span>`;
-    else if (name === "text")
-      out += /weight:\s*"bold"/.test(args)
-        ? `<strong>${render(body)}</strong>`
+    else if (custom) {
+      const inline = ["span", "strong", "em", "u", "small"].includes(
+        custom.tag,
+      );
+      const content = render(body, inline);
+      const level = /^h([1-6])$/.exec(custom.tag)?.[1];
+      const id =
+        level && options.heading?.(Number(level), headingText(content));
+      out += `<${custom.tag}${id ? ` id="${escapeHtml(id)}"` : ""} data-web-function="${escapeHtml(name)}"${styles(custom.style)}>${content}</${custom.tag}>`;
+    } else if (name === "text") {
+      const tag = /weight:\s*"bold"/.test(args) ? "strong" : "span";
+      out += `<${tag}${textStyle(args, options.format)}>${render(body, true)}</${tag}>`;
+    } else if (name === "align") {
+      const alignment = split(args)[0];
+      out += /^(left|center|right|justify)$/.test(alignment)
+        ? `<div style="text-align:${alignment}">${render(body, false)}</div>`
         : render(body);
-    else if (name === "align") out += render(body);
-    else if (["v", "h", "line", "pagebreak"].includes(name)) out += " ";
+    } else if (name === "h" || name === "v") {
+      const size = length(split(args)[0] || "", options.format);
+      // Flexible page-filling space has no width on a flowing web page.
+      out += size
+        ? name === "h"
+          ? `<span aria-hidden="true" style="display:inline-block;width:${escapeHtml(size)}"></span>`
+          : `<div aria-hidden="true" style="height:${escapeHtml(size)}"></div>`
+        : " ";
+    } else if (["line", "pagebreak"].includes(name)) out += " ";
     else if (name === "strong" || name === "emph" || name === "underline")
       out += `<${{ strong: "strong", emph: "em", underline: "u" }[name]}>${render(body)}</${{ strong: "strong", emph: "em", underline: "u" }[name]}>`;
     else if (name === "ref") {
@@ -162,7 +273,8 @@ export function typstHtml(
       out += `<div class="document-table"><table><tbody>${rows}</tr></tbody></table></div>`;
     } else {
       warnings.add("Typst: " + name);
-      out += body ? `<div>${render(body)}</div>` : "";
+      const tag = options.inline ? "span" : "div";
+      out += body ? `<${tag}>${render(body)}</${tag}>` : "";
     }
   }
   return out.replace(/\n[ \t]*\n/g, "<br>");
