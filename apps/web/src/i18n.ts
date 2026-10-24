@@ -20,9 +20,15 @@ function storedLanguage(): LanguageChoice {
 export const languageChoice = storedLanguage();
 export const lang =
   languageChoice === "system"
-    ? chooseLanguage(navigator.languages?.length ? navigator.languages : [navigator.language])
+    ? chooseLanguage(
+        typeof navigator === "undefined"
+          ? ["ko"]
+          : navigator.languages?.length
+            ? navigator.languages
+            : [navigator.language],
+      )
     : languageChoice;
-document.documentElement.lang = lang;
+if (typeof document !== "undefined") document.documentElement.lang = lang;
 /** Text is chosen once at load, so a new language takes effect after a reload. */
 export function setLanguage(choice: LanguageChoice) {
   if (choice === languageChoice) return;
@@ -37,6 +43,14 @@ export function setLanguage(choice: LanguageChoice) {
 export const pick = (text: string | [string, string]) =>
   typeof text === "string" ? text : text[lang === "ko" ? 0 : 1];
 const words = {
+  liveWeb: ["실시간 웹 미리보기", "Live web preview"],
+  browserPdf: ["PDF", "PDF"],
+  pdfPreparing: ["PDF 생성 중…", "Generating PDF…"],
+  noContent: ["문서 내용이 없습니다.", "This document is empty."],
+  webUnsupported: [
+    "웹에서 지원하지 않는 서식이 있습니다.",
+    "Some formatting is not supported on the web.",
+  ],
   imageProperties: ["그림 속성", "Figure properties"],
   replaceImage: ["이미지 교체", "Replace image"],
   selectImage: ["그림을 먼저 선택하세요.", "Select an image first."],
@@ -70,8 +84,6 @@ const words = {
   rename: ["이름 변경", "Rename"],
   delete: ["삭제", "Delete"],
   export: ["ZIP 내보내기", "Export ZIP"],
-  build: ["PDF 생성", "Build PDF"],
-  pdf: ["PDF 미리보기", "PDF preview"],
   source: ["원문", "Source"],
   raw: ["원문 복구 편집", "Source recovery"],
   rawHelp: [
@@ -112,22 +124,6 @@ const words = {
   transfer: ["소유권 이전", "Transfer ownership"],
   remove: ["멤버 삭제", "Remove member"],
   loading: ["불러오는 중…", "Loading…"],
-  noPdf: [
-    "문서를 편집하면 PDF가 자동으로 생성됩니다.",
-    "Your PDF will build automatically as you write.",
-  ],
-  firstPdf: [
-    "완료되면 여기에 자동으로 표시됩니다. 계속 편집할 수 있습니다.",
-    "The preview will appear here when ready. You can keep editing.",
-  ],
-  failed: [
-    "PDF 생성 실패 · 마지막 정상 결과를 유지합니다.",
-    "Build failed · keeping the last successful PDF.",
-  ],
-  queued: ["PDF 생성 대기", "PDF queued"],
-  running: ["PDF 생성 중", "Building PDF"],
-  succeeded: ["PDF 생성 완료", "PDF ready"],
-  cancelled: ["PDF 생성 취소", "PDF cancelled"],
   revision: ["버전", "Revision"],
   placeholder: ["문서를 작성하세요…", "Start writing…"],
   text: ["본문", "Text"],
@@ -155,14 +151,14 @@ const words = {
   current: ["현재", "Current"],
   previous: ["선택한 버전", "Selected version"],
   download: ["다운로드", "Download"],
-  target: ["PDF 대상으로 설정", "Set as PDF target"],
+  target: ["기본 문서로 설정", "Set as main document"],
+  mainDocument: ["기본", "Main"],
   readOnly: ["읽기 전용", "Read only"],
   resizeImage: ["이미지 너비 조절", "Resize image width"],
   refresh: ["새로고침", "Refresh"],
   outline: ["문서 개요", "Outline"],
   searchHeadings: ["제목 검색", "Search headings"],
   refs: ["참조", "References"],
-  pending: ["현재 수정 미반영", "New changes pending"],
   welcomeTitle: [
     "당신의 문서, 하나의 작업 공간.",
     "Your document. One shared space.",
@@ -199,36 +195,7 @@ const words = {
   ],
   openProject: ["프로젝트 열기", "Open project"],
   editedAgo: ["{time} 수정", "Edited {time}"],
-  pdfCurrent: ["최신 수정 반영됨", "Up to date"],
-  pdfBehind: ["최신 수정 미반영", "Latest edits not included yet"],
-  buildFailed: ["PDF 생성 실패", "PDF build failed"],
-  errOption: [
-    "허용되지 않는 설정이 있습니다: {name}",
-    "A setting is not allowed: {name}",
-  ],
-  errFontPolicy: [
-    "설치되지 않은 글꼴을 지정했습니다. 문서 설정에서 글꼴을 고르세요.",
-    "A font that is not installed was set. Choose one in document settings.",
-  ],
-  errExecutable: [
-    "코드 실행 셀과 shortcode는 사용할 수 없습니다.",
-    "Executable cells and shortcodes are disabled.",
-  ],
-  errRemoteImage: [
-    "외부 주소의 이미지는 사용할 수 없습니다. 이미지를 업로드하세요.",
-    "Remote images are disabled. Upload the image instead.",
-  ],
   errTimeout: ["PDF 생성 시간이 초과되었습니다.", "The PDF build timed out."],
-  errFile: ["파일이 없습니다: {name}", "File not found: {name}"],
-  errCommand: [
-    "Typst에 정의되지 않은 이름이 있습니다: {name}",
-    "Unknown Typst name: {name}",
-  ],
-  errPartials: [
-    "Typst 템플릿(template-partials)은 프로젝트 안의 .typ 파일이어야 합니다.",
-    "Typst template partials must be .typ files in the project.",
-  ],
-  cause: ["원인", "Cause"],
   filePath: ["파일 경로", "File path"],
   filePathHint: [
     "폴더는 /로 구분합니다. 예: chapters/intro.qmd · 형식: .qmd .md .yml .bib .csl .typ .tex .sty",
@@ -236,11 +203,7 @@ const words = {
   ],
   renameFile: ["파일 이름 변경", "Rename file"],
   deleteFile: ["파일 삭제", "Delete file"],
-  deleteFileConfirm: [
-    "‘{name}’ 파일을 삭제할까요?",
-    "Delete ‘{name}’?",
-  ],
-  pdfTarget: ["PDF 대상", "PDF target"],
+  deleteFileConfirm: ["‘{name}’ 파일을 삭제할까요?", "Delete ‘{name}’?"],
   newFileHere: ["이 폴더에 새 파일", "New file in this folder"],
   newFolder: ["새 폴더", "New folder"],
   newSubfolder: ["새 하위 폴더", "New subfolder"],
@@ -294,7 +257,10 @@ const words = {
     "Only owners can restore the project to this version.",
   ],
   changedFiles: ["변경된 파일", "Changed files"],
-  noChanges: ["현재 원문과 차이가 없습니다.", "No differences from the current source."],
+  noChanges: [
+    "현재 원문과 차이가 없습니다.",
+    "No differences from the current source.",
+  ],
   inviteTitle: ["멤버 초대", "Invite a member"],
   inviteHint: [
     "초대 링크는 7일 동안 한 번 사용할 수 있으며, 받는 사람의 Google 계정 이메일과 일치해야 합니다.",
@@ -303,7 +269,10 @@ const words = {
   copyLink: ["링크 복사", "Copy link"],
   copied: ["클립보드에 복사했습니다.", "Copied to clipboard."],
   labelCopied: ["라벨 이름을 복사했습니다: ", "Copied the label name: "],
-  copyFailed: ["클립보드에 복사하지 못했습니다.", "Could not copy to the clipboard."],
+  copyFailed: [
+    "클립보드에 복사하지 못했습니다.",
+    "Could not copy to the clipboard.",
+  ],
   role: ["역할", "Role"],
   you: ["나", "You"],
   removeConfirm: [
@@ -352,17 +321,10 @@ const words = {
   sourceDirty: ["저장 대기", "Unsaved"],
   sourceError: ["저장 실패", "Save failed"],
   backToEditor: ["편집기로 돌아가기", "Back to editor"],
-  downloadPdf: ["PDF 다운로드", "Download PDF"],
-  cancelBuild: ["빌드 취소", "Cancel build"],
-  zoomIn: ["확대", "Zoom in"],
-  zoomOut: ["축소", "Zoom out"],
-  fitWidth: ["폭 맞춤", "Fit width"],
-  followEditor: ["편집 위치 따라가기", "Follow the editor"],
-  followEditorOn: ["편집 위치 따라가기: 켜짐", "Following the editor: on"],
-  followEditorOff: ["편집 위치 따라가기: 꺼짐", "Following the editor: off"],
-  showLog: ["로그 보기", "Show log"],
-  hideLog: ["로그 숨기기", "Hide log"],
-  noFileOpen: ["왼쪽 파일 목록에서 파일을 선택하세요.", "Select a file from the sidebar."],
+  noFileOpen: [
+    "왼쪽 파일 목록에서 파일을 선택하세요.",
+    "Select a file from the sidebar.",
+  ],
   blockType: ["문단 형식", "Block type"],
   bold: ["굵게", "Bold"],
   italic: ["기울임", "Italic"],
@@ -372,7 +334,10 @@ const words = {
   colorNone: ["기본 색", "Default color"],
   colorCustom: ["직접 지정…", "Custom…"],
   colorHex: ["색 코드", "Color code"],
-  colorHexHint: ["#RRGGBB 형식의 16진수 색입니다. 예: #1C7667", "A hex color such as #1C7667."],
+  colorHexHint: [
+    "#RRGGBB 형식의 16진수 색입니다. 예: #1C7667",
+    "A hex color such as #1C7667.",
+  ],
   colorInvalid: ["#RRGGBB 형식으로 입력하세요.", "Enter a color as #RRGGBB."],
   inlineCode: ["인라인 코드", "Inline code"],
   codeBlock: ["코드 블록", "Code block"],
@@ -430,26 +395,47 @@ const words = {
     "YAML을 해석할 수 없습니다. 아래 ‘YAML 직접 편집’에서 고치세요.",
     "The YAML cannot be read. Fix it under ‘Edit YAML’ below.",
   ],
-  scopeDocumentHint: ["이 문서에만 적용됩니다. 비워 둔 항목은 프로젝트 공통 설정이나 기본값을 따릅니다.", "Applies to this document only. Empty items follow the project settings or the defaults."],
+  scopeDocumentHint: [
+    "이 문서에만 적용됩니다. 비워 둔 항목은 프로젝트 공통 설정이나 기본값을 따릅니다.",
+    "Applies to this document only. Empty items follow the project settings or the defaults.",
+  ],
   fromProject: ["프로젝트 설정", "Project setting"],
   koreanFontNone: ["따로 지정 안 함", "Not set"],
   fontWithKorean: ["한글 포함", "With Korean"],
   fontLatinOnly: ["영문 전용", "Latin only"],
-  fIndentHint: ["끄면 들여쓰기 대신 문단 사이를 한 줄 정도 띄웁니다.", "When off, paragraphs are separated by space instead of an indent."],
-  fLinkColorHint: ["목차, 그림·표·절 참조처럼 문서 안으로 이동하는 링크입니다.", "Links within the document, such as the contents and references."],
-  captionsHint: ["캡션 앞에 붙는 이름과 본문의 @fig-… 같은 참조가 PDF에서 어떻게 보일지 정합니다. 비워 두면 문서 언어에 맞는 기본 문구를 씁니다.", "How caption names and references such as @fig-… read in the PDF. Empty items use the defaults for the document language."],
+  fIndentHint: [
+    "끄면 들여쓰기 대신 문단 사이를 한 줄 정도 띄웁니다.",
+    "When off, paragraphs are separated by space instead of an indent.",
+  ],
+  fLinkColorHint: [
+    "목차, 그림·표·절 참조처럼 문서 안으로 이동하는 링크입니다.",
+    "Links within the document, such as the contents and references.",
+  ],
+  captionsHint: [
+    "캡션 앞에 붙는 이름과 본문의 @fig-… 같은 참조가 PDF에서 어떻게 보일지 정합니다. 비워 두면 문서 언어에 맞는 기본 문구를 씁니다.",
+    "How caption names and references such as @fig-… read in the PDF. Empty items use the defaults for the document language.",
+  ],
   captionExample: ["캡션: “{name} 1: 설명”", "Caption: “{name} 1: …”"],
-  referenceExample: ["본문의 {key} → “{name} 1”", "{key} in the text → “{name} 1”"],
+  referenceExample: [
+    "본문의 {key} → “{name} 1”",
+    "{key} in the text → “{name} 1”",
+  ],
   fDateNone: ["표시 안 함", "None"],
   fDateToday: ["PDF를 만드는 날", "The day the PDF is made"],
-  fDateTodayHint: ["PDF를 다시 만들 때마다 그날 날짜로 바뀝니다.", "Updates to the current day whenever the PDF is rebuilt."],
+  fDateTodayHint: [
+    "PDF를 다시 만들 때마다 그날 날짜로 바뀝니다.",
+    "Updates to the current day whenever the PDF is rebuilt.",
+  ],
   fDateFixed: ["날짜 지정", "A fixed date"],
   fDateText: ["직접 입력", "Custom text"],
   fDateValue: ["표시할 날짜", "Date to show"],
   fDateTextValue: ["표시할 문구", "Text to show"],
   fDateTextPlaceholder: ["예: 2026년 가을 학기", "e.g. Fall 2026"],
   fDateFormat: ["날짜 표기", "Date format"],
-  fLangHint: ["그림·표 이름, 목차 제목 같은 자동 문구와 날짜 표기의 언어입니다.", "Language of generated words such as figure names and the contents title, and of dates."],
+  fLangHint: [
+    "그림·표 이름, 목차 제목 같은 자동 문구와 날짜 표기의 언어입니다.",
+    "Language of generated words such as figure names and the contents title, and of dates.",
+  ],
   fMargins: ["여백", "Margins"],
   marginAuto: ["자동", "Automatic"],
   marginCustom: ["직접 지정", "Custom"],
@@ -459,7 +445,10 @@ const words = {
   secFont: ["글꼴과 문단", "Fonts and paragraphs"],
   secStructure: ["구성", "Structure"],
   secCaptions: ["그림·표 이름과 참조", "Captions and references"],
-  secAdvanced: ["고급: Typst 머리말과 YAML 직접 편집", "Advanced: Typst preamble and YAML"],
+  secAdvanced: [
+    "고급: Typst 머리말과 YAML 직접 편집",
+    "Advanced: Typst preamble and YAML",
+  ],
   fTitle: ["제목", "Title"],
   fSubtitle: ["부제", "Subtitle"],
   fAuthor: ["저자", "Author"],
@@ -470,12 +459,18 @@ const words = {
   fMarginBottom: ["아래 여백", "Bottom margin"],
   fMarginLeft: ["왼쪽 여백", "Left margin"],
   fMarginRight: ["오른쪽 여백", "Right margin"],
-  fMarginHint: ["mm 단위입니다. 비워 둔 쪽은 자동으로 정해집니다.", "In millimetres. Empty sides are set automatically."],
+  fMarginHint: [
+    "mm 단위입니다. 비워 둔 쪽은 자동으로 정해집니다.",
+    "In millimetres. Empty sides are set automatically.",
+  ],
   fTwoColumn: ["2단 편집", "Two columns"],
   fPageNumbers: ["쪽 번호 넣기", "Page numbers"],
   fMainFont: ["본문 글꼴", "Body font"],
   fKoreanFont: ["한글 글꼴", "Korean font"],
-  fKoreanFontHint: ["본문 글꼴에 없는 한글에 쓸 글꼴입니다. 비워 두면 Noto Serif CJK KR을 씁니다.", "Used for Korean the body font lacks. Empty uses Noto Serif CJK KR."],
+  fKoreanFontHint: [
+    "본문 글꼴에 없는 한글에 쓸 글꼴입니다. 비워 두면 Noto Serif CJK KR을 씁니다.",
+    "Used for Korean the body font lacks. Empty uses Noto Serif CJK KR.",
+  ],
   fSansFont: ["제목·고딕 글꼴", "Sans font"],
   fMonoFont: ["코드 글꼴", "Code font"],
   fFontSize: ["글자 크기", "Font size"],
@@ -495,7 +490,10 @@ const words = {
   fSecPrefix: ["본문의 절 참조", "Section references"],
   fFigCapLoc: ["그림 캡션 위치", "Figure caption position"],
   fTblCapLoc: ["표 캡션 위치", "Table caption position"],
-  fHeader: ["Typst 머리말(header-includes)", "Typst preamble (header-includes)"],
+  fHeader: [
+    "Typst 머리말(header-includes)",
+    "Typst preamble (header-includes)",
+  ],
   fHeaderHint: [
     "#set, #show 같은 Typst 코드를 넣습니다. LaTeX 명령은 Typst에서 쓰이지 않습니다.",
     "Typst code such as #set and #show. LaTeX commands are not used by Typst.",
@@ -571,7 +569,7 @@ const words = {
   brokenRefs: ["찾을 수 없는 참조", "Missing targets"],
   refCount: ["참조 {n}", "{n} refs"],
   closePanel: ["패널 닫기", "Close panel"],
-  resizePanel: ["PDF 미리보기 폭 조절", "Resize PDF preview"],
+  resizePanel: ["미리보기 폭 조절", "Resize preview"],
   lineCount: ["{n}줄", "{n} lines"],
 } as const;
 export type Word = keyof typeof words;
@@ -621,6 +619,10 @@ const errors: Record<string, [string, string]> = {
     "아직 생성된 PDF가 없습니다.",
     "No PDF has been generated yet.",
   ],
+  POPUP_BLOCKED: [
+    "PDF 새 탭 열기가 브라우저 설정에서 차단되었습니다.",
+    "Your browser settings blocked the PDF tab.",
+  ],
   INVALID_PATH: [
     "사용할 수 없는 경로입니다. 점(.)이나 -로 시작하는 이름과 ..은 쓸 수 없습니다.",
     "Invalid path. Names cannot start with . or - and cannot contain ..",
@@ -637,10 +639,7 @@ const errors: Record<string, [string, string]> = {
     "이미지는 이미지 업로드로 추가하세요.",
     "Add images with Upload images.",
   ],
-  IMAGE_LIMIT: [
-    "이미지가 너무 큽니다.",
-    "The image is too large.",
-  ],
+  IMAGE_LIMIT: ["이미지가 너무 큽니다.", "The image is too large."],
   RENAME_TYPE: [
     "파일 형식(확장자)은 바꿀 수 없습니다.",
     "A file's type (extension) cannot change.",

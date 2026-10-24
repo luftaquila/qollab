@@ -1,6 +1,6 @@
 # Qollab
 
-Self-hosted collaborative Quarto editor with a live PDF preview. Vue 3, Milkdown CrepeBuilder, Yjs, PostgreSQL and an isolated Pandoc/Typst renderer for Quarto Markdown (`.qmd`). English and Korean UI, selected from browser language preferences.
+Self-hosted collaborative Quarto editor with live web documents and on-demand PDF preview. Vue 3, Milkdown CrepeBuilder, Yjs, VitePress, PostgreSQL and an isolated Pandoc/Typst renderer for Quarto Markdown (`.qmd`). English and Korean UI, selected from browser language preferences.
 
 ## Run
 
@@ -28,8 +28,13 @@ See [operations](docs/operations.md) for socket permissions, HTTPS, limits and b
 
 ## Included
 
-- Shared Markdown editing, Korean IME, remote cursors and personal undo/redo.
-- Workspace with an activity rail (files, outline, labels, document settings, history, members; outline and labels can be searched), resizable PDF preview that follows the editor's position (can be turned off), right-click menus, light and dark themes.
+- Immediate collaborative Markdown preview with a **Follow cursor** toggle. Owners can publish a separate VitePress site for each project: chapter pages, native local search, navigation, images and theme are built into that project’s static files. Published sites refresh after saved edits are rebuilt; the exported website ZIP works at the root of an ordinary static host without Qollab or its API. `DOCS_PROJECT=<project UUID>` mounts one published project at `/docs/`; otherwise `/docs/` is 404. Other published projects have separate `/docs/p/<project>/` sites. Publishing deliberately makes the resulting document readable without an editor login.
+- Toolbar and Markdown input together: `#` through `######` followed by a space set the absolute heading level; fences followed by Enter start code blocks; plain Markdown paste supports headings, lists, quotes and tables.
+- **PDF ↗** beside the web document action captures current text and numbering, including unsaved local edits, then runs Pandoc and Typst WebAssembly in a worker with the original project templates, fonts and images. Clicking opens the result tab immediately, with a compact loading card until the native browser PDF viewer is ready. Progress also appears as a floating notice in the editor without shifting its layout. The last successful PDF is reused immediately while its document, templates, settings and image identities are unchanged in the open workspace; cache hits do not download the project or run the compiler again. First use downloads the engines and fonts.
+- **Document settings → Number display** is collapsed below document information. Heading/list levels accept free formats (`제{n}조`, `{n}항`, `({n})`, `{1}.{n}`), numeral styles and custom symbols. Heading titles, references, continuous counters across chapters, figure captions, bullet markers and named template counters are configurable too. Overrides default to off; literal source-prefix rules start empty. The same resolved counters and references feed the web, browser PDF and server renderer without rewriting Markdown. Automatic PDF formatting works with the default template. A custom layout can explicitly use the `document-format` template interface and select **Template integration** to keep its own typography and layout; no template function names or document codes are inferred. See the [formatting contract](docs/api.md#문서-표시와-typst-템플릿).
+- **History** groups consecutive edits by the same authenticated actor to the same file (90-second idle boundary, up to five minutes). Each entry shows changed text and opens a before/after view with the changed characters highlighted. Atomic change records remain intact; existing records are indexed into the same grouped view. Intervening edits by another person start a new entry. Anonymous names can be set in the account menu, and sessions remain distinct even when their names match.
+- Number settings survive checkpoints, backups and ZIP import/export. Legacy review metadata is retained for archive compatibility; review, adoption timing and comparison-sheet import features have been removed.
+- Workspace with an activity rail (files, outline, labels, document settings, history, members; outline and labels can be searched), resizable web preview with cursor following that can be turned off, right-click menus, light and dark themes.
 - Formatting toolbar for underline, text color, lists, links, images, tables, code and math that never edits YAML front matter by accident; one image dialog uploads or reuses project images.
 - Document settings for paper, margins, date, fonts (including a separate Hangul font), spacing, numbering, contents, link colors, caption labels and Typst preamble, per document or project-wide in `_quarto.yml`, each showing the value that applies when left empty, with free YAML editing.
 - PDFs made by Pandoc and Typst, without Quarto: cross references, numbered equations, callouts, two columns and page breaks of the Quarto syntax are supported; other Quarto-only blocks and shortcodes are reported in the build log. The default style can be replaced per project with `.typ` template partials. The LaTeX inline commands the editor writes (`\textcolor`, `\ul`, `\label`/`\ref`, `\newpage`, `\char`) are translated; LaTeX-only settings and raw LaTeX blocks are left out with a warning in the build log.
@@ -41,10 +46,12 @@ See [operations](docs/operations.md) for socket permissions, HTTPS, limits and b
 - Google OIDC, expiring invitations, Owner/Editor/Viewer roles and ownership transfer.
 - PNG/JPEG upload, paste and drop; figure properties, replacement and asset reuse.
 - Project files, relative links, checkpoints, source diff, complete project restore and ZIP import/export.
-- Automatic PDF builds that stop outdated runs when editing continues, last successful preview, cancellation and isolated disposable job containers.
+- Legacy renderer APIs remain for existing integrations, with automatic jobs disabled unless `autoBuild: true` was explicitly configured. The editor uses the single browser PDF action.
 - Consistent backup/restore of source, images, permissions, collaborative state and history.
 
 Commenting, suggestions, full offline editing, simultaneous Visual/Source editing, executable user code and advanced page layout are outside 0.1.0. Google sign-in with a real account requires deployment credentials; automated OIDC tests use a signed local provider.
+
+Web documents use Markdown headings, lists, tables, images, math and links. A non-executing compatibility reader extracts text and tables from existing raw Typst blocks while discarding print-only sizes, spacing, alignment and page breaks. It does not execute arbitrary Typst; those programs are handled by the actual PDF compiler. Web pages use the document structure rather than PDF pagination. Browser PDF generation preserves the original template and fonts; the separate server renderer retains its own build settings.
 
 ## Development
 

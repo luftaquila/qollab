@@ -29,9 +29,44 @@ import DocumentBar from "../workspace/DocumentBar.vue";
 import ImageDialog from "../workspace/ImageDialog.vue";
 import DiffDialog from "../workspace/DiffDialog.vue";
 import SplitHandle from "../workspace/SplitHandle.vue";
-import type { SyncAnchor } from "../pdf-sync";
+import type { SyncAnchor } from "../editor-sync";
 const Editor = defineAsyncComponent(() => import("../Editor.vue"));
-const Pdf = defineAsyncComponent(() => import("../Pdf.vue"));
+const BrowserPdf = defineAsyncComponent(() => import("../BrowserPdf.vue"));
+const browserPdf = ref<{
+  busy: boolean;
+  generate(
+    project: string,
+    target: string,
+    overrides: Record<string, string>,
+    numbering?: import("../../../../packages/codec/src/numbering").Numbering,
+    assets?: Record<string, string>,
+  ): Promise<void>;
+}>();
+function printPdf() {
+  if (!file.value || file.value.kind !== "document") return;
+  const overrides = Object.fromEntries(
+    project.value.data.files
+      .filter((f: any) => f.source !== undefined)
+      .map((f: any) => [f.path, f.source]),
+  ) as Record<string, string>;
+  overrides[file.value.path] = sourcePane.value
+    ? sourceText.value
+    : (editor.value?.source() ?? liveSource.value);
+  void browserPdf.value
+    ?.generate(
+      project.value.id,
+      file.value.path,
+      overrides,
+      project.value.data.numbering,
+      Object.fromEntries(
+        project.value.data.files
+          .filter((f: any) => f.kind === "image")
+          .map((f: any) => [f.path, f.contentHash || ""]),
+      ),
+    )
+    .catch(fail);
+}
+const WebPreview = defineAsyncComponent(() => import("../WebPreview.vue"));
 const SourceEditor = defineAsyncComponent(() => import("../SourceEditor.vue"));
 const HelpDialog = defineAsyncComponent(() => import("../HelpDialog.vue"));
 const props = defineProps<{
@@ -52,12 +87,17 @@ const docked = ref(wide.matches),
   splitView = ref(roomy.matches);
 const savedPanel = preference<PanelName | null>("panel", "files");
 // The image panel was folded into the toolbar's image dialog.
-if (savedPanel.value.value === ("images" as PanelName)) savedPanel.save("files");
-const panel = ref<PanelName | null>(docked.value ? savedPanel.value.value : null);
-const pdfPreference = preference("pdf", true);
-// Narrow screens open the PDF over the editor only on request.
-const showPdf = ref(splitView.value && pdfPreference.value.value);
-const pdfWidth = preference(
+if (["images", "regulations"].includes(savedPanel.value.value || ""))
+  savedPanel.save("files");
+const panel = ref<PanelName | null>(
+  docked.value ? savedPanel.value.value : null,
+);
+// Keep the existing storage keys so saved pane sizes and visibility survive.
+const previewPreference = preference("pdf", true);
+// Narrow screens open the preview over the editor only on request.
+const showPreview = ref(splitView.value && previewPreference.value.value);
+const liveSource = ref("");
+const previewWidth = preference(
   "pdfWidth",
   Math.max(360, Math.round(innerWidth * 0.36)),
 );
@@ -66,7 +106,6 @@ const project = ref<any>(),
   selected = ref<string>(),
   history = ref<any[]>([]),
   members = ref<any[]>([]),
-  builds = ref<any[]>([]),
   comparison = ref<any>(),
   showSource = ref(false),
   sourceDraft = ref(""),
@@ -86,7 +125,6 @@ const file = computed(() =>
 );
 const editable = computed(() => project.value?.role !== "viewer");
 const owner = computed(() => project.value?.role === "owner");
-const latestBuild = computed(() => builds.value[0]);
 const visual = computed(
   () => file.value?.kind === "document" && file.value.mode === "visual",
 );
@@ -112,23 +150,10 @@ async function refresh() {
   if (p.data.epoch < project.value.data.epoch) return;
   if (p.data.epoch === project.value.data.epoch) {
     // Events may arrive while this request is in flight. Keep the latest known
-    // content revision, and retain the displayed PDF until that content is built.
+    // revision for subsequent writes.
     p.revision = Math.max(Number(p.revision), Number(project.value.revision));
-    p.data.contentRevision = Math.max(
-      p.data.contentRevision ?? 0,
-      project.value.data.contentRevision ?? 0,
-    );
-    if (
-      editor.value?.pending() ||
-      (p.data.pdfRevision ?? -1) < p.data.contentRevision ||
-      (p.data.pdfRevision ?? -1) < (project.value.data.pdfRevision ?? -1)
-    ) {
-      p.data.pdfBuild = project.value.data.pdfBuild;
-      p.data.pdfRevision = project.value.data.pdfRevision;
-    }
   }
   project.value = p;
-  builds.value = await api(`/projects/${p.id}/builds`);
   if (panel.value === "history")
     history.value = await api(`/projects/${p.id}/history`);
   if (panel.value === "members")
@@ -151,6 +176,7 @@ async function openProject(id: string) {
   )?.id;
   sourceDraft.value =
     files.find((f: any) => f.id === selected.value)?.source || "";
+  liveSource.value = sourceDraft.value;
   sessionKey.value++;
   showSource.value = false;
   await refresh();
@@ -161,26 +187,10 @@ async function openProject(id: string) {
   stream.onmessage = (e) => {
     const event = JSON.parse(e.data);
     if (project.value?.id !== id) return;
-    if (event.type === "heartbeat") return;
+    if (event.type === "heartbeat" || event.type === "build") return;
     if (event.type === "document") {
       revision(event.revision);
-      project.value.data.contentRevision = Math.max(
-        project.value.data.contentRevision ?? 0,
-        event.revision,
-      );
       return;
-    }
-    if (
-      event.type === "build" &&
-      project.value?.id === id &&
-      event.epoch === project.value.data.epoch &&
-      event.pdfBuild &&
-      !editor.value?.pending() &&
-      event.pdfRevision >= (project.value.data.contentRevision ?? 0) &&
-      event.pdfRevision >= (project.value.data.pdfRevision ?? -1)
-    ) {
-      project.value.data.pdfBuild = event.pdfBuild;
-      project.value.data.pdfRevision = event.pdfRevision;
     }
     clearTimeout(timer);
     timer = setTimeout(refreshLater, 200);
@@ -196,9 +206,16 @@ const rev = () => Number(project.value.revision);
  * between the refresh and this request (the server also saves documents that
  * are open), so a conflict refreshes and retries once, as source saves do.
  */
-async function tree(path: string, method: string, body: Record<string, unknown>) {
+async function tree(
+  path: string,
+  method: string,
+  body: Record<string, unknown>,
+) {
   const send = () =>
-    api(`/projects/${project.value.id}${path}`, method, { ...body, revision: rev() });
+    api(`/projects/${project.value.id}${path}`, method, {
+      ...body,
+      revision: rev(),
+    });
   try {
     return await send();
   } catch (e: any) {
@@ -229,6 +246,7 @@ async function selectFile(f: any) {
   frontMatter.value = null;
   labels.value = null;
   sourceDraft.value = f.source || "";
+  liveSource.value = f.source || "";
   sourceStatus.value = "saved";
 }
 async function addFile(folder = "") {
@@ -426,7 +444,7 @@ const sourceStatus = ref<"saved" | "saving" | "dirty" | "error">("saved");
 const now = ref(Date.now());
 const helpOpen = ref(false),
   sourceEditor = ref<{ insert(text: string): void }>();
-const pdfView = ref<{ follow(anchor: SyncAnchor): void }>();
+const previewView = ref<{ follow(anchor: SyncAnchor): void }>();
 let sourceTimer: ReturnType<typeof setTimeout> | undefined,
   sourceQueue: Promise<unknown> = Promise.resolve();
 const rawMine = computed(
@@ -443,7 +461,9 @@ const sourcePane = computed(
   () =>
     !!file.value &&
     file.value.kind !== "image" &&
-    (file.value.kind === "text" || file.value.mode === "raw" || showSource.value),
+    (file.value.kind === "text" ||
+      file.value.mode === "raw" ||
+      showSource.value),
 );
 const sourceEditable = computed(
   () => editable.value && (file.value?.kind === "text" || rawMine.value),
@@ -475,9 +495,13 @@ async function rawPut(source: string, visualMode: boolean) {
     // A newer project revision or an expired lease of our own: retry once.
     if (e.code === "REVISION_CONFLICT") await refresh();
     else if (e.code === "RAW_LOCKED" && !rawLocked.value) {
-      await api(`/projects/${project.value.id}/files/${file.value.id}/raw`, "POST", {
-        revision: rev(),
-      });
+      await api(
+        `/projects/${project.value.id}/files/${file.value.id}/raw`,
+        "POST",
+        {
+          revision: rev(),
+        },
+      );
       await refresh();
     } else throw e;
     return await attempt();
@@ -643,25 +667,6 @@ async function reopen() {
     sessionKey.value++;
   });
 }
-async function rebuild() {
-  await guarded(async () => {
-    await api(`/projects/${project.value.id}/builds`, "POST", {
-      revision: rev(),
-    });
-    await refresh();
-  });
-}
-async function cancelBuild() {
-  if (!latestBuild.value) return;
-  await guarded(async () => {
-    await api(
-      `/projects/${project.value.id}/builds/${latestBuild.value.id}/cancel`,
-      "POST",
-      { revision: rev() },
-    );
-    await refresh();
-  });
-}
 async function leave() {
   savePending();
   await releaseSource();
@@ -679,9 +684,9 @@ function choosePanel(value: PanelName) {
   if (docked.value) savedPanel.save(panel.value);
   if (panel.value === "history" || panel.value === "members") refreshLater();
 }
-function togglePdf() {
-  showPdf.value = !showPdf.value;
-  if (splitView.value) pdfPreference.save(showPdf.value);
+function togglePreview() {
+  showPreview.value = !showPreview.value;
+  if (splitView.value) previewPreference.save(showPreview.value);
 }
 function insertFigure(form: any) {
   editor.value?.insertImage(form);
@@ -772,6 +777,16 @@ provide(workspaceKey, {
   ),
   setFrontMatter: (text: string) => editor.value?.setFrontMatter(text),
   saveProjectConfig,
+  saveNumbering: async (numbering, expected) => {
+    try {
+      await api(`/projects/${project.value.id}/numbering`, "PATCH", {
+        numbering,
+        expected,
+      });
+    } finally {
+      await refresh();
+    }
+  },
 });
 
 function onWide(e: MediaQueryListEvent) {
@@ -780,7 +795,7 @@ function onWide(e: MediaQueryListEvent) {
 }
 function onRoomy(e: MediaQueryListEvent) {
   splitView.value = e.matches;
-  showPdf.value = e.matches && pdfPreference.value.value;
+  showPreview.value = e.matches && previewPreference.value.value;
 }
 // Keep our Markdown lock alive while the pane is open (15 minute lease).
 const leaseTimer = setInterval(() => {
@@ -822,24 +837,21 @@ onBeforeUnmount(() => {
       :anonymous="anonymous"
       :status="headerStatus"
       :peers="peers"
-      :show-pdf="showPdf"
+      :show-preview="showPreview"
       :editable="editable"
       :owner="owner"
       @leave="leave"
-      @toggle-pdf="togglePdf"
+      @toggle-preview="togglePreview"
       @share="choosePanel('members')"
       @rename="renameProject"
       @checkpoint="makeCheckpoint"
       @logout="logout"
       @help="helpOpen = true"
     />
+    <BrowserPdf ref="browserPdf" />
     <div class="workspace-body">
       <ActivityRail :active="panel" @select="choosePanel" />
-      <aside
-        v-if="panel"
-        class="side-panel"
-        :aria-label="t(panel)"
-      >
+      <aside v-if="panel" class="side-panel" :aria-label="t(panel)">
         <FilesPanel v-if="panel === 'files'" :selected="selected" />
         <OutlinePanel v-else-if="panel === 'outline'" />
         <LabelsPanel v-else-if="panel === 'labels'" />
@@ -866,7 +878,9 @@ onBeforeUnmount(() => {
             sourceVisible = editor?.source() || file.source;
             showSource = !showSource;
           "
-          :undoable="visual && !sourcePane && editable && editorStatus !== 'stale'"
+          :undoable="
+            visual && !sourcePane && editable && editorStatus !== 'stale'
+          "
           @back-to-visual="backToVisual"
           @help="helpOpen = true"
           @undo="editor?.undo()"
@@ -881,25 +895,37 @@ onBeforeUnmount(() => {
         </div>
         <section v-if="sourcePane" class="source-pane">
           <div
-            :class="['source-notice', { warn: rawLocked || (file.mode === 'raw' && !rawMine) }]"
+            :class="[
+              'source-notice',
+              { warn: rawLocked || (file.mode === 'raw' && !rawMine) },
+            ]"
             role="status"
           >
-            <Icon :name="rawMine || file.kind === 'text' ? 'pencil' : 'info'" :size="16" />
+            <Icon
+              :name="rawMine || file.kind === 'text' ? 'pencil' : 'info'"
+              :size="16"
+            />
             <span v-if="file.kind === 'text'">{{ file.path }}</span>
             <span v-else-if="rawMine">{{ t("sourceEditingHint") }}</span>
             <span v-else-if="rawLocked">{{ t("rawByOther") }}</span>
-            <span v-else-if="file.mode === 'raw' && file.rawOwner">{{ t("rawExpired") }}</span>
+            <span v-else-if="file.mode === 'raw' && file.rawOwner">{{
+              t("rawExpired")
+            }}</span>
             <span v-else-if="file.mode === 'raw'">{{ t("rawUnsafe") }}</span>
             <span v-else>{{ t("sourceReadonlyHint") }}</span>
             <span class="spacer" />
             <button
-              v-if="editable && file.kind === 'document' && !rawMine && !rawLocked"
+              v-if="
+                editable && file.kind === 'document' && !rawMine && !rawLocked
+              "
               type="button"
               class="btn sm primary"
               @click="startRaw"
             >
               <Icon name="pencil" :size="15" />{{
-                file.mode === "raw" && file.rawOwner ? t("takeOver") : t("editMarkdown")
+                file.mode === "raw" && file.rawOwner
+                  ? t("takeOver")
+                  : t("editMarkdown")
               }}
             </button>
           </div>
@@ -912,7 +938,7 @@ onBeforeUnmount(() => {
             :label="file.path"
             @update="onSourceInput"
             @save="saveSource()"
-            @sync="pdfView?.follow($event)"
+            @sync="previewView?.follow($event)"
           />
         </section>
         <Editor
@@ -931,39 +957,39 @@ onBeforeUnmount(() => {
           @peers="peers = $event"
           @outline="liveOutline = $event"
           @frontmatter="frontMatter = $event"
+          @source="liveSource = $event"
           @labels="
             labels = $event;
             if (showSource) sourceVisible = editor?.source() ?? sourceVisible;
           "
           @notice="notify(t($event))"
           @reopen="reopen"
-          @sync="pdfView?.follow($event)"
+          @sync="previewView?.follow($event)"
         />
       </main>
       <SplitHandle
-        v-if="showPdf && splitView"
-        :width="pdfWidth.value.value"
-        @resize="pdfWidth.value.value = $event"
-        @commit="pdfWidth.save($event)"
+        v-if="showPreview && splitView"
+        :width="previewWidth.value.value"
+        @resize="previewWidth.value.value = $event"
+        @commit="previewWidth.save($event)"
       />
       <aside
-        v-if="showPdf"
+        v-if="showPreview"
         class="preview-column"
-        :style="splitView ? { width: pdfWidth.value.value + 'px' } : undefined"
+        :style="
+          splitView ? { width: previewWidth.value.value + 'px' } : undefined
+        "
       >
-        <Pdf
-          ref="pdfView"
+        <WebPreview
+          v-if="file?.kind === 'document'"
+          ref="previewView"
           :project="project.id"
-          :build="project.data.pdfBuild"
-          :status="latestBuild?.status"
-          :pending="
-            project.data.pdfRevision !== undefined &&
-            project.data.pdfRevision < (project.data.contentRevision || 0)
-          "
-          :log="latestBuild?.log"
-          :can-build="editable"
-          @rebuild="rebuild"
-          @cancel="cancelBuild"
+          :owner="owner"
+          :path="file.path"
+          :source="sourcePane ? sourceText : liveSource"
+          :numbering="project.data.numbering"
+          :pdf-busy="browserPdf?.busy"
+          @pdf="printPdf"
         />
       </aside>
     </div>
@@ -1046,7 +1072,7 @@ onBeforeUnmount(() => {
   min-width: 300px;
   max-width: 70vw;
   min-height: 0;
-  background: var(--pdf-bg);
+  background: var(--preview-bg);
 }
 .workspace:not(.split-view) .preview-column {
   position: absolute;

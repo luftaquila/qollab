@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, watch, onMounted } from "vue";
 import Icon from "../ui/Icon.vue";
+import NumberingSettings from "./NumberingSettings.vue";
 import { useWorkspace } from "./context";
 import { t, fmt, pick, type Word } from "../i18n";
 import {
@@ -115,8 +116,12 @@ const text = (e: Event) => (e.target as HTMLInputElement).value.trim();
 
 // Defaults the renderer applies (containers/render.py and containers/typst):
 // Letter paper, 11pt, coloured links, page numbers, English text.
-const documentLang = computed(() => String(read(["lang"]) ?? inherited(["lang"]) ?? "en"));
-const korean = computed(() => documentLang.value.toLowerCase().startsWith("ko"));
+const documentLang = computed(() =>
+  String(read(["lang"]) ?? inherited(["lang"]) ?? "en"),
+);
+const korean = computed(() =>
+  documentLang.value.toLowerCase().startsWith("ko"),
+);
 const localized = (ko: string, en: string) => (korean.value ? ko : en);
 const defaults: Record<string, () => unknown> = {
   lang: () => "en",
@@ -169,8 +174,14 @@ const fontGroups = [
   { label: "fontLatinOnly" as Word, choices: named(fonts.latin) },
 ];
 const monoGroups = [
-  { label: "fontWithKorean" as Word, choices: named(["Noto Sans Mono CJK KR"]) },
-  { label: "fontLatinOnly" as Word, choices: named(fonts.mono.filter((f) => !f.includes("CJK"))) },
+  {
+    label: "fontWithKorean" as Word,
+    choices: named(["Noto Sans Mono CJK KR"]),
+  },
+  {
+    label: "fontLatinOnly" as Word,
+    choices: named(fonts.mono.filter((f) => !f.includes("CJK"))),
+  },
 ];
 const depths = (levels: number): Choice[] =>
   Array.from({ length: levels }, (_, i) => ({
@@ -217,7 +228,12 @@ const sections: { title: Word; hint?: Word; fields: Field[] }[] = [
   {
     title: "secFont",
     fields: [
-      { key: ["mainfont"], label: "fMainFont", kind: "select", groups: fontGroups },
+      {
+        key: ["mainfont"],
+        label: "fMainFont",
+        kind: "select",
+        groups: fontGroups,
+      },
       {
         key: ["CJKmainfont"],
         label: "fKoreanFont",
@@ -226,9 +242,24 @@ const sections: { title: Word; hint?: Word; fields: Field[] }[] = [
         hint: "fKoreanFontHint",
         empty: "koreanFontNone",
       },
-      { key: ["sansfont"], label: "fSansFont", kind: "select", groups: fontGroups },
-      { key: ["monofont"], label: "fMonoFont", kind: "select", groups: monoGroups },
-      { key: ["fontsize"], label: "fFontSize", kind: "select", choices: named(["10pt", "11pt", "12pt"]) },
+      {
+        key: ["sansfont"],
+        label: "fSansFont",
+        kind: "select",
+        groups: fontGroups,
+      },
+      {
+        key: ["monofont"],
+        label: "fMonoFont",
+        kind: "select",
+        groups: monoGroups,
+      },
+      {
+        key: ["fontsize"],
+        label: "fFontSize",
+        kind: "select",
+        choices: named(["10pt", "11pt", "12pt"]),
+      },
       {
         key: ["linestretch"],
         label: "fLineStretch",
@@ -248,7 +279,13 @@ const sections: { title: Word; hint?: Word; fields: Field[] }[] = [
     fields: [
       { key: ["number-sections"], label: "fNumberSections", kind: "check" },
       { key: ["toc"], label: "fToc", kind: "check" },
-      { key: ["toc-depth"], label: "fTocDepth", kind: "select", choices: depths(4), when: on("toc") },
+      {
+        key: ["toc-depth"],
+        label: "fTocDepth",
+        kind: "select",
+        choices: depths(4),
+        when: on("toc"),
+      },
       { key: ["toc-title"], label: "fTocTitle", kind: "text", when: on("toc") },
       { key: ["colorlinks"], label: "fColorLinks", kind: "check" },
       {
@@ -269,37 +306,55 @@ const sections: { title: Word; hint?: Word; fields: Field[] }[] = [
         key: ["crossref", "fig-title"],
         label: "fFigTitle",
         kind: "text",
-        hint: () => fmt("captionExample", { name: effective(["crossref", "fig-title"]) }),
+        hint: () =>
+          fmt("captionExample", { name: effective(["crossref", "fig-title"]) }),
       },
       {
         key: ["crossref", "tbl-title"],
         label: "fTblTitle",
         kind: "text",
-        hint: () => fmt("captionExample", { name: effective(["crossref", "tbl-title"]) }),
+        hint: () =>
+          fmt("captionExample", { name: effective(["crossref", "tbl-title"]) }),
       },
       {
         key: ["crossref", "fig-prefix"],
         label: "fFigPrefix",
         kind: "text",
-        hint: () => fmt("referenceExample", { key: "@fig-…", name: effective(["crossref", "fig-prefix"]) }),
+        hint: () =>
+          fmt("referenceExample", {
+            key: "@fig-…",
+            name: effective(["crossref", "fig-prefix"]),
+          }),
       },
       {
         key: ["crossref", "tbl-prefix"],
         label: "fTblPrefix",
         kind: "text",
-        hint: () => fmt("referenceExample", { key: "@tbl-…", name: effective(["crossref", "tbl-prefix"]) }),
+        hint: () =>
+          fmt("referenceExample", {
+            key: "@tbl-…",
+            name: effective(["crossref", "tbl-prefix"]),
+          }),
       },
       {
         key: ["crossref", "eq-prefix"],
         label: "fEqPrefix",
         kind: "text",
-        hint: () => fmt("referenceExample", { key: "@eq-…", name: effective(["crossref", "eq-prefix"]) }),
+        hint: () =>
+          fmt("referenceExample", {
+            key: "@eq-…",
+            name: effective(["crossref", "eq-prefix"]),
+          }),
       },
       {
         key: ["crossref", "sec-prefix"],
         label: "fSecPrefix",
         kind: "text",
-        hint: () => fmt("referenceExample", { key: "@sec-…", name: effective(["crossref", "sec-prefix"]) }),
+        hint: () =>
+          fmt("referenceExample", {
+            key: "@sec-…",
+            name: effective(["crossref", "sec-prefix"]),
+          }),
       },
       {
         key: ["fig-cap-location"],
@@ -328,7 +383,9 @@ function choicesOf(field: Field) {
 }
 /** A value as the panel names it, e.g. "a4" → "A4 · 210×297mm". */
 function display(field: Field, value: unknown) {
-  const match = field.kind === "select" && choicesOf(field).find((c) => c.value === String(value));
+  const match =
+    field.kind === "select" &&
+    choicesOf(field).find((c) => c.value === String(value));
   return match ? pick(match.label) : String(value);
 }
 /** What an empty field means here: the project's value or the renderer's default. */
@@ -336,7 +393,8 @@ function implied(field: Field) {
   const from = inherited(field.key);
   if (from != null) return `${t("fromProject")} · ${display(field, from)}`;
   const standard = fallback(field.key);
-  if (standard != null && standard !== "") return `${t("defaultValue")} · ${display(field, standard)}`;
+  if (standard != null && standard !== "")
+    return `${t("defaultValue")} · ${display(field, standard)}`;
   if (field.empty) return `${t("defaultValue")} · ${t(field.empty)}`;
   return field.kind === "select" ? t("defaultValue") : "";
 }
@@ -346,7 +404,9 @@ function value(field: Field) {
   return Array.isArray(v) ? v.join(", ") : String(v);
 }
 function hint(field: Field) {
-  return typeof field.hint === "function" ? field.hint() : field.hint && t(field.hint);
+  return typeof field.hint === "function"
+    ? field.hint()
+    : field.hint && t(field.hint);
 }
 function commit(field: Field, event: Event) {
   const input = event.target as HTMLInputElement;
@@ -356,7 +416,9 @@ function commit(field: Field, event: Event) {
     return write(field.key, input.checked === base ? undefined : input.checked);
   }
   const raw = text(event);
-  const numeric = ["linestretch", "number-depth", "toc-depth"].includes(field.key[0]);
+  const numeric = ["linestretch", "number-depth", "toc-depth"].includes(
+    field.key[0],
+  );
   write(field.key, raw === "" ? undefined : numeric ? Number(raw) : raw);
 }
 
@@ -372,7 +434,9 @@ const dateKind = computed<DateKind>(() => {
 });
 const isoToday = () => {
   const now = new Date();
-  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 10);
 };
 function setDateKind(kind: DateKind) {
   dateText.value = kind === "text";
@@ -420,12 +484,20 @@ const legacyMargins = computed(() => {
 const margins = computed<Record<string, string>>(() => {
   const value = read(["margin"]);
   if (value && typeof value === "object")
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, String(v)]));
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, String(v)]),
+    );
   return legacyMargins.value;
 });
 const marginPresets = [
-  { value: "15mm", label: ["좁게 · 15mm", "Narrow · 15mm"] as [string, string] },
-  { value: "25mm", label: ["보통 · 25mm", "Normal · 25mm"] as [string, string] },
+  {
+    value: "15mm",
+    label: ["좁게 · 15mm", "Narrow · 15mm"] as [string, string],
+  },
+  {
+    value: "25mm",
+    label: ["보통 · 25mm", "Normal · 25mm"] as [string, string],
+  },
   { value: "35mm", label: ["넓게 · 35mm", "Wide · 35mm"] as [string, string] },
 ];
 const customMargins = ref(false);
@@ -433,7 +505,12 @@ const marginMode = computed(() => {
   const m = margins.value,
     keys = Object.keys(m);
   if (!keys.length) return customMargins.value ? "custom" : "";
-  if (keys.length === 2 && m.x && m.x === m.y && marginPresets.some((p) => p.value === m.x))
+  if (
+    keys.length === 2 &&
+    m.x &&
+    m.x === m.y &&
+    marginPresets.some((p) => p.value === m.x)
+  )
     return customMargins.value ? "custom" : m.x;
   return "custom";
 });
@@ -466,11 +543,14 @@ function setMargin(side: Side, value: string) {
   writeMargins(next);
 }
 const twoColumns = computed(
-  () => Number(read(["columns"])) === 2 || asList(read(["classoption"])).includes("twocolumn"),
+  () =>
+    Number(read(["columns"])) === 2 ||
+    asList(read(["classoption"])).includes("twocolumn"),
 );
 function setTwoColumn(checked: boolean) {
   const rest = asList(read(["classoption"])).filter((o) => o !== "twocolumn");
-  if (read(["classoption"]) != null) write(["classoption"], rest.length ? rest : undefined);
+  if (read(["classoption"]) != null)
+    write(["classoption"], rest.length ? rest : undefined);
   write(["columns"], checked ? 2 : undefined);
 }
 const pageNumbers = computed(() => {
@@ -481,7 +561,10 @@ const pageNumbers = computed(() => {
 });
 function setPageNumbers(checked: boolean) {
   if (read(["pagestyle"]) != null) write(["pagestyle"], undefined);
-  write(["page-numbering"], checked === (inherited(["page-numbering"]) !== false) ? undefined : checked);
+  write(
+    ["page-numbering"],
+    checked === (inherited(["page-numbering"]) !== false) ? undefined : checked,
+  );
 }
 const langField: Field = {
   key: ["lang"],
@@ -554,219 +637,272 @@ function applyYaml() {
     <p v-if="scope === 'project' && !ws.owner.value" class="notice">
       {{ t("ownerOnlyConfig") }}
     </p>
-    <p v-else-if="scope === 'document' && !ws.frontMatterEditable.value" class="notice">
+    <p
+      v-else-if="scope === 'document' && !ws.frontMatterEditable.value"
+      class="notice"
+    >
       {{ t("settingsUnavailable") }}
     </p>
     <p v-if="invalid" class="notice" role="status">{{ t("yamlInvalid") }}</p>
 
-    <fieldset
-      v-for="section in sections"
-      :key="section.title"
-      class="settings-section"
-      :disabled="locked"
-    >
-      <legend>{{ t(section.title) }}</legend>
-      <p v-if="section.hint" class="field-hint">{{ t(section.hint) }}</p>
-      <template v-for="field in section.fields" :key="field.key.join('.')">
-        <template v-if="!field.when || field.when()">
-          <div v-if="field.kind === 'check'" class="check-field-wrap">
+    <template v-for="section in sections" :key="section.title">
+      <fieldset class="settings-section" :disabled="locked">
+        <legend>{{ t(section.title) }}</legend>
+        <p v-if="section.hint" class="field-hint">{{ t(section.hint) }}</p>
+        <template v-for="field in section.fields" :key="field.key.join('.')">
+          <template v-if="!field.when || field.when()">
+            <div v-if="field.kind === 'check'" class="check-field-wrap">
+              <label class="check-field">
+                <input
+                  type="checkbox"
+                  :checked="!!effective(field.key)"
+                  @change="commit(field, $event)"
+                />
+                <span>{{ t(field.label) }}</span>
+              </label>
+              <span v-if="hint(field)" class="field-hint">{{
+                hint(field)
+              }}</span>
+            </div>
+            <div v-else class="field">
+              <label :for="id(field.key)">{{ t(field.label) }}</label>
+              <select
+                v-if="field.kind === 'select'"
+                :id="id(field.key)"
+                class="select"
+                :value="value(field)"
+                @change="commit(field, $event)"
+              >
+                <option value="">{{ implied(field) }}</option>
+                <option
+                  v-if="
+                    value(field) &&
+                    !choicesOf(field).some((c) => c.value === value(field))
+                  "
+                  :value="value(field)"
+                >
+                  {{ value(field) }}
+                </option>
+                <template v-if="field.groups">
+                  <optgroup
+                    v-for="g in field.groups"
+                    :key="g.label"
+                    :label="t(g.label)"
+                  >
+                    <option
+                      v-for="c in g.choices"
+                      :key="c.value"
+                      :value="c.value"
+                    >
+                      {{ pick(c.label) }}
+                    </option>
+                  </optgroup>
+                </template>
+                <template v-else>
+                  <option
+                    v-for="c in field.choices"
+                    :key="c.value"
+                    :value="c.value"
+                  >
+                    {{ pick(c.label) }}
+                  </option>
+                </template>
+              </select>
+              <input
+                v-else
+                :id="id(field.key)"
+                class="input"
+                type="text"
+                :placeholder="implied(field)"
+                :value="value(field)"
+                @change="commit(field, $event)"
+              />
+              <span v-if="hint(field)" class="field-hint">{{
+                hint(field)
+              }}</span>
+            </div>
+          </template>
+
+          <!-- Date and language follow the author. -->
+          <template v-if="field.key[0] === 'author'">
+            <div class="field">
+              <label for="setting-date-kind">{{ t("fDate") }}</label>
+              <select
+                id="setting-date-kind"
+                class="select"
+                :value="dateKind"
+                @change="
+                  setDateKind(
+                    ($event.target as HTMLSelectElement).value as DateKind,
+                  )
+                "
+              >
+                <option value="none">
+                  {{
+                    inheritedDate != null
+                      ? `${t("fromProject")} · ${inheritedDate}`
+                      : t("fDateNone")
+                  }}
+                </option>
+                <option value="today">{{ t("fDateToday") }}</option>
+                <option value="fixed">{{ t("fDateFixed") }}</option>
+                <option value="text">{{ t("fDateText") }}</option>
+              </select>
+            </div>
+            <div v-if="dateKind === 'fixed'" class="field">
+              <label for="setting-date">{{ t("fDateValue") }}</label>
+              <input
+                id="setting-date"
+                class="input"
+                type="date"
+                :value="dateValue"
+                @change="write(['date'], text($event) || undefined)"
+              />
+            </div>
+            <div v-if="dateKind === 'text'" class="field">
+              <label for="setting-date-text">{{ t("fDateTextValue") }}</label>
+              <input
+                id="setting-date-text"
+                class="input"
+                type="text"
+                :placeholder="t('fDateTextPlaceholder')"
+                :value="dateValue"
+                @change="write(['date'], text($event) || undefined)"
+              />
+            </div>
+            <div
+              v-if="dateKind === 'today' || dateKind === 'fixed'"
+              class="field"
+            >
+              <label for="setting-date-format">{{ t("fDateFormat") }}</label>
+              <select
+                id="setting-date-format"
+                class="select"
+                :value="read(['date-format']) ?? ''"
+                @change="write(['date-format'], text($event) || undefined)"
+              >
+                <option value="">
+                  {{ t("defaultValue") }} · {{ formatted("") }}
+                </option>
+                <option v-for="f in dateFormats" :key="f" :value="f">
+                  {{ formatted(f) }}
+                </option>
+              </select>
+              <span v-if="dateKind === 'today'" class="field-hint">{{
+                t("fDateTodayHint")
+              }}</span>
+            </div>
+            <div class="field">
+              <label :for="id(langField.key)">{{ t(langField.label) }}</label>
+              <select
+                :id="id(langField.key)"
+                class="select"
+                :value="value(langField)"
+                @change="commit(langField, $event)"
+              >
+                <option value="">{{ implied(langField) }}</option>
+                <option
+                  v-if="
+                    value(langField) && !['ko', 'en'].includes(value(langField))
+                  "
+                  :value="value(langField)"
+                >
+                  {{ value(langField) }}
+                </option>
+                <option
+                  v-for="c in langField.choices"
+                  :key="c.value"
+                  :value="c.value"
+                >
+                  {{ pick(c.label) }}
+                </option>
+              </select>
+              <span class="field-hint">{{ t("fLangHint") }}</span>
+            </div>
+          </template>
+
+          <!-- Margins, columns and page numbers follow the paper size. -->
+          <template v-if="field.key[0] === 'papersize'">
+            <div class="field">
+              <label for="setting-margins">{{ t("fMargins") }}</label>
+              <select
+                id="setting-margins"
+                class="select"
+                :value="marginMode"
+                @change="
+                  setMarginMode(($event.target as HTMLSelectElement).value)
+                "
+              >
+                <option value="">
+                  {{ t("defaultValue") }} · {{ t("marginAuto") }}
+                </option>
+                <option
+                  v-for="p in marginPresets"
+                  :key="p.value"
+                  :value="p.value"
+                >
+                  {{ pick(p.label) }}
+                </option>
+                <option value="custom">{{ t("marginCustom") }}</option>
+              </select>
+            </div>
+            <template v-if="marginMode === 'custom'">
+              <div class="margin-grid">
+                <div v-for="side in sides" :key="side" class="field">
+                  <label :for="'margin-' + side">{{
+                    t(
+                      side === "top"
+                        ? "fMarginTop"
+                        : side === "bottom"
+                          ? "fMarginBottom"
+                          : side === "left"
+                            ? "fMarginLeft"
+                            : "fMarginRight",
+                    )
+                  }}</label>
+                  <span class="unit-input">
+                    <input
+                      :id="'margin-' + side"
+                      class="input"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.5"
+                      :placeholder="t('marginAuto')"
+                      :value="margin(side)"
+                      @change="setMargin(side, text($event))"
+                    />
+                    <span aria-hidden="true">mm</span>
+                  </span>
+                </div>
+              </div>
+              <span class="field-hint">{{ t("fMarginHint") }}</span>
+            </template>
             <label class="check-field">
               <input
                 type="checkbox"
-                :checked="!!effective(field.key)"
-                @change="commit(field, $event)"
+                :checked="twoColumns"
+                @change="
+                  setTwoColumn(($event.target as HTMLInputElement).checked)
+                "
               />
-              <span>{{ t(field.label) }}</span>
+              <span>{{ t("fTwoColumn") }}</span>
             </label>
-            <span v-if="hint(field)" class="field-hint">{{ hint(field) }}</span>
-          </div>
-          <div v-else class="field">
-            <label :for="id(field.key)">{{ t(field.label) }}</label>
-            <select
-              v-if="field.kind === 'select'"
-              :id="id(field.key)"
-              class="select"
-              :value="value(field)"
-              @change="commit(field, $event)"
-            >
-              <option value="">{{ implied(field) }}</option>
-              <option
-                v-if="value(field) && !choicesOf(field).some((c) => c.value === value(field))"
-                :value="value(field)"
-              >
-                {{ value(field) }}
-              </option>
-              <template v-if="field.groups">
-                <optgroup v-for="g in field.groups" :key="g.label" :label="t(g.label)">
-                  <option v-for="c in g.choices" :key="c.value" :value="c.value">
-                    {{ pick(c.label) }}
-                  </option>
-                </optgroup>
-              </template>
-              <template v-else>
-                <option v-for="c in field.choices" :key="c.value" :value="c.value">
-                  {{ pick(c.label) }}
-                </option>
-              </template>
-            </select>
-            <input
-              v-else
-              :id="id(field.key)"
-              class="input"
-              type="text"
-              :placeholder="implied(field)"
-              :value="value(field)"
-              @change="commit(field, $event)"
-            />
-            <span v-if="hint(field)" class="field-hint">{{ hint(field) }}</span>
-          </div>
-        </template>
-
-        <!-- Date and language follow the author. -->
-        <template v-if="field.key[0] === 'author'">
-          <div class="field">
-            <label for="setting-date-kind">{{ t("fDate") }}</label>
-            <select
-              id="setting-date-kind"
-              class="select"
-              :value="dateKind"
-              @change="setDateKind(($event.target as HTMLSelectElement).value as DateKind)"
-            >
-              <option value="none">
-                {{ inheritedDate != null ? `${t("fromProject")} · ${inheritedDate}` : t("fDateNone") }}
-              </option>
-              <option value="today">{{ t("fDateToday") }}</option>
-              <option value="fixed">{{ t("fDateFixed") }}</option>
-              <option value="text">{{ t("fDateText") }}</option>
-            </select>
-          </div>
-          <div v-if="dateKind === 'fixed'" class="field">
-            <label for="setting-date">{{ t("fDateValue") }}</label>
-            <input
-              id="setting-date"
-              class="input"
-              type="date"
-              :value="dateValue"
-              @change="write(['date'], text($event) || undefined)"
-            />
-          </div>
-          <div v-if="dateKind === 'text'" class="field">
-            <label for="setting-date-text">{{ t("fDateTextValue") }}</label>
-            <input
-              id="setting-date-text"
-              class="input"
-              type="text"
-              :placeholder="t('fDateTextPlaceholder')"
-              :value="dateValue"
-              @change="write(['date'], text($event) || undefined)"
-            />
-          </div>
-          <div v-if="dateKind === 'today' || dateKind === 'fixed'" class="field">
-            <label for="setting-date-format">{{ t("fDateFormat") }}</label>
-            <select
-              id="setting-date-format"
-              class="select"
-              :value="read(['date-format']) ?? ''"
-              @change="write(['date-format'], text($event) || undefined)"
-            >
-              <option value="">{{ t("defaultValue") }} · {{ formatted("") }}</option>
-              <option v-for="f in dateFormats" :key="f" :value="f">{{ formatted(f) }}</option>
-            </select>
-            <span v-if="dateKind === 'today'" class="field-hint">{{ t("fDateTodayHint") }}</span>
-          </div>
-          <div class="field">
-            <label :for="id(langField.key)">{{ t(langField.label) }}</label>
-            <select
-              :id="id(langField.key)"
-              class="select"
-              :value="value(langField)"
-              @change="commit(langField, $event)"
-            >
-              <option value="">{{ implied(langField) }}</option>
-              <option
-                v-if="value(langField) && !['ko', 'en'].includes(value(langField))"
-                :value="value(langField)"
-              >
-                {{ value(langField) }}
-              </option>
-              <option v-for="c in langField.choices" :key="c.value" :value="c.value">
-                {{ pick(c.label) }}
-              </option>
-            </select>
-            <span class="field-hint">{{ t("fLangHint") }}</span>
-          </div>
-        </template>
-
-        <!-- Margins, columns and page numbers follow the paper size. -->
-        <template v-if="field.key[0] === 'papersize'">
-          <div class="field">
-            <label for="setting-margins">{{ t("fMargins") }}</label>
-            <select
-              id="setting-margins"
-              class="select"
-              :value="marginMode"
-              @change="setMarginMode(($event.target as HTMLSelectElement).value)"
-            >
-              <option value="">{{ t("defaultValue") }} · {{ t("marginAuto") }}</option>
-              <option v-for="p in marginPresets" :key="p.value" :value="p.value">
-                {{ pick(p.label) }}
-              </option>
-              <option value="custom">{{ t("marginCustom") }}</option>
-            </select>
-          </div>
-          <template v-if="marginMode === 'custom'">
-            <div class="margin-grid">
-              <div v-for="side in sides" :key="side" class="field">
-                <label :for="'margin-' + side">{{
-                  t(
-                    side === "top"
-                      ? "fMarginTop"
-                      : side === "bottom"
-                        ? "fMarginBottom"
-                        : side === "left"
-                          ? "fMarginLeft"
-                          : "fMarginRight",
-                  )
-                }}</label>
-                <span class="unit-input">
-                  <input
-                    :id="'margin-' + side"
-                    class="input"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.5"
-                    :placeholder="t('marginAuto')"
-                    :value="margin(side)"
-                    @change="setMargin(side, text($event))"
-                  />
-                  <span aria-hidden="true">mm</span>
-                </span>
-              </div>
-            </div>
-            <span class="field-hint">{{ t("fMarginHint") }}</span>
+            <label class="check-field">
+              <input
+                type="checkbox"
+                :checked="pageNumbers"
+                @change="
+                  setPageNumbers(($event.target as HTMLInputElement).checked)
+                "
+              />
+              <span>{{ t("fPageNumbers") }}</span>
+            </label>
           </template>
-          <label class="check-field">
-            <input
-              type="checkbox"
-              :checked="twoColumns"
-              @change="setTwoColumn(($event.target as HTMLInputElement).checked)"
-            />
-            <span>{{ t("fTwoColumn") }}</span>
-          </label>
-          <label class="check-field">
-            <input
-              type="checkbox"
-              :checked="pageNumbers"
-              @change="setPageNumbers(($event.target as HTMLInputElement).checked)"
-            />
-            <span>{{ t("fPageNumbers") }}</span>
-          </label>
         </template>
-
-      </template>
-    </fieldset>
-
+      </fieldset>
+      <NumberingSettings v-if="section.title === 'secInfo'" />
+    </template>
     <details class="settings-advanced">
       <summary>{{ t("secAdvanced") }}</summary>
       <fieldset class="settings-section" :disabled="!editable || !YAML">
@@ -780,7 +916,9 @@ function applyYaml() {
             spellcheck="false"
             :disabled="invalid"
             placeholder="#set par(first-line-indent: 1em)"
-            @change="write(['header-includes'], header.trim() ? header : undefined)"
+            @change="
+              write(['header-includes'], header.trim() ? header : undefined)
+            "
           />
           <span class="field-hint">{{ t("fHeaderHint") }}</span>
         </div>
@@ -794,7 +932,9 @@ function applyYaml() {
             spellcheck="false"
             @input="yamlDirty = true"
           />
-          <span v-if="yamlError" class="field-error" role="alert">{{ yamlError }}</span>
+          <span v-if="yamlError" class="field-error" role="alert">{{
+            yamlError
+          }}</span>
           <span class="field-hint">{{ t("fYamlHint") }}</span>
           <button
             type="button"

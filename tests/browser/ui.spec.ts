@@ -45,22 +45,6 @@ async function source(page: Page, user: any, id: string, path = "paper.qmd") {
   const p = await call(page, user, "/projects/" + id);
   return p.data.files.find((f: any) => f.path === path).source as string;
 }
-/** Serves a finished build so the preview shows a PDF without a renderer. */
-async function fakePdf(page: Page, id: string, path = "tests/fixtures/preview.pdf") {
-  await page.route(`**/api/projects/${id}`, async (route) => {
-    const response = await route.fetch();
-    const p = await response.json();
-    p.data.pdfBuild = "ui-pdf";
-    p.data.pdfRevision = Number(p.data.contentRevision ?? 0);
-    await route.fulfill({ response, json: p });
-  });
-  await page.route(`**/api/projects/${id}/builds`, (route) =>
-    route.fulfill({ json: [{ id: "ui-pdf", status: "succeeded" }] }),
-  );
-  await page.route(`**/api/projects/${id}/pdf?*`, (route) =>
-    route.fulfill({ contentType: "application/pdf", path }),
-  );
-}
 async function open(page: Page, name: string) {
   await page.goto("/");
   await page.getByRole("button", { name: new RegExp(name) }).click();
@@ -83,7 +67,10 @@ async function audit(page: Page) {
     };
     const small: string[] = [],
       unnamed: string[] = [];
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT,
+    );
     while (walker.nextNode()) {
       const node = walker.currentNode,
         el = node.parentElement;
@@ -91,7 +78,8 @@ async function audit(page: Page) {
         continue;
       if (!visible(el)) continue;
       const size = parseFloat(getComputedStyle(el).fontSize);
-      if (size < 12) small.push(`${size}px ${node.textContent!.trim().slice(0, 40)}`);
+      if (size < 12)
+        small.push(`${size}px ${node.textContent!.trim().slice(0, 40)}`);
     }
     for (const el of document.querySelectorAll<HTMLElement>(
       "button, a[href], select, input:not([type=hidden]), textarea, [role=separator][tabindex]",
@@ -149,8 +137,16 @@ test("toolbar keeps YAML front matter intact and inserts blocks without a cursor
   await page
     .locator('.modal input[type=file][accept="image/png,image/jpeg"]')
     .setInputFiles([
-      { name: "chart.png", mimeType: "image/png", buffer: await png("#1c7667") },
-      { name: "chart-2.png", mimeType: "image/png", buffer: await png("#b86c46") },
+      {
+        name: "chart.png",
+        mimeType: "image/png",
+        buffer: await png("#1c7667"),
+      },
+      {
+        name: "chart-2.png",
+        mimeType: "image/png",
+        buffer: await png("#b86c46"),
+      },
     ]);
   // Several files land next to each other in the chosen order.
   await expect
@@ -161,15 +157,28 @@ test("toolbar keeps YAML front matter intact and inserts blocks without a cursor
   await expect(page.locator(".qollab-image-block img")).toHaveCount(2);
 
   // Right-clicking a figure offers its actions; text gets the editor menu.
-  await page.locator(".qollab-image-block img").last().click({ button: "right" });
-  await expect(page.getByRole("menuitem", { name: "Delete figure" })).toBeVisible();
+  await page
+    .locator(".qollab-image-block img")
+    .last()
+    .click({ button: "right" });
+  await expect(
+    page.getByRole("menuitem", { name: "Delete figure" }),
+  ).toBeVisible();
   await page.getByRole("menuitem", { name: "Delete figure" }).click();
   await expect(page.locator(".qollab-image-block img")).toHaveCount(1);
   await expect
-    .poll(async () => (await source(page, user, id)).match(/!\[\]\(assets/g)?.length)
+    .poll(
+      async () =>
+        (await source(page, user, id)).match(/!\[\]\(assets/g)?.length,
+    )
     .toBe(1);
-  await page.getByText("Body text with a few words.").click({ button: "right" });
-  await expect(page.getByRole("menuitem", { name: "Insert reference…" })).toBeVisible();
+  await page
+    .locator(".ProseMirror")
+    .getByText("Body text with a few words.")
+    .click({ button: "right" });
+  await expect(
+    page.getByRole("menuitem", { name: "Insert reference…" }),
+  ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menu")).toHaveCount(0);
   await page.locator(".qollab-image-block img").first().click();
@@ -192,7 +201,10 @@ test("toolbar keeps YAML front matter intact and inserts blocks without a cursor
   );
 
   // A selection reaching into a source block cannot change block types.
-  await page.getByText("Body text with a few words.").click();
+  await page
+    .locator(".ProseMirror")
+    .getByText("Body text with a few words.")
+    .click();
   await page.keyboard.press("End");
   await page.keyboard.press("Shift+ArrowDown");
   await page.keyboard.press("Shift+ArrowDown");
@@ -204,13 +216,16 @@ test("toolbar keeps YAML front matter intact and inserts blocks without a cursor
 
   // With a cursor in the text, formatting applies there.
   await page
+    .locator(".ProseMirror")
     .getByText("Body text with a few words.")
     .dblclick({ position: { x: 8, y: 12 } });
   await toolbar.getByRole("button", { name: "Bold" }).click();
   await expect.poll(() => source(page, user, id)).toContain("**Body**");
   await page.getByLabel("Block type").selectOption("3");
-  await expect.poll(() => source(page, user, id)).toContain("### **Body** text");
-  await page.getByText("Second step").click();
+  await expect
+    .poll(() => source(page, user, id))
+    .toContain("### **Body** text");
+  await page.locator(".ProseMirror").getByText("Second step").click();
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
   await page.keyboard.press("Enter");
@@ -223,7 +238,9 @@ test("toolbar keeps YAML front matter intact and inserts blocks without a cursor
   await context.close();
 });
 
-test("panels and in-page dialogs replace browser prompts", async ({ browser }) => {
+test("panels and in-page dialogs replace browser prompts", async ({
+  browser,
+}) => {
   const context = await browser.newContext({ locale: "en-US" }),
     user = await login(context),
     page = await context.newPage(),
@@ -238,25 +255,26 @@ test("panels and in-page dialogs replace browser prompts", async ({ browser }) =
 
   // An image file added to the project is offered in the image dialog; choosing
   // it without a cursor keeps the front matter first.
-  await page
-    .locator(".panel-head input[type=file]")
-    .setInputFiles({
-      name: "listed.png",
-      mimeType: "image/png",
-      buffer: await sharp({
-        create: { width: 90, height: 60, channels: 3, background: "#2a9a85" },
-      })
-        .png()
-        .toBuffer(),
-    });
+  await page.locator(".panel-head input[type=file]").setInputFiles({
+    name: "listed.png",
+    mimeType: "image/png",
+    buffer: await sharp({
+      create: { width: 90, height: 60, channels: 3, background: "#2a9a85" },
+    })
+      .png()
+      .toBuffer(),
+  });
   await expect(page.getByRole("button", { name: /assets/ })).toBeVisible();
   expect(await source(page, user, id)).not.toContain("assets/images/");
-  await page.getByRole("toolbar").getByRole("button", { name: "Insert image" }).click();
+  await page
+    .getByRole("toolbar")
+    .getByRole("button", { name: "Insert image" })
+    .click();
   await page.locator(".modal .image-choice").first().click();
   await expect.poll(() => source(page, user, id)).toContain("assets/images/");
-  expect((await source(page, user, id)).startsWith('---\ntitle: "Toolbar"')).toBe(
-    true,
-  );
+  expect(
+    (await source(page, user, id)).startsWith('---\ntitle: "Toolbar"'),
+  ).toBe(true);
 
   await page.getByRole("button", { name: "Outline", exact: true }).click();
   await expect(page.getByRole("button", { name: "Method" })).toBeVisible();
@@ -278,15 +296,28 @@ test("panels and in-page dialogs replace browser prompts", async ({ browser }) =
   await page.getByRole("menuitem", { name: "Rename file" }).click();
   await dialog.getByLabel("File path").fill("notes/renamed.qmd");
   await dialog.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByRole("button", { name: /renamed\.qmd/ })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /renamed\.qmd/ }),
+  ).toBeVisible();
 
   // Right-click menus on files, folders and the empty tree area.
-  await page.locator(".tree-item", { hasText: "paper.qmd" }).click({ button: "right" });
-  await expect(page.getByRole("menuitem", { name: "Set as PDF target" })).toHaveCount(0);
-  await expect(page.getByRole("menuitem", { name: "Rename file" })).toBeVisible();
+  await page
+    .locator(".tree-item", { hasText: "paper.qmd" })
+    .click({ button: "right" });
+  await expect(
+    page.getByRole("menuitem", { name: "Set as main document" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("menuitem", { name: "Rename file" }),
+  ).toBeVisible();
   await page.keyboard.press("Escape");
-  await page.locator(".tree-item", { hasText: "notes" }).first().click({ button: "right" });
-  await expect(page.getByRole("menuitem", { name: "New file in this folder" })).toBeVisible();
+  await page
+    .locator(".tree-item", { hasText: "notes" })
+    .first()
+    .click({ button: "right" });
+  await expect(
+    page.getByRole("menuitem", { name: "New file in this folder" }),
+  ).toBeVisible();
   await page.keyboard.press("Escape");
 
   // Folders: create an empty one, drag a file into it, rename and delete it.
@@ -301,7 +332,9 @@ test("panels and in-page dialogs replace browser prompts", async ({ browser }) =
     .dragTo(page.locator(".tree-item", { hasText: "drafts" }).first());
   await expect
     .poll(async () =>
-      (await call(page, user, "/projects/" + id)).data.files.map((f: any) => f.path),
+      (await call(page, user, "/projects/" + id)).data.files.map(
+        (f: any) => f.path,
+      ),
     )
     .toContain("drafts/renamed.qmd");
   await page
@@ -313,7 +346,9 @@ test("panels and in-page dialogs replace browser prompts", async ({ browser }) =
   await dialog.getByRole("button", { name: "Save" }).click();
   await expect
     .poll(async () =>
-      (await call(page, user, "/projects/" + id)).data.files.map((f: any) => f.path),
+      (await call(page, user, "/projects/" + id)).data.files.map(
+        (f: any) => f.path,
+      ),
     )
     .toContain("archive/renamed.qmd");
   await page
@@ -322,7 +357,9 @@ test("panels and in-page dialogs replace browser prompts", async ({ browser }) =
     .click({ button: "right" });
   await page.getByRole("menuitem", { name: "Delete folder" }).click();
   await dialog.getByRole("button", { name: "Delete" }).click();
-  await expect(page.locator(".tree-item", { hasText: "archive" })).toHaveCount(0);
+  await expect(page.locator(".tree-item", { hasText: "archive" })).toHaveCount(
+    0,
+  );
 
   await page.getByRole("button", { name: "History", exact: true }).click();
   await page
@@ -331,14 +368,20 @@ test("panels and in-page dialogs replace browser prompts", async ({ browser }) =
     .click();
   await dialog.getByLabel("Checkpoint name").fill("Milestone");
   await dialog.getByRole("button", { name: "Save" }).click();
-  await page.getByRole("button", { name: /Milestone/ }).click({ button: "right" });
+  await page.locator(".history-checkpoints > summary").click();
+  await page
+    .getByRole("button", { name: /Milestone/ })
+    .click({ button: "right" });
   await page.getByRole("menuitem", { name: "View changes" }).click();
   await expect(page.getByRole("dialog", { name: "Milestone" })).toBeVisible();
   await page.screenshot({ path: "tmp/ui-dialog-diff.png" });
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
-  await page.locator(".workspace-header").getByRole("button", { name: "Share" }).click();
+  await page
+    .locator(".workspace-header")
+    .getByRole("button", { name: "Share" })
+    .click();
   await page.getByLabel("Email").fill("carol@example.com");
   await page.getByLabel("Role", { exact: true }).selectOption("viewer");
   await page.getByRole("button", { name: "Create invitation link" }).click();
@@ -369,22 +412,25 @@ test("text stays at least 12px and every control has a name, in light and dark",
       page = await context.newPage();
     await page.goto("/");
     const name = `화면 점검 ${scheme} ${Date.now()}`;
-    const { id } = await project(page, user, name);
-    await fakePdf(page, id);
+    await project(page, user, name);
     const results: Record<string, Awaited<ReturnType<typeof audit>>> = {};
     await page.goto("/");
-    await expect(page.getByRole("button", { name: new RegExp(name) })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: new RegExp(name) }),
+    ).toBeVisible();
     results.projects = await audit(page);
     await page
       .getByRole("button", { name: new RegExp(name) })
       .click({ button: "right" });
-    await expect(page.getByRole("menuitem", { name: "프로젝트 열기" })).toBeVisible();
+    await expect(
+      page.getByRole("menuitem", { name: "프로젝트 열기" }),
+    ).toBeVisible();
     results.projectMenu = await audit(page);
     await page.keyboard.press("Escape");
     await page.screenshot({ path: `tmp/ui-projects-${scheme}.png` });
     await page.getByRole("button", { name: new RegExp(name) }).click();
     await expect(page.locator(".ProseMirror")).toBeVisible();
-    await expect(page.locator(".pdf-page canvas")).toBeVisible();
+    await expect(page.locator(".web-preview .qollab-document")).toBeVisible();
     await page.waitForTimeout(400);
     results.workspace = await audit(page);
     await page.screenshot({ path: `tmp/ui-workspace-${scheme}.png` });
@@ -397,7 +443,10 @@ test("text stays at least 12px and every control has a name, in light and dark",
     await page.getByRole("button", { name: "더보기" }).first().click();
     results.menu = await audit(page);
     await page.keyboard.press("Escape");
-    await page.locator(".document-bar").getByRole("button", { name: "작성 도움말" }).click();
+    await page
+      .locator(".document-bar")
+      .getByRole("button", { name: "작성 도움말" })
+      .click();
     await page.getByRole("button", { name: "Typst 조판" }).click();
     results.help = await audit(page);
     await page.screenshot({ path: `tmp/ui-help-${scheme}.png` });
@@ -446,7 +495,9 @@ test("document settings edit YAML front matter and _quarto.yml without losing co
     '---\ntitle: "Draft"\n# keep this comment\nformat:\n  pdf:\n    fontsize: 10pt\n---\n\n# Introduction\n\nText.\n',
   );
   await open(page, name);
-  await page.getByRole("button", { name: "Document settings", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Document settings", exact: true })
+    .click();
   const panel = page.locator(".side-panel");
   const label = (text: string) => panel.getByLabel(text, { exact: true });
   await label("Title").fill("Report");
@@ -470,9 +521,7 @@ test("document settings edit YAML front matter and _quarto.yml without losing co
   await panel.getByText("Colored links").click();
   await label("Figure name").fill("그림");
   await label("Figure name").press("Tab");
-  await expect
-    .poll(() => source(page, user, id))
-    .toContain("fig-title: 그림");
+  await expect.poll(() => source(page, user, id)).toContain("fig-title: 그림");
   const text = await source(page, user, id);
   expect(text).toMatch(/^---\ntitle: "Report"\n# keep this comment\n/);
   // An option already under format.pdf is updated where it is.
@@ -503,9 +552,9 @@ test("document settings edit YAML front matter and _quarto.yml without losing co
   await expect(panel.getByRole("alert")).toBeVisible();
   await yaml.fill('title: "Report"\nlof: true\n');
   await panel.getByRole("button", { name: "Apply" }).click();
-  await expect.poll(() => source(page, user, id)).toBe(
-    '---\ntitle: "Report"\nlof: true\n---\n\n# Introduction\n\nText.\n',
-  );
+  await expect
+    .poll(() => source(page, user, id))
+    .toBe('---\ntitle: "Report"\nlof: true\n---\n\n# Introduction\n\nText.\n');
 
   // Project-wide settings go to _quarto.yml.
   await panel.getByText("Whole project").click();
@@ -538,22 +587,32 @@ test("labels anywhere, references that jump, and element menus in the editor", a
   await open(page, name);
   // Front matter is not shown and the cursor cannot move up into it.
   await expect(page.locator(".qollab-frontmatter")).toBeHidden();
-  await page.getByRole("heading", { name: "Introduction" }).click();
+  await page
+    .locator(".ProseMirror")
+    .getByRole("heading", { name: "Introduction" })
+    .click();
   for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowUp");
   await page.keyboard.press("Home");
   await page.keyboard.type("Q");
   await expect.poll(() => source(page, user, id)).toContain("# QIntroduction");
-  expect((await source(page, user, id)).startsWith("---\ntitle: Labels\n---")).toBe(true);
+  expect(
+    (await source(page, user, id)).startsWith("---\ntitle: Labels\n---"),
+  ).toBe(true);
   await page.keyboard.press("Backspace");
 
   // Label a heading and a few words through the right-click menu.
   const dialog = page.getByRole("dialog");
-  await page.getByRole("heading", { name: "Introduction" }).click({ button: "right" });
+  await page
+    .locator(".ProseMirror")
+    .getByRole("heading", { name: "Introduction" })
+    .click({ button: "right" });
   await page.getByRole("menuitem", { name: "Label heading…" }).click();
   await expect(dialog.getByLabel("Label name")).toHaveValue("sec-introduction");
   await dialog.getByLabel("Label name").fill("sec-intro");
   await dialog.getByRole("button", { name: "Save" }).click();
-  const question = page.locator(".ProseMirror p", { hasText: "Question three" });
+  const question = page.locator(".ProseMirror p", {
+    hasText: "Question three",
+  });
   await question.click({ clickCount: 3, position: { x: 4, y: 10 } });
   await question.click({ button: "right", position: { x: 20, y: 10 } });
   await page.getByRole("menuitem", { name: "Label selection…" }).click();
@@ -564,7 +623,10 @@ test("labels anywhere, references that jump, and element menus in the editor", a
   const closing = page.locator(".ProseMirror p", { hasText: "Closing words." });
   const atEnd = async () => {
     const box = (await closing.boundingBox())!;
-    await closing.click({ button: "right", position: { x: box.width - 4, y: box.height / 2 } });
+    await closing.click({
+      button: "right",
+      position: { x: box.width - 4, y: box.height / 2 },
+    });
   };
   await closing.click();
   await page.keyboard.press("End");
@@ -601,10 +663,18 @@ test("labels anywhere, references that jump, and element menus in the editor", a
   await expect(panel.getByText("No results")).toBeVisible();
 
   // Element menus: list indent, table rows, formatting a selection.
-  await page.getByText("second item").click({ button: "right" });
+  await page
+    .locator(".ProseMirror")
+    .getByText("second item")
+    .click({ button: "right" });
   await page.getByRole("menuitem", { name: "Indent" }).click();
-  await expect.poll(() => source(page, user, id)).toMatch(/[-*] first item\n\s+[-*] second item/);
-  await page.getByRole("cell", { name: "1" }).click({ button: "right" });
+  await expect
+    .poll(() => source(page, user, id))
+    .toMatch(/[-*] first item\n\s+[-*] second item/);
+  await page
+    .locator(".ProseMirror")
+    .getByRole("cell", { name: "1" })
+    .click({ button: "right" });
   await page.getByRole("menuitem", { name: "Row below" }).click();
   await expect(page.locator(".milkdown table tr")).toHaveCount(3);
   await closing.dblclick({ position: { x: 12, y: 12 } });
@@ -612,7 +682,11 @@ test("labels anywhere, references that jump, and element menus in the editor", a
   await page.getByRole("menuitem", { name: "Bold" }).click();
   await expect.poll(() => source(page, user, id)).toContain("**Closing**");
   // Shift+right-click leaves the browser menu alone.
-  await closing.click({ button: "right", modifiers: ["Shift"], position: { x: 12, y: 12 } });
+  await closing.click({
+    button: "right",
+    modifiers: ["Shift"],
+    position: { x: 12, y: 12 },
+  });
   await expect(page.getByRole("menu")).toHaveCount(0);
 
   // Reload returns to the same file.
@@ -684,40 +758,20 @@ test("list numbers in the Markdown editor follow on when an item is deleted", as
   await page.getByRole("button", { name: "View source" }).click();
   await page.getByRole("button", { name: "Edit Markdown" }).click();
   const code = page.locator(".source-editor .cm-content"),
-    items = code.locator(".cm-line").filter({ hasText: /\d\. (one|two|three|four)/ });
+    items = code
+      .locator(".cm-line")
+      .filter({ hasText: /\d\. (one|two|three|four)/ });
   await expect(code).toHaveAttribute("contenteditable", "true");
   await code.getByText("2. two").click();
   await page.keyboard.press("Shift+ControlOrMeta+K");
   await expect(items).toHaveText(["1. one", "2. three", "3. four"]);
-  await expect.poll(() => source(page, user, id)).toContain("   2. three\n\n   3. four\n");
+  await expect
+    .poll(() => source(page, user, id))
+    .toContain("   2. three\n\n   3. four\n");
   // One undo brings back the item and its old numbers.
   await page.keyboard.press("ControlOrMeta+Z");
   await expect(items).toHaveText(["1. one", "2. two", "3. three", "4. four"]);
   expect(errors).toEqual([]);
-  await context.close();
-});
-
-test("failed builds explain their cause", async ({ browser }) => {
-  const context = await browser.newContext({ locale: "en-US" }),
-    user = await login(context),
-    page = await context.newPage();
-  const name = "Failure " + Date.now();
-  const { id } = await project(page, user, name);
-  await page.route(`**/api/projects/${id}/builds`, (route) =>
-    route.fulfill({
-      json: [
-        {
-          id: "failed-build",
-          status: "failed",
-          log: "WARNING (qollab): \\smallpar is not supported by Typst and was left out\n[typst]: Compiling report.typ to report.pdf...error: unknown variable: qollabmark\n   ┌─ report.typ:181:2\n\u001b[91mERROR: Typst compilation failed\u001b[39m\n",
-        },
-      ],
-    }),
-  );
-  await open(page, name);
-  await expect(page.locator(".pdf-failure")).toContainText(
-    "Cause: Unknown Typst name: qollabmark",
-  );
   await context.close();
 });
 
@@ -770,7 +824,9 @@ test("Markdown source editing takes the lock, autosaves and returns to visual", 
   await source.click();
   await page.keyboard.press("ControlOrMeta+End");
   await page.keyboard.insertText("\n\n## Typed in Markdown\n\n- one\n- two\n");
-  await expect(page.locator(".source-status")).toHaveText("Saved", { timeout: 10000 });
+  await expect(page.locator(".source-status")).toHaveText("Saved", {
+    timeout: 10000,
+  });
   const text = async () =>
     (await call(page, alice, "/projects/" + id)).data.files.find(
       (f: any) => f.path === "paper.qmd",
@@ -780,17 +836,26 @@ test("Markdown source editing takes the lock, autosaves and returns to visual", 
   await expect(peer.locator(".source-notice")).toContainText(
     "Someone else is editing the Markdown",
   );
-  await expect(peer.locator(".source-editor .cm-content")).toContainText("Typed in Markdown");
+  await expect(peer.locator(".source-editor .cm-content")).toContainText(
+    "Typed in Markdown",
+  );
   await expect(peer.locator(".ProseMirror")).toHaveCount(0);
 
   // Help, next to the source view toggle, lists syntax without copy or insert buttons.
-  await page.locator(".document-bar").getByRole("button", { name: "Writing help" }).click();
+  await page
+    .locator(".document-bar")
+    .getByRole("button", { name: "Writing help" })
+    .click();
   const help = page.getByRole("dialog", { name: "Writing help" });
   await help.getByRole("button", { name: "Typst layout" }).click();
   await expect(
-    help.locator(".help-entry", { hasText: "Start the next content on a new page" }),
+    help.locator(".help-entry", {
+      hasText: "Start the next content on a new page",
+    }),
   ).toBeVisible();
-  await expect(help.getByRole("button", { name: /^(Insert|Copy)$/ })).toHaveCount(0);
+  await expect(
+    help.getByRole("button", { name: /^(Insert|Copy)$/ }),
+  ).toHaveCount(0);
   await page.keyboard.press("Escape");
 
   await page.getByRole("button", { name: "Back to visual editing" }).click();
@@ -812,24 +877,35 @@ test("text color and underline from the toolbar, shortcut and menus; interface l
     errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   const name = "Color " + Date.now();
-  const { id } = await project(page, user, name, "# Notes\n\nPlain words here.\n");
+  const { id } = await project(
+    page,
+    user,
+    name,
+    "# Notes\n\nPlain words here.\n",
+  );
   await open(page, name);
   const paragraph = page.locator(".ProseMirror p", { hasText: "Plain words" });
   const box = (await paragraph.boundingBox())!;
   await paragraph.click({ position: { x: box.width - 4, y: box.height / 2 } });
   for (let i = 0; i < 5; i++) await page.keyboard.press("Shift+ArrowLeft");
   await page.keyboard.press("ControlOrMeta+u");
-  await expect.poll(() => source(page, user, id)).toContain("Plain words [here.]{.underline}");
+  await expect
+    .poll(() => source(page, user, id))
+    .toContain("Plain words [here.]{.underline}");
   const toolbar = page.getByRole("toolbar");
-  await expect(toolbar.getByRole("button", { name: "Underline" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await expect(
+    toolbar.getByRole("button", { name: "Underline" }),
+  ).toHaveAttribute("aria-pressed", "true");
 
   await toolbar.getByRole("button", { name: "Text color" }).click();
   await page.getByRole("menuitem", { name: "Red" }).click();
-  await expect.poll(() => source(page, user, id)).toContain("\\textcolor{red}{\\ul{here.}}");
-  await expect(page.locator(".ProseMirror .qollab-color")).toHaveCSS("color", "rgb(255, 0, 0)");
+  await expect
+    .poll(() => source(page, user, id))
+    .toContain("\\textcolor{red}{\\ul{here.}}");
+  await expect(page.locator(".ProseMirror .qollab-color")).toHaveCSS(
+    "color",
+    "rgb(255, 0, 0)",
+  );
 
   await toolbar.getByRole("button", { name: "Text color" }).click();
   await page.getByRole("menuitem", { name: "Custom…" }).click();
@@ -844,25 +920,35 @@ test("text color and underline from the toolbar, shortcut and menus; interface l
   await page.locator(".ProseMirror u").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Text color…" }).click();
   await page.getByRole("menuitem", { name: "Blue" }).click();
-  await expect.poll(() => source(page, user, id)).toContain("\\textcolor{blue}{\\ul{here.}}");
+  await expect
+    .poll(() => source(page, user, id))
+    .toContain("\\textcolor{blue}{\\ul{here.}}");
   await toolbar.getByRole("button", { name: "Text color" }).click();
   await page.getByRole("menuitem", { name: "Default color" }).click();
-  await expect.poll(() => source(page, user, id)).toContain("Plain words [here.]{.underline}");
+  await expect
+    .poll(() => source(page, user, id))
+    .toContain("Plain words [here.]{.underline}");
 
   // The interface language follows the browser until chosen in the account menu.
   await page.getByRole("button", { name: "Account" }).click();
   await page.getByRole("menuitem", { name: "한국어" }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", "ko");
-  await expect(page.getByRole("toolbar").getByRole("button", { name: "밑줄" })).toBeVisible();
+  await expect(
+    page.getByRole("toolbar").getByRole("button", { name: "밑줄" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "계정" }).click();
   await page.getByRole("menuitem", { name: "브라우저 설정" }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  await expect(page.getByRole("toolbar").getByRole("button", { name: "Underline" })).toBeVisible();
+  await expect(
+    page.getByRole("toolbar").getByRole("button", { name: "Underline" }),
+  ).toBeVisible();
   expect(errors).toEqual([]);
   await context.close();
 });
 
-test("LaTeX commands show as chips and figures inside lists stay visual", async ({ browser }) => {
+test("LaTeX commands show as chips and figures inside lists stay visual", async ({
+  browser,
+}) => {
   const context = await browser.newContext({
       locale: "en-US",
       permissions: ["clipboard-read", "clipboard-write"],
@@ -875,7 +961,8 @@ test("LaTeX commands show as chips and figures inside lists stay visual", async 
   const markdown =
     "---\nnumber-sections: true\n---\n\n# Rules {#rules}\n\n1. First item \\label{item-a}\n\n   ![Hose](assets/hose.png){#fig-hose width=40%}\n\n2. The second item must always follow \\ref{item-a} and \\cref{fig-hose}.\\smallpar\n";
   const { id } = await project(page, user, name, markdown);
-  const revision = async () => Number((await call(page, user, "/projects/" + id)).revision);
+  const revision = async () =>
+    Number((await call(page, user, "/projects/" + id)).revision);
   const before = await revision();
   await open(page, name);
   const editor = page.locator(".ProseMirror");
@@ -884,18 +971,32 @@ test("LaTeX commands show as chips and figures inside lists stay visual", async 
   expect(await revision()).toBe(before);
   await expect(editor.locator("ol .qollab-image-block")).toHaveCount(1);
   await expect(editor.locator(".qollab-raw")).toHaveCount(0);
-  await expect(editor.locator('.qollab-tex[data-kind="ref"]').first()).toHaveText("item-a");
-  await expect(editor.locator('.qollab-tex[data-kind="ref"]').first()).toHaveClass(/qollab-ref-ok/);
-  await expect(editor.locator('.qollab-tex[data-kind="label"]')).toHaveAttribute("data-tip", "#item-a");
-  await expect(editor.locator('.qollab-tex[data-kind="ref"]').first()).not.toHaveAttribute("data-tip");
-  await expect(editor.locator('.qollab-tex[data-kind="command"]')).toHaveText("\\smallpar");
+  await expect(
+    editor.locator('.qollab-tex[data-kind="ref"]').first(),
+  ).toHaveText("item-a");
+  await expect(
+    editor.locator('.qollab-tex[data-kind="ref"]').first(),
+  ).toHaveClass(/qollab-ref-ok/);
+  await expect(
+    editor.locator('.qollab-tex[data-kind="label"]'),
+  ).toHaveAttribute("data-tip", "#item-a");
+  await expect(
+    editor.locator('.qollab-tex[data-kind="ref"]').first(),
+  ).not.toHaveAttribute("data-tip");
+  await expect(editor.locator('.qollab-tex[data-kind="command"]')).toHaveText(
+    "\\smallpar",
+  );
   // A reference jumps to its label and appears in the outline's label list.
   await editor.locator('.qollab-tex[data-kind="ref"]').first().click();
-  await expect(editor.locator('.qollab-tex[data-kind="label"].ProseMirror-selectednode')).toBeVisible();
+  await expect(
+    editor.locator('.qollab-tex[data-kind="label"].ProseMirror-selectednode'),
+  ).toBeVisible();
   // Clicking a label copies its name.
   await editor.locator('.qollab-tex[data-kind="label"]').click();
   await expect(page.getByText("Copied the label name: item-a")).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("item-a");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    "item-a",
+  );
   // Typing next to the chips writes them back unchanged.
   // Inside the words: at the line's end, ArrowLeft would select the chip itself.
   await editor.getByText("First item").click({ position: { x: 12, y: 12 } });
@@ -903,7 +1004,9 @@ test("LaTeX commands show as chips and figures inside lists stay visual", async 
   await page.keyboard.type("X");
   await expect.poll(() => source(page, user, id)).toContain("\\label{item-a}");
   const written = await source(page, user, id);
-  expect(written).toContain("follow \\ref{item-a} and \\cref{fig-hose}.\\smallpar");
+  expect(written).toContain(
+    "follow \\ref{item-a} and \\cref{fig-hose}.\\smallpar",
+  );
   expect(written).toContain("{#fig-hose width=");
   // A typed \ref{…} becomes a chip; the picker references a LaTeX label with \ref.
   const second = editor.locator("p", { hasText: "The second item" });
@@ -912,18 +1015,32 @@ test("LaTeX commands show as chips and figures inside lists stay visual", async 
   await page.keyboard.type(" See \\ref{item-a}");
   await expect(editor.locator('.qollab-tex[data-kind="ref"]')).toHaveCount(3);
   const box = (await second.boundingBox())!;
-  await second.click({ button: "right", position: { x: box.width - 4, y: box.height - 8 } });
+  await second.click({
+    button: "right",
+    position: { x: box.width - 4, y: box.height - 8 },
+  });
   await page.getByRole("menuitem", { name: "Insert reference…" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: /item-a/ }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: /item-a/ })
+    .click();
   await expect(editor.locator('.qollab-tex[data-kind="ref"]')).toHaveCount(4);
   await expect
-    .poll(async () => (await source(page, user, id)).split("\\ref{item-a}").length - 1)
+    .poll(
+      async () =>
+        (await source(page, user, id)).split("\\ref{item-a}").length - 1,
+    )
     .toBe(3);
   expect(await source(page, user, id)).toContain(" See \\ref{item-a}");
   // With numbered headings, a heading is referenced by its number too.
-  await second.click({ button: "right", position: { x: box.width - 4, y: box.height - 8 } });
+  await second.click({
+    button: "right",
+    position: { x: box.width - 4, y: box.height - 8 },
+  });
   await page.getByRole("menuitem", { name: "Insert reference…" }).click();
-  const rules = page.getByRole("dialog").getByRole("button", { name: /#rules/ });
+  const rules = page
+    .getByRole("dialog")
+    .getByRole("button", { name: /#rules/ });
   await expect(rules).toContainText("Section");
   await expect(rules).toContainText("As a number");
   await rules.click();
@@ -931,41 +1048,53 @@ test("LaTeX commands show as chips and figures inside lists stay visual", async 
   expect(errors).toEqual([]);
   await context.close();
 });
-// tests/fixtures/sync.pdf is tests/fixtures/sync.qmd rendered by the Qollab
-// renderer: paragraphs 1–20 on page 1, 21–46 on page 2, 47–72 on page 3.
-test("the PDF follows the editor and can stop following", async ({ browser }) => {
-  const context = await browser.newContext({ locale: "en-US", viewport: { width: 1440, height: 900 } });
-  const user = await login(context);
-  const page = await context.newPage();
-  const name = "Follow " + Date.now();
-  const { id } = await project(page, user, name, readFileSync("tests/fixtures/sync.qmd", "utf8"));
-  await fakePdf(page, id, "tests/fixtures/sync.pdf");
-  await open(page, name);
-  await expect(page.locator(".pdf-page")).toHaveCount(3);
-  const follow = page.getByRole("button", { name: "Follow the editor" });
-  await expect(follow).toHaveAttribute("aria-pressed", "true");
+test("web preview follows the cursor and retains a disabled preference", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    locale: "ko-KR",
+    viewport: { width: 1440, height: 900 },
+  });
+  const user = await login(context),
+    page = await context.newPage();
+  const { id, file } = await project(
+    page,
+    user,
+    "Follow " + Date.now(),
+    readFileSync("tests/fixtures/sync.qmd", "utf8"),
+  );
+  await page.goto(`/projects/${id}/files/${file}`);
   const editor = page.locator(".ProseMirror"),
-    pdf = page.locator(".pdf-pages");
-  // The line at the cursor shows, marked, inside the PDF view.
-  await editor.getByText("문단 060").click();
-  const mark = page.locator('[data-page="3"] .pdf-follow-mark');
-  await expect(mark).toHaveCount(1);
-  const inView = async () => {
-    const [m, view] = [await mark.boundingBox(), await pdf.boundingBox()];
-    return !!m && !!view && m.y >= view.y && m.y + m.height <= view.y + view.height;
+    preview = page.locator(".web-preview-scroll");
+  const follow = page.getByRole("button", {
+    name: "커서 따라가기",
+    exact: true,
+  });
+  await expect(follow).toHaveAttribute("aria-pressed", "true");
+  const inView = async (text: string) => {
+    const target = await preview.getByText(text).boundingBox(),
+      view = await preview.boundingBox();
+    return (
+      !!target &&
+      !!view &&
+      target.y >= view.y &&
+      target.y + target.height <= view.y + view.height
+    );
   };
-  // Fitting the PDF to the panel may change its zoom once; the line stays in view.
-  await expect.poll(inView).toBe(true);
-  // Scrolling the editor moves the PDF along.
-  await editor.getByText("문단 003").evaluate((e) => e.scrollIntoView({ block: "start" }));
-  await expect(page.locator('[data-page="1"] .pdf-follow-mark')).toHaveCount(1);
-  // Turned off, the PDF stays where it is.
+  await editor.getByText("문단 060").click();
+  await expect.poll(() => inView("문단 060")).toBe(true);
+  await editor.getByText("문단 003").click();
+  await expect.poll(() => inView("문단 003")).toBe(true);
   await follow.click();
   await expect(follow).toHaveAttribute("aria-pressed", "false");
-  const top = await pdf.evaluate((e) => e.scrollTop);
+  const top = await preview.evaluate((e) => e.scrollTop);
   await editor.getByText("문단 070").click();
-  await editor.getByText("문단 070").evaluate((e) => e.scrollIntoView({ block: "start" }));
-  await page.waitForTimeout(300);
-  expect(await pdf.evaluate((e) => e.scrollTop)).toBe(top);
+  await page.waitForTimeout(250);
+  expect(await preview.evaluate((e) => e.scrollTop)).toBe(top);
+  await page.reload();
+  await expect(follow).toHaveAttribute("aria-pressed", "false");
+  await follow.click();
+  await editor.getByText("문단 060").click();
+  await expect.poll(() => inView("문단 060")).toBe(true);
   await context.close();
 });

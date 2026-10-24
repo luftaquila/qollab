@@ -224,18 +224,14 @@ a {
   border-radius: 50%;
   background: var(--border-strong);
 }
-.status-dot.saved,
-.status-dot.succeeded {
+.status-dot.saved {
   background: var(--success);
 }
 .status-dot.saving,
-.status-dot.running,
-.status-dot.queued,
 .status-dot.loading {
   background: var(--pending);
 }
 .status-dot.offline,
-.status-dot.failed,
 .status-dot.stale,
 .status-dot.error {
   background: var(--danger);

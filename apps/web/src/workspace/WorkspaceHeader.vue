@@ -11,13 +11,13 @@ const props = defineProps<{
   anonymous?: boolean;
   status?: { state: string; text: string };
   peers: { name: string; picture: string | null }[];
-  showPdf: boolean;
+  showPreview: boolean;
   editable: boolean;
   owner: boolean;
 }>();
 const emit = defineEmits<{
   leave: [];
-  togglePdf: [];
+  togglePreview: [];
   share: [];
   rename: [];
   checkpoint: [];
@@ -30,28 +30,35 @@ const others = computed(() => [
 ]);
 const items = computed<MenuEntry[]>(() => [
   ...(props.owner
-    ? [{ label: t("renameProject"), icon: "pencil" as const, action: () => emit("rename") }]
+    ? [
+        {
+          label: t("renameProject"),
+          icon: "pencil" as const,
+          action: () => emit("rename"),
+        },
+      ]
     : []),
   ...(props.editable
-    ? [{ label: t("checkpoint"), icon: "flag" as const, action: () => emit("checkpoint") }]
+    ? [
+        {
+          label: t("checkpoint"),
+          icon: "flag" as const,
+          action: () => emit("checkpoint"),
+        },
+      ]
     : []),
   { label: t("helpTitle"), icon: "help" as const, action: () => emit("help") },
+  {
+    label: "웹 문서 배포 ZIP",
+    icon: "archive",
+    href: `/api/projects/${props.project.id}/website/export`,
+  },
   { separator: true },
   {
     label: t("export"),
     icon: "archive",
     href: `/api/projects/${props.project.id}/export`,
   },
-  ...(props.project.data.pdfBuild
-    ? [
-        {
-          label: t("downloadPdf"),
-          icon: "download" as const,
-          href: `/api/projects/${props.project.id}/pdf`,
-          download: true,
-        },
-      ]
-    : []),
 ]);
 </script>
 <template>
@@ -113,11 +120,11 @@ const items = computed<MenuEntry[]>(() => [
     </button>
     <button
       type="button"
-      :class="['icon-btn', { active: showPdf }]"
-      :aria-pressed="showPdf"
-      :aria-label="t('pdf')"
-      :data-tip="t('pdf')"
-      @click="emit('togglePdf')"
+      :class="['icon-btn', { active: showPreview }]"
+      :aria-pressed="showPreview"
+      :aria-label="t('liveWeb')"
+      :data-tip="t('liveWeb')"
+      @click="emit('togglePreview')"
     >
       <Icon name="panelRight" />
     </button>

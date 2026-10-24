@@ -50,7 +50,7 @@
 
   --editor-bg: #ffffff;
   --paper: #ffffff;
-  --pdf-bg: #e4e7e3;
+  --preview-bg: #e4e7e3;
   --code-bg: #f3f4f1;
   --inline-code: #b4372f;
   --raw-bg: #f4f5ef;
@@ -97,7 +97,7 @@
     --shadow-2: 0 8px 24px rgb(0 0 0 / 45%), 0 2px 6px rgb(0 0 0 / 30%);
     --shadow-3: 0 24px 64px rgb(0 0 0 / 60%);
     --editor-bg: #171c1a;
-    --pdf-bg: #0e1211;
+    --preview-bg: #0e1211;
     --code-bg: #202725;
     --inline-code: #f29b90;
     --raw-bg: #1c2320;
@@ -144,7 +144,7 @@
   --shadow-2: 0 8px 24px rgb(0 0 0 / 45%), 0 2px 6px rgb(0 0 0 / 30%);
   --shadow-3: 0 24px 64px rgb(0 0 0 / 60%);
   --editor-bg: #171c1a;
-  --pdf-bg: #0e1211;
+  --preview-bg: #0e1211;
   --code-bg: #202725;
   --inline-code: #f29b90;
   --raw-bg: #1c2320;

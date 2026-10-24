@@ -1,6 +1,7 @@
 import { inject, type ComputedRef, type InjectionKey, type Ref } from "vue";
 import type { Heading } from "../editor-commands";
 import type { LabelIndex } from "../editor-labels";
+import type { Numbering } from "../../../../packages/codec/src/numbering";
 export interface WorkspaceContext {
   project: Ref<any>;
   user: any;
@@ -29,13 +30,21 @@ export interface WorkspaceContext {
   compare: (id: string) => Promise<void>;
   restore: (id: string) => Promise<void>;
   invite: (email: string, role: string) => Promise<string | undefined>;
-  changeRole: (m: any, role: string | null, transfer?: boolean) => Promise<void>;
+  changeRole: (
+    m: any,
+    role: string | null,
+    transfer?: boolean,
+  ) => Promise<void>;
   scrollToHeading: (index: number) => void;
   /** Front matter of the open visual document (fences included), null if none. */
   frontMatter: Ref<string | null>;
   frontMatterEditable: ComputedRef<boolean>;
   setFrontMatter: (text: string) => void;
   saveProjectConfig: (text: string) => Promise<void>;
+  saveNumbering: (
+    numbering: Numbering,
+    expected: Numbering | null,
+  ) => Promise<void>;
 }
 export const workspaceKey: InjectionKey<WorkspaceContext> = Symbol("workspace");
 export const useWorkspace = () => inject(workspaceKey)!;

@@ -25,8 +25,10 @@ const toggled = preference<Record<string, boolean>>("folders", {});
 function isOpen(folder: string, files: any[]) {
   const value = toggled.value.value[folder];
   if (value !== undefined) return value;
-  return !files.some((f) => f.path.startsWith(folder + "/") && f.kind === "image")
-    || files.some((f) => f.path.startsWith(folder + "/") && f.kind !== "image");
+  return (
+    !files.some((f) => f.path.startsWith(folder + "/") && f.kind === "image") ||
+    files.some((f) => f.path.startsWith(folder + "/") && f.kind !== "image")
+  );
 }
 function toggle(folder: string, open: boolean) {
   toggled.save({ ...toggled.value.value, [folder]: !open });
@@ -39,7 +41,8 @@ const rows = computed<Row[]>(() => {
   const tree: any = { folders: {}, files: [] };
   const node = (parts: string[]) => {
     let at = tree;
-    for (const part of parts) at = at.folders[part] ||= { folders: {}, files: [] };
+    for (const part of parts)
+      at = at.folders[part] ||= { folders: {}, files: [] };
     return at;
   };
   for (const folder of ws.project.value.data.folders || [])
@@ -54,7 +57,12 @@ const rows = computed<Row[]>(() => {
       result.push({ key: "d:" + folder, depth, folder, name, open });
       if (!open) continue;
       if (!Object.keys(child.folders).length && !child.files.length)
-        result.push({ key: "e:" + folder, depth: depth + 1, name: "", empty: true });
+        result.push({
+          key: "e:" + folder,
+          depth: depth + 1,
+          name: "",
+          empty: true,
+        });
       else walk(child, folder + "/", depth + 1);
     }
     for (const f of at.files)
@@ -261,17 +269,18 @@ function upload(event: Event) {
       ]"
       @contextmenu="
         !row.empty &&
-          openContextMenu(
-            $event,
-            row.file ? actions(row.file) : folderActions(row),
-            row.name,
-          )
+        openContextMenu(
+          $event,
+          row.file ? actions(row.file) : folderActions(row),
+          row.name,
+        )
       "
       @dragover="
-        !row.empty &&
-          dragOver($event, row.folder ?? parentOf(row.file.path))
+        !row.empty && dragOver($event, row.folder ?? parentOf(row.file.path))
       "
-      @drop="!row.empty && dropOn($event, row.folder ?? parentOf(row.file.path))"
+      @drop="
+        !row.empty && dropOn($event, row.folder ?? parentOf(row.file.path))
+      "
     >
       <span
         v-if="row.empty"
@@ -315,7 +324,7 @@ function upload(event: Event) {
           <span
             v-if="row.file.path === ws.project.value.data.target"
             class="badge accent target-badge"
-            >PDF</span
+            >{{ t("mainDocument") }}</span
           >
         </button>
         <span class="tree-actions">
