@@ -1,5 +1,6 @@
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import * as oidc from "openid-client";
+import { z } from "zod";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { config } from "./config.js";
 import { pool, Fault } from "./db.js";
@@ -17,7 +18,7 @@ export async function identity(req: FastifyRequest): Promise<Identity> {
   const raw = req.cookies.qollab;
   if (!raw) throw new Fault("UNAUTHENTICATED", 401);
   const r = await pool.query(
-    "SELECT u.*,s.csrf,s.id AS session FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=$1 AND s.expires>now()",
+    "SELECT u.*,CASE WHEN u.id='anonymous' THEN COALESCE(sp.display_name,'Guest '||left(s.id,6)) ELSE u.name END AS name,s.csrf,s.id AS session FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN session_profiles sp ON sp.session_id=s.id WHERE s.id=$1 AND s.expires>now()",
     [hash(raw)],
   );
   if (!r.rowCount) throw new Fault("UNAUTHENTICATED", 401);
@@ -79,7 +80,8 @@ export function profilePicture(value: unknown) {
   if (typeof value !== "string" || value.length > 2048) return null;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && url.hostname.endsWith(".googleusercontent.com")
+    return url.protocol === "https:" &&
+      url.hostname.endsWith(".googleusercontent.com")
       ? url.href
       : null;
   } catch {
@@ -100,6 +102,11 @@ export async function establishSession(
     "INSERT INTO sessions VALUES($1,$2,$3,now()+$4*interval '1 hour')",
     [hash(raw), user.id, csrf, config.sessionHours],
   );
+  if (user.id === guest.id)
+    await pool.query(
+      "INSERT INTO session_profiles(session_id,display_name) VALUES($1,$2)",
+      [hash(raw), user.name],
+    );
   reply.setCookie("qollab", raw, {
     httpOnly: true,
     secure: config.origin.startsWith("https:"),
@@ -142,17 +149,34 @@ export async function authRoutes(
       csrf = found.csrf;
     } catch {}
     if (!user && config.anonymous) {
-      csrf = await establishSession(guest, reply);
-      user = guest;
+      user = { ...guest, name: "Guest " + token().slice(0, 6) };
+      csrf = await establishSession(user, reply);
     }
     return {
       user: user
-        ? { id: user.id, email: user.email, name: user.name, picture: user.picture ?? null }
+        ? {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            picture: user.picture ?? null,
+          }
         : null,
       csrf,
       oauthConfigured: !!provided || !!(config.clientId && config.clientSecret),
       anonymous: config.anonymous,
     };
+  });
+  app.patch("/api/session/name", async (req) => {
+    const u = await mutation(req);
+    if (u.id !== guest.id) throw new Fault("FORBIDDEN", 403);
+    const { name } = z
+      .object({ name: z.string().trim().min(1).max(80) })
+      .parse(req.body);
+    await pool.query(
+      "INSERT INTO session_profiles(session_id,display_name) VALUES($1,$2) ON CONFLICT(session_id) DO UPDATE SET display_name=$2",
+      [u.session, name],
+    );
+    return { name };
   });
   app.get("/api/auth/google", async (req, reply) => {
     const c = await getClient(),

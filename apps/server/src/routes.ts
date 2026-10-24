@@ -1,3 +1,4 @@
+import { indexHistory, summarizeEdit } from "./edit-history.js";
 import { randomUUID, createHash } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import sharp from "sharp";
@@ -521,12 +522,48 @@ export async function routes(
       };
     });
   });
+  app.get("/api/projects/:pid/changes", async (req) => {
+    const u = await identity(req);
+    const { before } = z
+      .object({ before: z.coerce.number().int().nonnegative().optional() })
+      .parse(req.query);
+    return transaction(async (db) => {
+      const p = await access(db, params(req).pid, u.id, "viewer", true);
+      await indexHistory(db, p);
+      const rows = (
+        await db.query(
+          "SELECT id,first_revision,revision,actor,actor_name,created,updated,changes FROM edit_batches WHERE project_id=$1 AND ($2::bigint IS NULL OR revision<$2) ORDER BY revision DESC LIMIT 100",
+          [p.id, before ?? null],
+        )
+      ).rows;
+      return rows.map(({ changes, ...row }) => ({
+        ...row,
+        files: changes.map(summarizeEdit),
+      }));
+    });
+  });
+  app.get("/api/projects/:pid/changes/:cid", async (req) => {
+    const u = await identity(req);
+    return transaction(async (db) => {
+      const p = await access(db, params(req).pid, u.id, "viewer", true);
+      await indexHistory(db, p);
+      const row = (
+        await db.query(
+          "SELECT id,first_revision,revision,actor,actor_name,created,updated,changes FROM edit_batches WHERE project_id=$1 AND id=$2",
+          [p.id, params(req).cid],
+        )
+      ).rows[0];
+      if (!row) throw new Fault("NOT_FOUND", 404);
+      row.changes = row.changes.map(({ before, after, ...f }: any) => f);
+      return row;
+    });
+  });
   app.get("/api/projects/:pid/history", async (req) => {
     const u = await identity(req);
     await access(pool, params(req).pid, u.id);
     return (
       await pool.query(
-        "SELECT id,revision,label,actor,git_hash,created FROM checkpoints WHERE project_id=$1 ORDER BY created DESC",
+        "SELECT c.id,c.revision,c.label,c.actor,u.name AS actor_name,c.git_hash,c.created FROM checkpoints c LEFT JOIN users u ON u.id=c.actor WHERE project_id=$1 ORDER BY created DESC",
         [params(req).pid],
       )
     ).rows;

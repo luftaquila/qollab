@@ -1,3 +1,4 @@
+import { changeSnapshot, recordChange } from "./changes.js";
 import { numberDocument } from "../../../packages/codec/src/document-numbering.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, rename, readdir, rm, stat } from "node:fs/promises";
@@ -51,6 +52,7 @@ export async function change<T>(
     const p = await access(db, id, user.id, role, true);
     if (revision !== undefined && revision !== p.revision)
       throw new Fault("REVISION_CONFLICT", 409, { revision: p.revision });
+    const before = changeSnapshot(p);
     const result = await fn(p, db);
     if (options.noChange?.(result))
       return { result, revision: p.revision, changed: false };
@@ -68,6 +70,7 @@ export async function change<T>(
       `UPDATE projects SET data=$2,revision=$3,name=$4${options.build ? ",updated=now()" : ""} WHERE id=$1`,
       [id, p.data, p.revision, p.name],
     );
+    await recordChange(db, p, user, before);
     if (options.build) await queueBuild(db, p);
     return { result, revision: p.revision, changed: true };
   });

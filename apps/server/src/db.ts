@@ -5,6 +5,7 @@ export async function migrate() {
   await pool.query(`
 CREATE TABLE IF NOT EXISTS users(id text PRIMARY KEY, email text NOT NULL, name text NOT NULL);
 CREATE TABLE IF NOT EXISTS sessions(id text PRIMARY KEY,user_id text REFERENCES users(id),csrf text NOT NULL,expires timestamptz NOT NULL);
+CREATE TABLE IF NOT EXISTS session_profiles(session_id text PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,display_name text NOT NULL);
 CREATE TABLE IF NOT EXISTS oidc_states(id text PRIMARY KEY,verifier text NOT NULL,nonce text NOT NULL,expires timestamptz NOT NULL);
 CREATE TABLE IF NOT EXISTS projects(id uuid PRIMARY KEY,name text NOT NULL,revision bigint NOT NULL DEFAULT 0,data jsonb NOT NULL,created timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS members(project_id uuid REFERENCES projects(id) ON DELETE CASCADE,user_id text REFERENCES users(id),role text NOT NULL CHECK(role IN ('owner','editor','viewer')),PRIMARY KEY(project_id,user_id));
@@ -12,6 +13,12 @@ CREATE TABLE IF NOT EXISTS invites(id text PRIMARY KEY,project_id uuid REFERENCE
 CREATE TABLE IF NOT EXISTS document_generations(id uuid PRIMARY KEY,epoch integer NOT NULL);
 CREATE TABLE IF NOT EXISTS updates(document_id uuid NOT NULL,epoch integer NOT NULL,message_id uuid NOT NULL,user_id text NOT NULL,seq bigserial,bytes bytea NOT NULL,created timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(document_id,epoch,message_id));
 CREATE TABLE IF NOT EXISTS checkpoints(id uuid PRIMARY KEY,project_id uuid REFERENCES projects(id) ON DELETE CASCADE,revision bigint NOT NULL,label text NOT NULL,actor text,snapshot jsonb NOT NULL,git_hash text,created timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS content_changes(id uuid PRIMARY KEY,project_id uuid REFERENCES projects(id) ON DELETE CASCADE,revision bigint NOT NULL,actor text NOT NULL,actor_name text NOT NULL,changes jsonb NOT NULL,size integer NOT NULL,created timestamptz NOT NULL DEFAULT now(),UNIQUE(project_id,revision));
+ALTER TABLE content_changes ADD COLUMN IF NOT EXISTS actor_key text;
+CREATE TABLE IF NOT EXISTS edit_batches(id uuid PRIMARY KEY,project_id uuid REFERENCES projects(id) ON DELETE CASCADE,first_revision bigint NOT NULL,revision bigint NOT NULL,actor text NOT NULL,actor_key text NOT NULL,actor_name text NOT NULL,changes jsonb NOT NULL,created timestamptz NOT NULL,updated timestamptz NOT NULL);
+CREATE INDEX IF NOT EXISTS edit_batches_project ON edit_batches(project_id,revision DESC);
+CREATE TABLE IF NOT EXISTS edit_index(project_id uuid PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE);
+CREATE INDEX IF NOT EXISTS content_changes_project ON content_changes(project_id,revision DESC);
 CREATE TABLE IF NOT EXISTS restores(id uuid PRIMARY KEY,project_id uuid REFERENCES projects(id) ON DELETE CASCADE,target uuid NOT NULL,status text NOT NULL,created timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS builds(id uuid PRIMARY KEY,project_id uuid REFERENCES projects(id) ON DELETE CASCADE,revision bigint NOT NULL,epoch integer NOT NULL,target text NOT NULL,status text NOT NULL,input jsonb NOT NULL,lease text,lease_until timestamptz,log text,pdf bytea,image text,created timestamptz NOT NULL DEFAULT now(),finished timestamptz);
 CREATE INDEX IF NOT EXISTS builds_queue ON builds(status,created);
