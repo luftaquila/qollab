@@ -45,7 +45,7 @@ Google의 [redirect URI 규칙](https://developers.google.com/identity/protocols
 
 1. OAuth 웹 클라이언트 생성. 일반 Gmail 계정은 Audience를 **External**로 설정한다. **Internal**은 같은 Google Workspace 조직 사용자만 허용할 때 사용한다. 승인된 redirect URI는 `${PUBLIC_ORIGIN}/api/auth/callback`.
 2. `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `PUBLIC_ORIGIN` 설정.
-3. 기본 `ACCOUNT_POLICY=approval`: `APPROVED_EMAILS`에 쉼표로 구분한 승인 이메일 지정. `all`은 검증된 Google 계정을 허용.
+3. 기본 `ACCOUNT_POLICY=approval`: 최초 운영 계정은 `APPROVED_EMAILS`에 지정한다. 만료되지 않은 프로젝트 초대를 받은 이메일과 기존 프로젝트 멤버도 로그인할 수 있어, 멤버마다 환경변수를 변경할 필요가 없다. `all`은 모든 검증된 Google 계정의 로그인·프로젝트 생성을 허용한다.
 4. Workspace 제한이 필요하면 `GOOGLE_WORKSPACE_DOMAIN` 지정. 검증된 `hd` claim을 확인한다.
 5. 외부 서비스는 `PUBLIC_ORIGIN=https://docs.example.com`과 HTTPS 프록시 사용. WebSocket·SSE 프록시 버퍼링과 타임아웃도 설정한다.
 
@@ -58,8 +58,22 @@ Google sub를 사용자 ID로 사용한다. 이메일 변경으로 계정을 합
 - 서버에 접근할 수 있는 누구나 게스트 계정의 프로젝트를 읽고 수정·삭제할 수 있다. 신뢰하는 로컬 환경이나 시험용 배포에서만 사용한다. 공개 주소에는 사용하지 않는다.
 - 방문자마다 세션과 CSRF 토큰은 따로 발급하고, Origin·CSRF 검사는 그대로 적용한다. 공동편집 접속자 이름은 모두 `Guest`로 표시된다.
 - Google 로그인과 함께 설정할 수 있지만, 로그인한 사용자와 게스트는 서로 다른 계정이다. 게스트 프로젝트를 공유하려면 Owner인 게스트가 멤버 패널에서 초대한다.
-- 옵션을 끄면 게스트 계정으로 로그인할 수 없으므로, 게스트 프로젝트는 끄기 전에 ZIP으로 내보내거나 다른 계정으로 소유권을 넘긴다.
+- 옵션을 끄면 기존 게스트 세션도 거부하고 시작 시 폐기한다. 게스트가 단독 소유한 프로젝트는 전환 전에 실제 Google 계정으로 소유권을 넘긴다. 실제 소유자가 있고 게스트가 편집자로만 참여했다면 그 소유권은 그대로 유지된다.
 - 시작 시 서버 로그에 경고를 남긴다.
+
+### 별도 웹 반영 도구
+
+`apps/apply`는 Qollab의 세션·프로젝트 API를 사용하는 독립 웹앱이다. Qollab DB를 직접 수정하지 않는다. `/apply/`를 별도 프로세스의 3001 포트로 연결하며, 로그인·멤버십은 모든 API 요청에서 Qollab에 확인한다. 문서 변경은 요청한 사람의 세션으로 수행하므로 실제 적용자의 변경 이력이 남는다.
+
+- 실행: `node dist/apply/server/main.js`. `PUBLIC_ORIGIN`은 Qollab과 같은 외부 origin, `QOLLAB_INTERNAL_ORIGIN`은 내부 Qollab 주소, `APPLY_HOST=0.0.0.0`, `APPLY_DATABASE=/data/state.sqlite`로 지정한다. SQLite 볼륨을 영속화하고 단일 replica로 운영한다.
+- Kubernetes에서는 `/apply` 경로를 별도 Service로 보낸다. 로컬·Compose에서는 Qollab에 `APPLY_INTERNAL_ORIGIN=http://apply:3001`을 지정해 같은 origin으로 프록시할 수 있다. Compose는 `--profile apply`로 실행한다.
+- 시트 서비스 계정은 필요한 스프레드시트에만 공유한다. 결과 기록에는 편집 권한이 필요하다. JSON 키는 Secret으로 마운트하고 `GOOGLE_APPLICATION_CREDENTIALS`로 경로를 지정한다. Compose는 `SHEETS_CREDENTIALS_DIRECTORY` 아래 `service-account.json`을 마운트한다. 키와 OAuth Secret은 Git에 넣지 않는다.
+- 서비스 계정의 파일 권한이 임의 프로젝트로 확장되지 않도록 새 시트 연결 등록은 `APPLY_ADMIN_EMAILS`에 지정된 운영자이면서 해당 프로젝트 Owner인 사용자로 제한한다. 일반 초대 멤버는 이 환경변수 등록 없이 연결된 프로젝트에서 검토·반영할 수 있다. Viewer는 조회만 가능하다.
+- 화면에서 원본 시트의 범위·식별자·문안·검토의견·판단·시기 열을 지정한다. 판단값과 작업, 시기값과 절대연도의 연결도 설정한다. 특정 문서 코드나 분류를 자동 추측하지 않는다. 같은 식별자 아래의 연속 행은 한 항목으로 묶는다. 중복 식별자는 상위 분류 열이나 본문 범위를 지정해 구분한다.
+- `항목 가져오기`는 별도의 반영 관리 시트를 만들고 원본과 연결한다. 시트에서 직접 수정하거나 도구에서 최종 문안·연도·문서·라벨·작업을 저장할 수 있다. 확정하지 않은 항목, 다른 연도, 보류 항목은 반영하지 않는다. 그림 파일 추가와 복잡한 구조 재배치는 기존 편집기에서 준비한다.
+- `반영 예정 비교` 후 `문서에 반영`을 누르면 원본·검토 행·문서 버전을 다시 확인하고 저장 지점을 만든다. 한 번에 한 문서, 최대 100개 항목을 처리한다. 교체는 선택 범위에서 정확히 한 번 나타나는 원문만 대상으로 한다. 중복 라벨·새로 깨지는 명시적 참조·겹치는 수정은 거부한다.
+- 저장에는 기존 원문 편집 잠금을 사용하므로 해당 프로젝트의 협업 연결이 재접속된다. 이미 열린 미확인 편집이 없는 짧은 반영 시간에 실행한다. Google Sheets에는 비교 후 쓰기를 원자적으로 보장하는 기능이 없으므로 같은 관리 행의 동시 직접 편집은 피한다.
+- 저장 응답이 끊기면 현재 문서의 내용으로 성공 여부를 재확인한다. 이미 반영한 요청은 다시 저장하지 않는다. 시트 결과 기록만 실패한 경우 이력에서 `시트 기록 재시도`를 사용한다. 결과가 불명확하면 자동 재적용하지 않고 `결과 확인`을 요구한다.
 
 ### rootless Podman (Linux)
 

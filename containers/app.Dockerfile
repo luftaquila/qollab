@@ -4,6 +4,7 @@ COPY package*.json ./
 COPY apps/web/package.json apps/web/package.json
 COPY apps/server/package.json apps/server/package.json
 COPY apps/renderer/package.json apps/renderer/package.json
+COPY apps/apply/package.json apps/apply/package.json
 COPY packages/codec/package.json packages/codec/package.json
 RUN npm ci
 COPY . .
@@ -14,6 +15,7 @@ WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/apps/web/dist ./apps/web/dist
+COPY --from=build /app/apps/apply/dist ./apps/apply/dist
 COPY package.json LICENSE ./
 RUN mkdir /data && chown node:node /data
 USER node

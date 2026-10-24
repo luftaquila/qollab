@@ -13,8 +13,9 @@
   "scripts": {
     "dev": "node --env-file-if-exists=.env --import tsx --watch apps/server/src/main.ts",
     "dev:web": "npm run dev -w @qollab/web",
-    "build": "node scripts/prepare-browser-pdf.mjs && npm run build -w @qollab/web && tsup apps/server/src/main.ts apps/renderer/src/main.ts --format esm --out-dir dist --sourcemap --external jsdom",
-    "check": "tsc --noEmit && vue-tsc --noEmit -p apps/web/tsconfig.json",
+    "build": "node scripts/prepare-browser-pdf.mjs && npm run build -w @qollab/web && npm run build -w @qollab/apply && tsup apps/server/src/main.ts apps/renderer/src/main.ts apps/apply/server/main.ts --format esm --out-dir dist --sourcemap --external jsdom",
+    "check": "tsc --noEmit && vue-tsc --noEmit -p apps/web/tsconfig.json && vue-tsc --noEmit -p apps/apply/tsconfig.json",
+    "dev:apply": "node --env-file-if-exists=.env --import tsx --watch apps/apply/server/main.ts",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "start": "node --env-file-if-exists=.env dist/server/src/main.js"
@@ -37,6 +38,7 @@
     "diff": "9.0.0",
     "fastify": "5.12.5",
     "fflate": "0.8.3",
+    "google-auth-library": "11.3.1",
     "jsdom": "27.4.0",
     "katex": "0.18.10",
     "markdown-it": "14.3.3",

@@ -1,0 +1,370 @@
+import { beforeAll, afterAll, it, expect } from "vitest";
+import { createApp } from "../apps/server/src/app";
+import { createApplyApp } from "../apps/apply/server/app";
+import { pool } from "../apps/server/src/db";
+import { config } from "../apps/server/src/config";
+import { token, hash } from "../apps/server/src/auth";
+import { FixtureSheets } from "./fixtures/apply-sheets";
+import type { Connection, State } from "../apps/apply/server/model";
+let core: Awaited<ReturnType<typeof createApp>>,
+  tool: Awaited<ReturnType<typeof createApplyApp>>;
+let failSave = false,
+  loseSaveResponse = false;
+const users: Record<string, { raw: string; csrf: string }> = {},
+  sheets = new FixtureSheets();
+const settings: Connection = {
+  spreadsheetId: "fixture-spreadsheet",
+  sheet: "Source",
+  reviewSheet: "Review",
+  firstRow: 2,
+  lastRow: 100,
+  year: 2027,
+  columns: {
+    key: "A",
+    context: [],
+    source: ["B"],
+    current: ["C"],
+    notes: "D",
+    decision: "E",
+    timing: "F",
+  },
+  decisions: [
+    { value: "Replace", action: "replace" },
+    { value: "Hold", action: "hold" },
+  ],
+  timings: [
+    { value: "2027", year: 2027 },
+    { value: "2028", year: 2028 },
+  ],
+};
+const source =
+  "---\nformat: typst\n---\n\n```{=typst}\n#custom[untouched]\n```\n\n# Chapter {#scope}\n\nold condition\n\n# Other {#other}\n\nunchanged text\n";
+const headers = (user = "owner") => ({
+  cookie: "qollab=" + users[user].raw,
+  origin: config.origin,
+  "x-csrf-token": users[user].csrf,
+});
+const call = (path: string, method = "GET", body?: unknown, user = "owner") =>
+  tool.inject({
+    url: "/apply/api" + path,
+    method: method as any,
+    headers: headers(user),
+    payload: body as any,
+  });
+const api = (path: string, method = "GET", body?: unknown, user = "owner") =>
+  core.inject({
+    url: "/api" + path,
+    method: method as any,
+    headers: headers(user),
+    payload: body as any,
+  });
+beforeAll(async () => {
+  core = await createApp({ logger: false });
+  await pool.query(
+    "TRUNCATE projects,users,sessions,oidc_states,updates,checkpoints,restores,builds,members,invites,audit CASCADE",
+  );
+  for (const user of ["owner", "editor", "viewer", "outsider"]) {
+    users[user] = { raw: token(), csrf: token() };
+    await pool.query("INSERT INTO users(id,email,name) VALUES($1,$2,$3)", [
+      user,
+      user + "@example.com",
+      user,
+    ]);
+    await pool.query(
+      "INSERT INTO sessions VALUES($1,$2,$3,now()+interval '1 day')",
+      [hash(users[user].raw), user, users[user].csrf],
+    );
+  }
+  tool = await createApplyApp({
+    origin: config.origin,
+    qollabOrigin: config.origin,
+    database: ":memory:",
+    adminEmails: ["owner@example.com"],
+    sheets,
+    logger: false,
+    upstream: (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      const saving =
+        init?.method === "PUT" &&
+        url.pathname.endsWith("/raw") &&
+        body?.source.includes("new condition");
+      if (saving && failSave)
+        return new Response(JSON.stringify({ code: "UNSAFE_BOUNDARY" }), {
+          status: 409,
+        });
+      const response = await core.inject({
+        url: url.pathname + url.search,
+        method: init?.method as any,
+        headers: init?.headers as any,
+        payload: body,
+      });
+      if (saving && loseSaveResponse) {
+        loseSaveResponse = false;
+        throw new Error("Lost response");
+      }
+      return new Response(new Uint8Array(response.rawPayload), {
+        status: response.statusCode,
+        headers: response.headers as Record<string, string>,
+      });
+    }) as typeof fetch,
+  });
+});
+afterAll(async () => {
+  await tool.close();
+  await core.close();
+  await pool.end();
+});
+async function fixture() {
+  const id = (await api("/projects", "POST", { name: "Apply fixture" })).json()
+    .id;
+  for (const [user, role] of [
+    ["editor", "editor"],
+    ["viewer", "viewer"],
+  ])
+    await pool.query("INSERT INTO members VALUES($1,$2,$3)", [id, user, role]);
+  const project = (await api(`/projects/${id}`)).json(),
+    file = project.data.files[0];
+  const raw = (
+    await api(`/projects/${id}/files/${file.id}/raw`, "POST", {
+      revision: project.revision,
+    })
+  ).json();
+  await api(`/projects/${id}/files/${file.id}/raw`, "PUT", {
+    revision: raw.revision,
+    epoch: raw.result.epoch,
+    rawVersion: raw.result.rawVersion,
+    source,
+    visual: true,
+  });
+  const connection = { ...settings, reviewSheet: "Review " + id };
+  let response = await call(`/projects/${id}/connection`, "POST", {
+    version: 0,
+    connection,
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  response = await call(`/projects/${id}/import`, "POST", {
+    version: response.json().version,
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  let state: State = response.json();
+  const clause = state.clauses[0];
+  const draft = {
+    ...clause.draft,
+    fileId: file.id,
+    anchor: "scope",
+    before: "old condition",
+    final: "new condition",
+    confirmed: true,
+  };
+  response = await call(`/projects/${id}/clauses/${clause.id}`, "PUT", {
+    version: state.version,
+    draft,
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  state = response.json();
+  return {
+    id,
+    fileId: file.id,
+    state,
+    clauseId: clause.id,
+    review: connection.reviewSheet,
+  };
+}
+it("requires a real Qollab identity, role, CSRF and authorized sheet connection administrator", async () => {
+  expect((await tool.inject("/apply/api/projects")).statusCode).toBe(401);
+  const f = await fixture();
+  expect(
+    (await call(`/projects/${f.id}`, "GET", undefined, "outsider")).statusCode,
+  ).toBe(404);
+  expect(
+    (await call(`/projects/${f.id}`, "GET", undefined, "viewer")).statusCode,
+  ).toBe(200);
+  expect(
+    (
+      await call(
+        `/projects/${f.id}/import`,
+        "POST",
+        { version: f.state.version },
+        "viewer",
+      )
+    ).statusCode,
+  ).toBe(403);
+  expect(
+    (
+      await call(
+        `/projects/${f.id}/connection`,
+        "POST",
+        { version: f.state.version, connection: settings },
+        "editor",
+      )
+    ).statusCode,
+  ).toBe(403);
+  expect(
+    (
+      await tool.inject({
+        url: `/apply/api/projects/${f.id}/import`,
+        method: "POST",
+        headers: { cookie: "qollab=" + users.owner.raw, origin: config.origin },
+        payload: { version: f.state.version },
+      })
+    ).statusCode,
+  ).toBe(403);
+});
+it("previews exact changes, saves as the operator, checkpoints and makes retries idempotent", async () => {
+  const f = await fixture();
+  const before = (await api(`/projects/${f.id}`)).json();
+  const preview = await call(
+    `/projects/${f.id}/preview`,
+    "POST",
+    { version: f.state.version, ids: [f.clauseId] },
+    "editor",
+  );
+  expect(preview.statusCode, preview.body).toBe(200);
+  expect((await api(`/projects/${f.id}`)).json().revision).toBe(
+    before.revision,
+  );
+  const plan = preview.json().plan;
+  expect(plan.after).toBe(source.replace("old condition", "new condition"));
+  const saved = await call(
+    `/projects/${f.id}/apply`,
+    "POST",
+    { planId: plan.id },
+    "editor",
+  );
+  expect(saved.statusCode, saved.body).toBe(200);
+  expect(saved.json().run).toMatchObject({
+    status: "applied",
+    actor: "editor",
+    sheetSynced: true,
+  });
+  const current = (await api(`/projects/${f.id}`)).json();
+  expect(current.data.files[0].source).toBe(plan.after);
+  expect(current.data.files[0].mode).toBe("visual");
+  const retry = await call(
+    `/projects/${f.id}/apply`,
+    "POST",
+    { planId: plan.id },
+    "editor",
+  );
+  expect(retry.statusCode).toBe(200);
+  expect((await api(`/projects/${f.id}`)).json().revision).toBe(
+    current.revision,
+  );
+  expect((await api(`/projects/${f.id}/changes`)).json()[0].actor).toBe(
+    "editor",
+  );
+  expect(
+    (await api(`/projects/${f.id}/history`))
+      .json()
+      .some((c: any) => c.label.startsWith("문서 반영 전")),
+  ).toBe(true);
+  expect(sheets.values[f.review][1].slice(15)).toEqual([
+    "반영 완료",
+    current.revision,
+    "editor",
+  ]);
+  const cloned = await call("/clone", "POST", {
+    project: f.id,
+    name: "Next edition",
+  });
+  expect(cloned.statusCode).toBe(200);
+  expect(
+    (await api(`/projects/${cloned.json().id}`)).json().data.files[0].source,
+  ).toBe(plan.after);
+});
+it("stops when the sheet or document changes after review without writing stale content", async () => {
+  const f = await fixture();
+  let preview = (
+    await call(`/projects/${f.id}/preview`, "POST", {
+      version: f.state.version,
+      ids: [f.clauseId],
+    })
+  ).json();
+  sheets.values[f.review][1][8] = "Changed by another reviewer";
+  expect(
+    (
+      await call(`/projects/${f.id}/apply`, "POST", { planId: preview.plan.id })
+    ).json().code,
+  ).toBe("REVIEW_CHANGED");
+  sheets.values[f.review][1][8] = "new condition";
+  const p = (await api(`/projects/${f.id}`)).json();
+  await api(`/projects/${f.id}`, "PATCH", {
+    revision: p.revision,
+    name: "Edited while comparing",
+  });
+  expect(
+    (
+      await call(`/projects/${f.id}/apply`, "POST", { planId: preview.plan.id })
+    ).json().code,
+  ).toBe("DOCUMENT_CHANGED");
+  expect((await api(`/projects/${f.id}`)).json().data.files[0].source).toBe(
+    source,
+  );
+});
+it("recovers an acknowledged write whose HTTP response was lost without duplicating it", async () => {
+  const f = await fixture(),
+    p = (
+      await call(`/projects/${f.id}/preview`, "POST", {
+        version: f.state.version,
+        ids: [f.clauseId],
+      })
+    ).json();
+  loseSaveResponse = true;
+  const result = await call(`/projects/${f.id}/apply`, "POST", {
+    planId: p.plan.id,
+  });
+  expect(result.statusCode, result.body).toBe(200);
+  expect(result.json().run.status).toBe("applied");
+  expect((await api(`/projects/${f.id}`)).json().data.files[0].source).toBe(
+    source.replace("old condition", "new condition"),
+  );
+});
+it("releases its raw editing lock on rejected content and retries sheet recording separately", async () => {
+  const f = await fixture(),
+    p = (
+      await call(`/projects/${f.id}/preview`, "POST", {
+        version: f.state.version,
+        ids: [f.clauseId],
+      })
+    ).json();
+  failSave = true;
+  try {
+    expect(
+      (await call(`/projects/${f.id}/apply`, "POST", { planId: p.plan.id }))
+        .statusCode,
+    ).toBe(409);
+  } finally {
+    failSave = false;
+  }
+  const doc = (await api(`/projects/${f.id}`)).json().data.files[0];
+  expect(doc.source).toBe(source);
+  expect(doc.mode).toBe("visual");
+  expect(doc.rawOwner).toBeUndefined();
+  let state = (await call(`/projects/${f.id}`)).json().state;
+  const next = (
+    await call(`/projects/${f.id}/preview`, "POST", {
+      version: state.version,
+      ids: [f.clauseId],
+    })
+  ).json();
+  sheets.failWrites = true;
+  const done = await call(`/projects/${f.id}/apply`, "POST", {
+    planId: next.plan.id,
+  });
+  sheets.failWrites = false;
+  expect(done.statusCode, done.body).toBe(200);
+  expect(done.json().run).toMatchObject({
+    status: "applied",
+    sheetSynced: false,
+  });
+  const revision = (await api(`/projects/${f.id}`)).json().revision;
+  const retry = await call(
+    `/projects/${f.id}/runs/${done.json().run.id}/reconcile`,
+    "POST",
+    {},
+  );
+  expect(retry.statusCode, retry.body).toBe(200);
+  expect(retry.json().run.sheetSynced).toBe(true);
+  expect((await api(`/projects/${f.id}`)).json().revision).toBe(revision);
+});

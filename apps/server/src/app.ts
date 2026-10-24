@@ -1,4 +1,5 @@
 import { websiteRoutes } from "./website.js";
+import { applyProxy } from "./apply-proxy.js";
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
@@ -70,11 +71,12 @@ export async function createApp(
   await collaboration(app);
   await builds(app);
   await websiteRoutes(app);
+  await applyProxy(app);
   const root = resolve("apps/web/dist");
   if (existsSync(root)) {
     await app.register(staticPlugin, { root });
     app.setNotFoundHandler((req, reply) => {
-      if (req.url.startsWith("/api/"))
+      if (req.url.startsWith("/api/") || req.url.startsWith("/apply"))
         return reply.code(404).send({ code: "NOT_FOUND" });
 
       return reply.sendFile("index.html");

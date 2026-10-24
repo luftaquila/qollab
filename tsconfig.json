@@ -15,6 +15,7 @@
   "include": [
     "apps/server/src/**/*.ts",
     "apps/renderer/src/**/*.ts",
+    "apps/apply/server/**/*.ts",
     "packages/**/*.ts",
     "tests/**/*.ts",
     "scripts/**/*.ts"

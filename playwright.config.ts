@@ -22,6 +22,7 @@ export default defineConfig({
       RENDERER_TOKEN: "test-renderer-token-32-characters-minimum",
       ADMIN_TOKEN: "test-admin-token-32-characters-minimum",
       ACCOUNT_POLICY: "all",
+      APPLY_INTERNAL_ORIGIN: "http://127.0.0.1:3201",
     },
   },
 });

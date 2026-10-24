@@ -3,6 +3,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { createApp } from "../apps/server/src/app.js";
 import { pool } from "../apps/server/src/db.js";
 import { token, hash } from "../apps/server/src/auth.js";
+import { createApplyApp } from "../apps/apply/server/app.js";
+import { FixtureSheets } from "./fixtures/apply-sheets.js";
 const app = await createApp({ logger: false });
 const users = [];
 for (const name of ["Alice", "Bob"]) {
@@ -16,7 +18,9 @@ for (const name of ["Alice", "Bob"]) {
       id,
       name.toLowerCase() + "@example.com",
       name,
-      name === "Alice" ? "https://lh3.googleusercontent.com/a/qollab-e2e" : null,
+      name === "Alice"
+        ? "https://lh3.googleusercontent.com/a/qollab-e2e"
+        : null,
     ],
   );
   await pool.query(
@@ -29,4 +33,14 @@ await mkdir("tmp", { recursive: true });
 await writeFile("tmp/e2e-sessions.json", JSON.stringify(users), {
   mode: 0o600,
 });
+const apply = await createApplyApp({
+  origin: "http://127.0.0.1:3200",
+  qollabOrigin: "http://127.0.0.1:3200",
+  database: ".data/e2e/apply.sqlite",
+  adminEmails: ["alice@example.com"],
+  sheets: new FixtureSheets(),
+  logger: false,
+});
+await apply.listen({ host: "127.0.0.1", port: 3201 });
+app.addHook("onClose", async () => apply.close());
 await app.listen({ host: "127.0.0.1", port: 3200 });
