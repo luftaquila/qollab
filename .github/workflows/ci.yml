@@ -99,13 +99,15 @@ jobs:
           POSTGRES_PASSWORD: ci-local-database-password
           RENDERER_TOKEN: ci-renderer-token-at-least-32-characters
           ADMIN_TOKEN: ci-administration-token-at-least-32-characters
+          APPLY_INTERNAL_ORIGIN: http://apply:3001
         run: |
-          docker compose up -d
+          docker compose --profile apply up -d
           for attempt in $(seq 1 30); do
             if curl --fail http://localhost:3000/api/health; then break; fi
             sleep 2
           done
           curl --fail http://localhost:3000/api/health
+          curl --fail http://localhost:3000/apply/api/health
           curl --fail http://localhost:3000/api/session | python3 -c 'import json,sys; s=json.load(sys.stdin); assert s["user"] is None and not s["oauthConfigured"]'
           node scripts/deployment-smoke.mjs
       - name: Publish verified platform images
