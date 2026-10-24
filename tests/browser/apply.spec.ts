@@ -69,7 +69,7 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
     .getByRole("button", { name: "검토 내용 저장", exact: true })
     .click();
   await expect(page.locator(".success")).toContainText(
-    "반영 관리 검토 내용 저장했습니다",
+    "검토 내용을 저장했습니다",
   );
   await page
     .getByRole("checkbox", { name: "Rule one 선택", exact: true })
