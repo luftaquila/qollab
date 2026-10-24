@@ -15,6 +15,7 @@ import { placeholder } from "@milkdown/crepe/feature/placeholder";
 import { blockEdit } from "@milkdown/crepe/feature/block-edit";
 import {
   syncHeadingIdPlugin,
+  wrapInHeadingInputRule,
   clearTextInCurrentBlockCommand,
 } from "@milkdown/kit/preset/commonmark";
 import { history } from "@milkdown/kit/plugin/history";
@@ -79,7 +80,8 @@ import {
 } from "../../../packages/codec/src/schema";
 import { encode } from "../../../packages/codec/src/index";
 import { DocumentSession } from "./session";
-import { editorAnchor } from "./pdf-sync";
+import { editorAnchor } from "./editor-sync";
+import { markdownHeading, markdownInput } from "./editor-markdown";
 import { texView } from "./editor-tex";
 import { api, base64, downloadText, uploadAsset } from "./api";
 import { t, errorText } from "./i18n";
@@ -103,6 +105,7 @@ const emit = defineEmits([
   "labels",
   "help",
   "sync",
+  "source",
 ]);
 const host = ref<HTMLElement>();
 const scroller = ref<HTMLElement>();
@@ -112,7 +115,8 @@ const status = ref("loading");
 const ready = ref(false);
 const tools = shallowRef<ToolbarState>();
 const uploading = ref(0);
-const editable = () => props.project.role !== "viewer" && status.value !== "stale";
+const editable = () =>
+  props.project.role !== "viewer" && status.value !== "stale";
 let disposed = false,
   outlineTimer: ReturnType<typeof setTimeout> | undefined;
 const imageSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${icons.image}"/></svg>`;
@@ -139,7 +143,11 @@ function scheduleSync(cursor: boolean) {
     syncCursor = false;
     if (!scroller.value) return;
     editor.value?.editor.action((ctx) => {
-      const anchor = editorAnchor(ctx.get(editorViewCtx), scroller.value!, byCursor);
+      const anchor = editorAnchor(
+        ctx.get(editorViewCtx),
+        scroller.value!,
+        byCursor,
+      );
       if (anchor) emit("sync", anchor);
     });
   });
@@ -157,11 +165,13 @@ const signal = $prose(
           if (!previous.selection.eq(view.state.selection) && view.hasFocus())
             scheduleSync(true);
           if (!previous.doc.eq(view.state.doc)) {
-            clearTimeout(outlineTimer);
+            if (outlineTimer) return;
             outlineTimer = setTimeout(() => {
+              outlineTimer = undefined;
               emit("outline", headings());
               emit("frontmatter", frontMatter());
               emit("labels", collectLabels(view.state.doc));
+              emit("source", source());
             }, 150);
           }
         },
@@ -318,11 +328,14 @@ onMounted(() => {
           }),
       });
     await c.editor.remove(syncHeadingIdPlugin);
+    await c.editor.remove(wrapInHeadingInputRule);
     await c.editor.remove(history);
     await c.editor.remove(trailing);
     await c.editor.remove(imageBlockView);
     c.editor
       .use(quartoImageView)
+      .use(markdownHeading)
+      .use(markdownInput)
       .use(rawNode)
       .use(rawView)
       .use(imageAttributes)
@@ -383,6 +396,7 @@ onMounted(() => {
       ready.value = true;
       emit("outline", headings());
       emit("frontmatter", frontMatter());
+      emit("source", source());
     } catch (e: any) {
       emit("error", e.message);
     }
@@ -430,7 +444,10 @@ async function insertUploads(files: File[], position?: () => number | null) {
         continue; // upload() reported the error and nothing was inserted.
       }
       // Later figures follow the previous one; collaborators may edit meanwhile.
-      const at = disposed || !editable() ? null : afterFigure(view, previous) ?? position();
+      const at =
+        disposed || !editable()
+          ? null
+          : (afterFigure(view, previous) ?? position());
       if (at === null) notify(t("imageKept"));
       else previous = insertFigure(view, at, src);
     }
@@ -501,7 +518,9 @@ const slug = (text: string) =>
     .slice(0, 32);
 function existingLabels() {
   const view = currentView();
-  return new Set(view ? collectLabels(view.state.doc).labels.map((l) => l.id) : []);
+  return new Set(
+    view ? collectLabels(view.state.doc).labels.map((l) => l.id) : [],
+  );
 }
 function suggest(prefix: string, text: string) {
   const taken = existingLabels(),
@@ -519,8 +538,9 @@ async function askLabel(value: string, current?: string) {
     confirm: t("save"),
   });
   if (!id || id === current) return null;
-  if (!validLabel(id)) return notify(t("labelInvalid"), "error"), null;
-  if (existingLabels().has(id)) return notify(t("labelExists"), "error"), null;
+  if (!validLabel(id)) return (notify(t("labelInvalid"), "error"), null);
+  if (existingLabels().has(id))
+    return (notify(t("labelExists"), "error"), null);
   return id;
 }
 async function labelSelection() {
@@ -529,7 +549,11 @@ async function labelSelection() {
   const { from, to } = view.state.selection;
   const text = view.state.doc.textBetween(from, to, "\n");
   // Labelled spans are plain one-line text so Pandoc reads them back the same way.
-  if (!text.trim() || /[\n[\]*_`\\{}<>@$]/.test(text) || !view.state.selection.$from.sameParent(view.state.selection.$to))
+  if (
+    !text.trim() ||
+    /[\n[\]*_`\\{}<>@$]/.test(text) ||
+    !view.state.selection.$from.sameParent(view.state.selection.$to)
+  )
     return notify(t("labelPlainText"), "error");
   const id = await askLabel(suggest("", text));
   if (!id) return;
@@ -543,7 +567,9 @@ async function labelHeading(pos: number) {
   if (!view || node?.type.name !== "heading") return;
   const id = await askLabel(suggest("sec-", node.textContent));
   if (!id) return;
-  view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, label: id }));
+  view.dispatch(
+    view.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, label: id }),
+  );
   view.focus();
 }
 /** Renames a label and every reference to it in this document. */
@@ -570,7 +596,11 @@ async function renameLabel(current: string) {
       for (const mark of node.marks) {
         const end = pos + node.nodeSize;
         if (mark.type.name === "qollab_label" && mark.attrs.id === current)
-          tr.removeMark(pos, end, mark).addMark(pos, end, mark.type.create({ id }));
+          tr.removeMark(pos, end, mark).addMark(
+            pos,
+            end,
+            mark.type.create({ id }),
+          );
         if (mark.type.name === "link" && mark.attrs.href === "#" + current)
           tr.removeMark(pos, end, mark).addMark(
             pos,
@@ -593,7 +623,8 @@ function removeLabel(id: string) {
     if (node.type.name === "heading" && node.attrs.label === id)
       tr.setNodeMarkup(at(pos), undefined, { ...node.attrs, label: "" });
     const tex = node.type.name === "qollab_tex" && texKind(node.attrs.source);
-    if (tex && tex.kind === "label" && tex.id === id) tr.delete(at(pos), at(pos + node.nodeSize));
+    if (tex && tex.kind === "label" && tex.id === id)
+      tr.delete(at(pos), at(pos + node.nodeSize));
     if (node.isText)
       for (const mark of node.marks)
         if (mark.type.name === "qollab_label" && mark.attrs.id === id) {
@@ -611,7 +642,9 @@ function openReferences() {
   // With numbered headings, LaTeX numbers every heading: \ref gives its number.
   const numbered = /^number-sections:\s*true\s*$/m.test(frontMatter() ?? "");
   referencing.value = collectLabels(view.state.doc).labels.map((label) =>
-    numbered && label.owner === "heading" && label.kind === "span" ? { ...label, latex: true } : label,
+    numbered && label.owner === "heading" && label.kind === "span"
+      ? { ...label, latex: true }
+      : label,
   );
 }
 /** Numbered labels become Quarto references; others become links to the text. */
@@ -628,9 +661,13 @@ function insertReference(label: LabelEntry) {
       ? `[@${label.id}]`
       : `[${label.text || label.id}](#${label.id})`;
   let tr;
-  if (selection.$from.parent.type.spec.code) tr = view.state.tr.insertText(syntax);
+  if (selection.$from.parent.type.spec.code)
+    tr = view.state.tr.insertText(syntax);
   else if (label.latex)
-    tr = view.state.tr.replaceSelectionWith(schema.nodes.qollab_tex.create({ source: syntax }), false);
+    tr = view.state.tr.replaceSelectionWith(
+      schema.nodes.qollab_tex.create({ source: syntax }),
+      false,
+    );
   else if (numbered)
     tr = view.state.tr.replaceSelectionWith(
       schema.nodes.qollab_ref.create({ key: label.id, bracketed: true }),
@@ -638,7 +675,9 @@ function insertReference(label: LabelEntry) {
     );
   else
     tr = view.state.tr.replaceSelectionWith(
-      schema.text(label.text || label.id, [schema.marks.link.create({ href: "#" + label.id })]),
+      schema.text(label.text || label.id, [
+        schema.marks.link.create({ href: "#" + label.id }),
+      ]),
       false,
     );
   view.dispatch(tr.scrollIntoView());
@@ -653,7 +692,11 @@ function revealPosition(pos: number) {
   if (!view) return;
   view.dispatch(
     view.state.tr
-      .setSelection(TextSelection.near(view.state.doc.resolve(Math.min(pos, view.state.doc.content.size))))
+      .setSelection(
+        TextSelection.near(
+          view.state.doc.resolve(Math.min(pos, view.state.doc.content.size)),
+        ),
+      )
       .scrollIntoView(),
   );
   view.focus();
@@ -793,7 +836,11 @@ onBeforeUnmount(() => {
         {{ t("reopen") }}
       </button>
     </div>
-    <div ref="scroller" class="editor-scroll scroll" @scroll.passive="scheduleSync(false)">
+    <div
+      ref="scroller"
+      class="editor-scroll scroll"
+      @scroll.passive="scheduleSync(false)"
+    >
       <div ref="host" class="editor-host" @contextmenu="onContextMenu" />
     </div>
     <ReferencePicker

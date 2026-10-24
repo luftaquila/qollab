@@ -7,7 +7,7 @@ import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { yaml } from "@codemirror/lang-yaml";
 import { tags } from "@lezer/highlight";
-import { sourceAnchor, type SyncAnchor } from "./pdf-sync";
+import { sourceAnchor, type SyncAnchor } from "./editor-sync";
 import { renumberLists } from "./source-lists";
 const props = defineProps<{
   value: string;
