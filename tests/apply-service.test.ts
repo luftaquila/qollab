@@ -6,6 +6,7 @@ import { config } from "../apps/server/src/config";
 import { token, hash } from "../apps/server/src/auth";
 import { FixtureSheets } from "./fixtures/apply-sheets";
 import type { Connection, State } from "../apps/apply/server/model";
+import { changeDigest } from "../apps/apply/server/model";
 let core: Awaited<ReturnType<typeof createApp>>,
   tool: Awaited<ReturnType<typeof createApplyApp>>;
 let failSave = false,
@@ -178,6 +179,42 @@ it("preserves local review drafts when public source rows are refreshed", async 
   expect(refreshed.json().clauses[0].draft.final).toBe("new condition");
   expect(refreshed.json().clauses[0].id).toBe(f.clauseId);
   expect(JSON.stringify(sheets.values)).toBe(sourceBefore);
+});
+it("records a deferred introduction and can later put the preserved proposal back", async () => {
+  const f = await fixture();
+  let state = f.state;
+  for (const year of [2028, 2027]) {
+    const c = state.clauses.find((c) => c.id === f.clauseId)!;
+    const review = await call(`/projects/${f.id}/clauses/${c.id}`, "PUT", {
+      version: state.version,
+      draft: { ...c.draft, action: "schedule", year, confirmed: true },
+    });
+    expect(review.statusCode, review.body).toBe(200);
+    state = review.json();
+    const preview = await call(`/projects/${f.id}/preview`, "POST", {
+      version: state.version,
+      ids: [c.id],
+    });
+    expect(preview.statusCode, preview.body).toBe(200);
+    const plan = preview.json().plan;
+    expect(plan.after).toContain("# Chapter {#scope}");
+    expect(plan.after).toContain("#custom[untouched]");
+    expect(plan.after.includes("new condition")).toBe(year === 2027);
+    const saved = await call(`/projects/${f.id}/apply`, "POST", {
+      planId: plan.id,
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    state = saved.json().state;
+    const actual = state.clauses.find((c) => c.id === f.clauseId)!;
+    expect(actual.draft.before).toBe(year === 2027 ? "new condition" : "");
+    expect(actual.draft.final).toBe("new condition");
+    expect(actual.appliedHash).toBe(changeDigest(actual));
+    const again = await call(`/projects/${f.id}/apply`, "POST", {
+      planId: plan.id,
+    });
+    expect(again.statusCode, again.body).toBe(200);
+    expect(again.json().run.id).toBe(saved.json().run.id);
+  }
 });
 it("requires a real Qollab identity, role, CSRF and project-owner connection settings", async () => {
   expect((await tool.inject("/apply/api/projects")).statusCode).toBe(401);

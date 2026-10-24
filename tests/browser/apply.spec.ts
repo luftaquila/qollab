@@ -89,6 +89,39 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
   );
   expect(current.data.files[0].source).not.toContain("Future proposal");
   await expect(page.locator(".runs")).toContainText("Alice");
+  await page
+    .getByRole("combobox", { name: "작업", exact: true })
+    .selectOption("schedule");
+  await page.getByLabel("교체할 원문", { exact: true }).fill("new condition");
+  for (const year of [2028, 2027]) {
+    await page.getByLabel("시행연도", { exact: true }).fill(String(year));
+    await page.getByLabel("문안·시행연도·반영 위치를 확인했습니다").check();
+    await page
+      .getByRole("button", { name: "검토 내용 저장", exact: true })
+      .click();
+    await expect(page.locator(".success")).toContainText(
+      "검토 내용을 저장했습니다",
+    );
+    await page
+      .getByRole("checkbox", { name: "Rule one 선택", exact: true })
+      .check();
+    await page.getByRole("button", { name: "반영 예정 비교" }).click();
+    await expect(dialog).toBeVisible();
+    await dialog
+      .getByRole("button", { name: "이 내용으로 문서에 반영" })
+      .click();
+    await expect(page.locator(".success")).toContainText(
+      "문서에 반영하고 이력을 저장했습니다",
+    );
+    const dated = await call(page, user, `/projects/${p.id}`);
+    expect(dated.data.files[0].source.includes("new condition")).toBe(
+      year === 2027,
+    );
+    expect(dated.data.files[0].source).toContain("# Chapter {#scope}");
+    await expect(page.getByLabel("교체할 원문", { exact: true })).toHaveValue(
+      year === 2027 ? "new condition" : "",
+    );
+  }
   expect(errors).toEqual([]);
   const stranger = await browser.newContext();
   const denied = await stranger.request.get(`/apply/?project=${p.id}`, {

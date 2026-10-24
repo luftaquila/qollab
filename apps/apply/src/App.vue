@@ -158,8 +158,10 @@ function ready(c: Clause) {
     !c.missing &&
     !applied.value[c.id] &&
     c.draft.confirmed &&
-    c.draft.year === state.value.connection?.year &&
-    ["insert", "replace", "keep"].includes(c.draft.action) &&
+    (c.draft.action === "schedule"
+      ? c.draft.year !== null
+      : c.draft.year === state.value.connection?.year) &&
+    ["insert", "replace", "keep", "schedule"].includes(c.draft.action) &&
     !!c.draft.fileId
   );
 }
@@ -676,6 +678,7 @@ onMounted(() =>
                   <option value="insert">추가</option>
                   <option value="replace">교체</option>
                   <option value="keep">현행 유지</option>
+                  <option value="schedule">도입 연도 적용</option>
                 </select></label
               ><label
                 >대상 문서<select
@@ -714,6 +717,11 @@ onMounted(() =>
                 </select></label
               >
             </div>
+            <p v-if="draft.action === 'schedule'" class="hint">
+              {{ state.connection?.year }}년까지 도입하는 조항은 최종 문안을
+              넣고, 이후 도입하는 조항은 이 문서에서 제외합니다. 제외한 문안은
+              이 도구에 남아 있으며, 연도를 바꿔 다시 반영할 수 있습니다.
+            </p>
             <details v-if="document" class="source-details">
               <summary>현재 문서의 원문 확인</summary>
               <textarea
@@ -726,7 +734,9 @@ onMounted(() =>
               ></textarea
               ><button
                 type="button"
-                v-if="draft.action === 'replace' && editable"
+                v-if="
+                  ['replace', 'schedule'].includes(draft.action) && editable
+                "
                 @click="
                   chooseBefore();
                   draft.confirmed = false;
@@ -735,7 +745,7 @@ onMounted(() =>
                 선택한 원문을 교체 대상으로
               </button>
             </details>
-            <label v-if="draft.action === 'replace'"
+            <label v-if="['replace', 'schedule'].includes(draft.action)"
               >교체할 원문<textarea
                 v-model="draft.before"
                 rows="5"

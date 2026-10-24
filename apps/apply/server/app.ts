@@ -19,7 +19,12 @@ import {
   type Plan,
   type Run,
 } from "./model.js";
-import { sourceClauses, sections, patchDocument } from "./engine.js";
+import {
+  sourceClauses,
+  sections,
+  patchDocument,
+  scheduledText,
+} from "./engine.js";
 
 export interface ApplyOptions {
   origin: string;
@@ -336,6 +341,7 @@ export async function createApplyApp(options: ApplyOptions) {
         version: saved.version,
         fileId,
         revision: Number(project.revision),
+        year: connection(state).year,
         before: file.source,
         after,
         ids: body.ids,
@@ -377,7 +383,13 @@ export async function createApplyApp(options: ApplyOptions) {
     delete run.error;
     for (const clause of state.clauses)
       if (plan.ids.includes(clause.id)) {
-        clause.appliedHash = plan.digests[clause.id];
+        if (clause.draft.action === "schedule") {
+          clause.draft.before = scheduledText(
+            clause.draft,
+            plan.year ?? connection(state).year,
+          );
+          clause.appliedHash = changeDigest(clause);
+        } else clause.appliedHash = plan.digests[clause.id];
         clause.appliedRevision = revision;
         clause.appliedBy = run.actorName;
       }

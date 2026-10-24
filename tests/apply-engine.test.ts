@@ -168,4 +168,41 @@ describe("sheet-driven document changes", () => {
       "TARGET_REQUIRED",
     );
   });
+  it("includes or defers a whole clause by introduction year while retaining its anchor", () => {
+    const c = clause();
+    c.draft.action = "schedule";
+    const source =
+      "# Chapter {#scope}\n\nold text\n\n# Other {#other}\n\nuntouched\n";
+    c.draft.year = null;
+    expect(() => patchDocument(source, [c], 2027, c.draft.fileId)).toThrow(
+      "CLAUSE_NOT_READY",
+    );
+    c.draft.year = 2028;
+    const deferred = patchDocument(source, [c], 2027, c.draft.fileId);
+    expect(deferred).toBe(
+      "# Chapter {#scope}\n\n# Other {#other}\n\nuntouched\n",
+    );
+    c.draft.before = "";
+    c.draft.year = 2027;
+    const included = patchDocument(deferred, [c], 2027, c.draft.fileId);
+    expect(included).toBe(source.replace("old text", "new text"));
+    c.draft.year = 2026;
+    expect(patchDocument(deferred, [c], 2027, c.draft.fileId)).toBe(included);
+    expect(() => patchDocument(source, [c], 2027, c.draft.fileId)).toThrow(
+      "BEFORE_TEXT_CHANGED",
+    );
+    c.draft.before = "old text";
+    expect(() =>
+      patchDocument(
+        source.replace("old text", "old text\n\nmanual addition"),
+        [c],
+        2027,
+        c.draft.fileId,
+      ),
+    ).toThrow("BEFORE_TEXT_CHANGED");
+    c.draft.anchor = "";
+    expect(() => patchDocument(source, [c], 2027, c.draft.fileId)).toThrow(
+      "ANCHOR_NOT_FOUND",
+    );
+  });
 });

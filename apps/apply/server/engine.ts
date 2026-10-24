@@ -105,6 +105,9 @@ export interface Section {
   end: number;
   body: string;
 }
+/** A proposal stays in review storage when its introduction is after this edition. */
+export const scheduledText = (draft: Draft, year: number) =>
+  draft.year !== null && draft.year <= year ? draft.final.trim() : "";
 /** Existing Markdown heading labels define scopes; visible numbers never identify edits. */
 export function sections(source: string): Section[] {
   const headings: {
@@ -164,7 +167,7 @@ export function patchDocument(
     if (
       c.missing ||
       !d.confirmed ||
-      d.year !== year ||
+      (d.action === "schedule" ? d.year === null : d.year !== year) ||
       c.approvalHash !== c.sourceHash
     )
       throw new ApplyError("CLAUSE_NOT_READY", 409, c.key);
@@ -172,7 +175,7 @@ export function patchDocument(
       throw new ApplyError("ALREADY_APPLIED", 409, c.key);
     if (
       d.fileId !== fileId ||
-      !["insert", "replace", "keep"].includes(d.action)
+      !["insert", "replace", "keep", "schedule"].includes(d.action)
     )
       throw new ApplyError("TARGET_REQUIRED", 409, c.key);
     if (d.action === "keep") continue;
@@ -183,7 +186,19 @@ export function patchDocument(
       : undefined;
     if (d.anchor && !scope)
       throw new ApplyError("ANCHOR_NOT_FOUND", 409, c.key);
-    if (d.action === "insert") {
+    if (d.action === "schedule") {
+      if (!scope) throw new ApplyError("ANCHOR_NOT_FOUND", 409, c.key);
+      const headerEnd = scope.body.indexOf("\n") + 1;
+      if (!headerEnd || scope.body.slice(headerEnd).trim() !== d.before.trim())
+        throw new ApplyError("BEFORE_TEXT_CHANGED", 409, c.key);
+      const value = scheduledText(d, year);
+      edits.push({
+        start: scope.start + headerEnd,
+        end: scope.end,
+        value: value ? "\n" + value + "\n\n" : "\n",
+        key: c.key,
+      });
+    } else if (d.action === "insert") {
       const at = scope?.end ?? source.length;
       edits.push({
         start: at,

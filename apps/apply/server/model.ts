@@ -38,7 +38,7 @@ export const connectionSchema = z
 export type Connection = z.infer<typeof connectionSchema>;
 export const draftSchema = z.object({
   year: z.number().int().min(2000).max(2200).nullable(),
-  action: z.enum(["insert", "replace", "keep", "hold"]),
+  action: z.enum(["insert", "replace", "keep", "hold", "schedule"]),
   fileId: z.string().uuid().or(z.literal("")),
   anchor: z.string().max(200),
   before: z.string().max(100000),
@@ -93,6 +93,7 @@ export interface Plan {
   version: number;
   fileId: string;
   revision: number;
+  year?: number;
   before: string;
   after: string;
   ids: string[];
