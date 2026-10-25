@@ -41,10 +41,10 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
   await page.getByLabel("본문 마지막 행").fill("4");
   await page.getByLabel("대상 시행연도").fill("2027");
   await page.getByLabel("검토의견 열").fill("D");
-  await page.getByLabel("판단 열", { exact: true }).fill("E");
+  await page.getByLabel("적용 여부 열", { exact: true }).fill("E");
   await page.getByLabel("적용 시기 열").fill("F");
   await page
-    .getByLabel("판단값과 작업 연결")
+    .getByLabel("적용 여부와 작업 연결")
     .fill("Replace=replace\nHold=hold");
   await page.getByLabel("적용 시기와 연도 연결").fill("2027=2027\nLater=defer");
   await page.getByRole("button", { name: "연결 저장" }).click();
@@ -66,7 +66,7 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
     .selectOption("scope");
   await page.getByRole("button", { name: "조항 연결", exact: true }).click();
   await expect(page.locator(".success")).toContainText("조항을 연결했습니다");
-  await expect(page.getByLabel("시트 판정")).toContainText("2027");
+  await expect(page.getByLabel("시트 적용 정보")).toContainText("2027");
   await expect(page.getByLabel("시행연도", { exact: true })).toHaveCount(0);
   await expect(
     page.getByText("현재 문서의 원문 확인", { exact: true }),
@@ -74,6 +74,33 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
   await expect(
     page.getByRole("button", { name: "검토 내용 저장", exact: true }),
   ).toHaveCount(0);
+  const comparison = page.locator(".clause-comparison");
+  await page.request.put("/__test/apply-sheet", {
+    data: { timing: "", decision: "" },
+  });
+  await page
+    .getByRole("button", { name: "항목 가져오기", exact: true })
+    .click();
+  await expect(page.getByLabel("시트 적용 정보")).toContainText("미정");
+  await expect(comparison.locator(".rendered").nth(0)).toContainText(
+    "old condition",
+  );
+  await expect(comparison.locator(".rendered").nth(1)).toContainText(
+    "New condition",
+  );
+  await expect(
+    page.getByRole("checkbox", { name: "Rule one 선택", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "반영 예정 비교" }),
+  ).toBeDisabled();
+  await expect(page.locator(".review-detail")).not.toContainText("판정");
+  await page.request.put("/__test/apply-sheet", {
+    data: { timing: "2027", decision: "Replace" },
+  });
+  await page
+    .getByRole("button", { name: "항목 가져오기", exact: true })
+    .click();
   await page
     .getByRole("checkbox", { name: "Rule one 선택", exact: true })
     .check();
@@ -93,14 +120,16 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
   expect(current.data.files[0].source).not.toContain("Future proposal");
   await expect(page.locator(".runs")).toContainText("Alice");
   for (const timing of ["Later", "2027"]) {
-    await page.request.put("/__test/apply-sheet", { data: { timing } });
+    await page.request.put("/__test/apply-sheet", {
+      data: { timing, decision: "Replace" },
+    });
     await page
       .getByRole("button", { name: "항목 가져오기", exact: true })
       .click();
     await expect(page.locator(".success")).toContainText(
-      "시트 판정·적용 시기를 갱신했습니다",
+      "적용 여부·적용 시기를 갱신했습니다",
     );
-    await expect(page.getByLabel("시트 판정")).toContainText(timing);
+    await expect(page.getByLabel("시트 적용 정보")).toContainText(timing);
     await page
       .getByRole("checkbox", { name: "Rule one 선택", exact: true })
       .check();
@@ -120,6 +149,30 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
       timing === "2027",
     );
     await expect(page.locator(".runs")).toContainText("Alice");
+    if (timing === "Later") {
+      await page.request.put("/__test/apply-sheet", {
+        data: { timing: "", decision: "" },
+      });
+      await page
+        .getByRole("button", { name: "항목 가져오기", exact: true })
+        .click();
+      await expect(comparison.locator(".rendered").nth(0)).toContainText(
+        "현재 문서에는 이 조항이 없습니다.",
+      );
+      await expect(comparison.locator(".rendered").nth(1)).toContainText(
+        "New condition",
+      );
+      await expect(comparison.locator(".rendered").nth(1)).toContainText(
+        "Additional detail",
+      );
+      await expect(
+        page.getByRole("checkbox", { name: "Rule one 선택", exact: true }),
+      ).toBeDisabled();
+      await page.screenshot({
+        path: "tmp/apply-undecided-comparison.png",
+        fullPage: true,
+      });
+    }
   }
   expect(errors).toEqual([]);
   const stranger = await browser.newContext();

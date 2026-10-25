@@ -1,4 +1,7 @@
 import { beforeAll, afterAll, it, expect } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createApp } from "../apps/server/src/app";
 import { createApplyApp } from "../apps/apply/server/app";
 import { pool } from "../apps/server/src/db";
@@ -8,6 +11,9 @@ import { FixtureSheets } from "./fixtures/apply-sheets";
 import type { Connection, State } from "../apps/apply/server/model";
 import { changeDigest } from "../apps/apply/server/model";
 import { defaultNumbering } from "../packages/codec/src/numbering";
+import { ApplyStore } from "../apps/apply/server/store";
+const applyDir = mkdtempSync(join(tmpdir(), "qollab-apply-test-"));
+const applyDatabase = join(applyDir, "state.sqlite");
 let core: Awaited<ReturnType<typeof createApp>>,
   tool: Awaited<ReturnType<typeof createApplyApp>>;
 let failSave = false,
@@ -81,7 +87,7 @@ beforeAll(async () => {
   tool = await createApplyApp({
     origin: config.origin,
     qollabOrigin: config.origin,
-    database: ":memory:",
+    database: applyDatabase,
     sheets,
     logger: false,
     upstream: (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -116,6 +122,7 @@ afterAll(async () => {
   await tool.close();
   await core.close();
   await pool.end();
+  rmSync(applyDir, { recursive: true, force: true });
 });
 async function fixture() {
   const id = (await api("/projects", "POST", { name: "Apply fixture" })).json()
@@ -165,6 +172,50 @@ async function fixture() {
     clauseId: clause.id,
   };
 }
+it("displays previously imported undecided wording without saving or enabling application", async () => {
+  const f = await fixture();
+  const store = new ApplyStore(applyDatabase);
+  try {
+    sheets.values.Source[1][4] = "";
+    sheets.values.Source[1][5] = "";
+    expect(
+      (
+        await call(`/projects/${f.id}/import`, "POST", {
+          version: f.state.version,
+        })
+      ).statusCode,
+    ).toBe(200);
+    const cached = store.get(f.id),
+      clause = cached.clauses[0];
+    // The previous version stored no proposed wording for undecided rows.
+    clause.draft.final = "";
+    const saved = store.put(f.id, cached, cached.version);
+    const documentBefore = (await api(`/projects/${f.id}`)).json();
+    const response = await call(`/projects/${f.id}`);
+    expect(response.statusCode).toBe(200);
+    expect(response.json().state.version).toBe(saved.version);
+    expect(response.json().state.clauses[0].draft).toMatchObject({
+      before: "old condition",
+      final: finalText,
+      confirmed: false,
+      year: null,
+    });
+    expect(store.get(f.id)).toEqual(saved);
+    expect(
+      (
+        await call(`/projects/${f.id}/preview`, "POST", {
+          version: saved.version,
+          ids: [f.clauseId],
+        })
+      ).json().code,
+    ).toBe("CLAUSE_NOT_READY");
+    expect((await api(`/projects/${f.id}`)).json()).toEqual(documentBefore);
+  } finally {
+    sheets.values.Source[1][4] = "Replace";
+    sheets.values.Source[1][5] = "2027";
+    store.close();
+  }
+});
 it("shows computed document numbers when choosing a clause target", async () => {
   const f = await fixture();
   const numbering = defaultNumbering();

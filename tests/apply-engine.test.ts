@@ -128,11 +128,18 @@ describe("sheet-driven document changes", () => {
     expect(get("Undecided", "This edition")).toMatchObject({
       action: "hold",
       confirmed: false,
+      final: "See \\ref{other}",
     });
     expect(get("Reject", "")).toMatchObject({
       action: "schedule",
       deferred: true,
       confirmed: true,
+    });
+    expect(get("", "")).toMatchObject({
+      action: "hold",
+      year: null,
+      confirmed: false,
+      final: "See \\ref{other}",
     });
   });
   it("reads exactly through the highest configured column, including beyond AZ", () => {

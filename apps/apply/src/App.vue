@@ -52,7 +52,7 @@ const messages: Record<string, string> = {
     "다른 작업으로 내용이 바뀌었습니다. 새로 불러온 뒤 다시 확인해 주세요.",
   SOURCE_CHANGED: "원본 시트가 바뀌었습니다. 항목을 다시 불러와 확인해 주세요.",
   REVIEW_CHANGED:
-    "시트 판정 또는 문서 연결이 바뀌었습니다. 다시 불러와 확인해 주세요.",
+    "시트의 적용 정보 또는 문서 연결이 바뀌었습니다. 다시 불러와 확인해 주세요.",
   DOCUMENT_CHANGED:
     "비교 이후 문서가 수정되었습니다. 반영 예정 내용을 다시 비교해 주세요.",
   BEFORE_TEXT_CHANGED:
@@ -181,8 +181,8 @@ function status(c: Clause) {
             : !c.timing
               ? "시기 미정"
               : !c.draft.confirmed
-                ? "연결 또는 판정 확인"
-                : "검토 중";
+                ? "적용 정보 확인"
+                : "반영 대기";
 }
 const filtered = computed(() =>
   state.value.clauses.filter(
@@ -215,7 +215,9 @@ const isExcluded = (c: Clause) =>
   !!c.draft.deferred ||
   (c.draft.year !== null && c.draft.year > (state.value.connection?.year || 0));
 const afterText = (c: Clause) =>
-  isExcluded(c) ? "이번 문서에서 제외됩니다." : c.draft.final;
+  c.draft.confirmed && isExcluded(c)
+    ? "이번 문서에서 제외됩니다."
+    : c.draft.final;
 const markdown = new MarkdownIt({ html: false, breaks: true });
 function rendered(source: string, references = document.value?.references) {
   return markdown.render(
@@ -341,7 +343,7 @@ async function importRows() {
     }),
   );
   if (current.value) await showClause(current.value);
-  notice.value = `${state.value.clauses.filter((c) => !c.missing).length}개 항목의 시트 판정·적용 시기를 갱신했습니다. 반영 예정 비교에서 문서 변경을 확인하세요.`;
+  notice.value = `${state.value.clauses.filter((c) => !c.missing).length}개 항목의 적용 여부·적용 시기를 갱신했습니다.`;
 }
 async function saveTarget() {
   await setState(
@@ -523,17 +525,19 @@ onMounted(() =>
         ><label
           >검토의견 열<input v-model="fields.notes" placeholder="J" /></label
         ><label
-          >판단 열<input v-model="fields.decision" placeholder="K" /></label
+          >적용 여부 열<input
+            v-model="fields.decision"
+            placeholder="K" /></label
         ><label
           >적용 시기 열<input v-model="fields.timing" placeholder="L"
         /></label>
       </div>
       <div class="twocol">
         <label
-          >판단값과 작업 연결<textarea
+          >적용 여부와 작업 연결<textarea
             v-model="fields.decisions"
             rows="5"
-            placeholder="판단값=insert&#10;판단값=replace&#10;판단값=keep&#10;판단값=hold"
+            placeholder="시트 값=insert&#10;시트 값=replace&#10;시트 값=keep&#10;시트 값=hold"
           ></textarea
           ><small
             >insert 추가 · replace 교체 · keep 현행 문안 · hold 미정 · exclude
@@ -603,7 +607,7 @@ onMounted(() =>
             /><select v-model="filter" aria-label="항목 상태">
               <option value="all">전체 항목</option>
               <option value="ready">반영 가능</option>
-              <option value="pending">검토 중</option>
+              <option value="pending">반영 대기</option>
               <option value="matched">문서와 일치</option>
               <option value="applied">반영 완료</option></select
             ><button
@@ -660,10 +664,41 @@ onMounted(() =>
             </div>
             <span>원본 {{ current.firstRow }}–{{ current.lastRow }}행</span>
           </div>
-          <section class="card sheet-decision" aria-label="시트 판정">
+          <div class="twocol clause-comparison">
+            <section class="card">
+              <h2>현재 문서</h2>
+              <p v-if="target" class="comparison-note">
+                {{ [target.number, target.title].filter(Boolean).join(" ") }}
+              </p>
+              <div
+                class="rendered"
+                v-html="
+                  rendered(
+                    currentText ||
+                      (draft.placement
+                        ? '현재 문서에는 이 조항이 없습니다.'
+                        : '비교할 문서 조항을 연결해 주세요.'),
+                  )
+                "
+              ></div>
+            </section>
+            <section class="card">
+              <h2>반영 후</h2>
+              <p v-if="!current.draft.confirmed" class="comparison-note">
+                적용할 경우의 문안
+              </p>
+              <div
+                class="rendered"
+                v-html="
+                  rendered(afterText(current) || '시트에 문안이 없습니다.')
+                "
+              ></div>
+            </section>
+          </div>
+          <section class="sheet-decision" aria-label="시트 적용 정보">
             <dl class="sheet-values">
               <div>
-                <dt>적용 여부</dt>
+                <dt>시트 적용 여부</dt>
                 <dd>{{ current.decision || "미정" }}</dd>
               </div>
               <div>
@@ -680,62 +715,21 @@ onMounted(() =>
                   >
                 </dd>
               </div>
-              <div>
-                <dt>연결된 조항</dt>
-                <dd>
-                  {{
-                    target
-                      ? [target.number, target.title].filter(Boolean).join(" ")
-                      : draft.placement
-                        ? "원래 순서로 추가"
-                        : "연결 필요"
-                  }}
-                </dd>
-              </div>
             </dl>
-            <p class="hint">
-              적용 여부와 적용 시기는 원본 시트에서 결정합니다. 변경 후 항목
-              가져오기를 누르면 갱신됩니다.
-            </p>
-            <p v-if="!current.draft.confirmed" class="hint">
+            <p v-if="!current.draft.confirmed" class="comparison-note">
               {{
-                !current.timing
-                  ? "적용 시기가 미정입니다."
+                current.draft.action === "hold" || !current.timing
+                  ? "시트에서 적용 여부·적용 시기를 정하면 문서에 반영할 수 있습니다."
                   : !state.connection.timings.some(
                         (t) => t.value === current?.timing,
                       )
-                    ? "시트의 적용 시기 값이 연결되지 않았습니다. 시트 연결 설정을 확인하세요."
-                    : current.draft.action === "hold"
-                      ? "시트에서 적용 여부를 결정해 주세요."
-                      : !current.draft.final && !isExcluded(current)
-                        ? "시트에 반영할 문안이 없습니다."
-                        : "문서 조항 연결을 확인해 주세요."
+                    ? "시트 연결 설정에서 이 적용 시기 값을 연결해 주세요."
+                    : !current.draft.final && !isExcluded(current)
+                      ? "시트에 반영할 문안이 없습니다."
+                      : "문서 조항 연결을 확인해 주세요."
               }}
             </p>
           </section>
-          <div class="twocol clause-comparison">
-            <section class="card">
-              <h2>현재 문서</h2>
-              <div
-                class="rendered"
-                v-html="
-                  rendered(currentText || '아직 포함되지 않은 조항입니다.')
-                "
-              ></div>
-            </section>
-            <section class="card">
-              <h2>반영 후</h2>
-              <p v-if="!current.draft.confirmed" class="hint">
-                시트 판정이 완료되면 반영할 수 있습니다.
-              </p>
-              <div
-                class="rendered"
-                v-html="
-                  rendered(afterText(current) || '반영할 문안이 없습니다.')
-                "
-              ></div>
-            </section>
-          </div>
           <details class="card source-details">
             <summary>시트 문안과 검토의견</summary>
             <div class="twocol">

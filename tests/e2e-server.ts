@@ -35,7 +35,9 @@ await writeFile("tmp/e2e-sessions.json", JSON.stringify(users), {
 });
 const sheets = new FixtureSheets();
 app.put("/__test/apply-sheet", async (req) => {
-  sheets.values.Source[1][5] = (req.body as { timing: string }).timing;
+  const body = req.body as { timing: string; decision?: string };
+  sheets.values.Source[1][5] = body.timing;
+  if (body.decision !== undefined) sheets.values.Source[1][4] = body.decision;
   return { ok: true };
 });
 const apply = await createApplyApp({

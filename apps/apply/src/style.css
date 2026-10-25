@@ -590,13 +590,17 @@ summary {
 .sheet-values {
   display: flex;
   flex-wrap: wrap;
-  gap: 24px;
+  gap: 12px 24px;
   margin: 0;
+}
+.sheet-values > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
 .sheet-values dt {
   color: var(--muted, #68788b);
   font-size: 12px;
-  margin-bottom: 6px;
 }
 .sheet-values dd {
   margin: 0;
@@ -607,6 +611,17 @@ summary {
 }
 .clause-comparison {
   margin: 18px 0;
+}
+.clause-comparison > section:last-child {
+  background: #f2f9f5;
+}
+.comparison-note {
+  font-size: 12px;
+  color: #68788b;
+  margin: 0 0 14px;
+}
+.sheet-decision > .comparison-note {
+  margin: 8px 0 0;
 }
 .rendered {
   line-height: 1.75;

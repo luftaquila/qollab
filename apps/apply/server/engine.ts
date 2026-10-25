@@ -32,6 +32,26 @@ function rewriteLiterals(
     },
   );
 }
+/** Reading a proposed clause does not require a decision to introduce it. */
+export function proposalText(
+  fields: Pick<Clause, "source" | "current" | "decision">,
+  connection: Connection,
+  replacements?: Draft["replacements"],
+) {
+  const action = connection.decisions.find(
+    (d) => d.value === fields.decision,
+  )?.action;
+  const material = action === "keep" ? fields.current : fields.source;
+  return rewriteLiterals(
+    material
+      .replace(/\\r\\n|\\n/g, "\n")
+      .replace(/\r\n?/g, "\n")
+      .replace(/\\t/g, "\t")
+      .replace(/^[▪•]\s*/gm, "- ")
+      .trim(),
+    replacements,
+  );
+}
 // UUID v8 derived from source identity survives a lost first-import response.
 const sourceId = (sourceKey: string) => {
   const h = digest(sourceKey);
@@ -115,17 +135,7 @@ export function sourceClauses(
         : decision === "exclude"
           ? "hold"
           : decision || "hold";
-    const material = decision === "keep" ? fields.current : fields.source;
-    // Wording also comes from the sheet; explicit rendering mappings preserve links and tables.
-    if (approved && decision !== "exclude") {
-      draft.final = material
-        .replace(/\\r\\n|\\n/g, "\n")
-        .replace(/\r\n?/g, "\n")
-        .replace(/\\t/g, "\t")
-        .replace(/^[▪•]\s*/gm, "- ")
-        .trim();
-      draft.final = rewriteLiterals(draft.final, draft.replacements);
-    }
+    draft.final = proposalText(fields, c, draft.replacements);
     draft.confirmed =
       approved &&
       (!!timing || decision === "exclude") &&

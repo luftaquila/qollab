@@ -26,6 +26,7 @@ import {
   scheduledText,
   schedulePlacement,
   bindTargets,
+  proposalText,
 } from "./engine.js";
 
 export interface ApplyOptions {
@@ -194,8 +195,18 @@ export async function createApplyApp(options: ApplyOptions) {
   app.get("/apply/api/projects/:pid", async (req) => {
     const id = pid(req),
       { project } = await context(req, id);
+    const state = store.get(id);
+    if (state.connection) {
+      for (const clause of state.clauses)
+        clause.draft.final = proposalText(
+          clause,
+          state.connection,
+          clause.draft.replacements,
+        );
+      bindTargets(state.clauses, project.data.files, state.connection.year);
+    }
     return {
-      state: store.get(id),
+      state,
       project: {
         id: project.id,
         name: project.name,
