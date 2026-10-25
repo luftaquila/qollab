@@ -1,26 +1,19 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import Icon from "../ui/Icon.vue";
 import Menu, { type MenuEntry } from "../ui/Menu.vue";
 import Avatar from "../ui/Avatar.vue";
 import { openContextMenu } from "../ui/context-menu";
 import { useWorkspace } from "./context";
-import { notify } from "../ui/feedback";
 import { t } from "../i18n";
 const ws = useWorkspace();
 const email = ref(""),
   role = ref("editor"),
-  link = ref(""),
   sending = ref(false);
 async function invite() {
   if (!email.value.trim()) return;
   sending.value = true;
   try {
-    const url = await ws.invite(email.value.trim(), role.value);
-    if (url) {
-      link.value = url;
-      email.value = "";
-    }
+    if (await ws.invite(email.value.trim(), role.value)) email.value = "";
   } finally {
     sending.value = false;
   }
@@ -43,7 +36,7 @@ function actions(m: any): MenuEntry[] {
     {
       label: t("transfer"),
       icon: "crown",
-      disabled: m.role === "owner",
+      disabled: m.pending || m.role === "owner",
       action: () => ws.changeRole(m, "owner", true),
     },
     { separator: true },
@@ -54,14 +47,6 @@ function actions(m: any): MenuEntry[] {
       action: () => ws.changeRole(m, null),
     },
   ];
-}
-async function copy() {
-  try {
-    await navigator.clipboard.writeText(link.value);
-    notify(t("copied"));
-  } catch {
-    (document.getElementById("invite-link") as HTMLInputElement)?.select();
-  }
 }
 </script>
 <template>
@@ -89,25 +74,6 @@ async function copy() {
         </button>
       </div>
       <p class="field-hint">{{ t("inviteHint") }}</p>
-      <div v-if="link" class="invite-link">
-        <input
-          id="invite-link"
-          :value="link"
-          class="input"
-          readonly
-          :aria-label="t('invite')"
-          @focus="($event.target as HTMLInputElement).select()"
-        />
-        <button
-          type="button"
-          class="icon-btn"
-          :aria-label="t('copyLink')"
-          :data-tip="t('copyLink')"
-          @click="copy"
-        >
-          <Icon name="copy" />
-        </button>
-      </div>
     </form>
     <h3 class="panel-section-title">
       {{ t("members") }} · {{ ws.members.value.length }}
@@ -117,15 +83,19 @@ async function copy() {
         v-for="m in ws.members.value"
         :key="m.id"
         class="member-row"
-        @contextmenu="manageable(m) && openContextMenu($event, actions(m), m.name)"
+        @contextmenu="
+          manageable(m) && openContextMenu($event, actions(m), m.name)
+        "
       >
         <Avatar :name="m.name" :picture="m.picture" :size="32" />
         <span class="member-text">
-          <strong
+          <strong :title="m.name"
             >{{ m.name }}
-            <span v-if="m.id === ws.user.id" class="muted">({{ t("you") }})</span></strong
+            <span v-if="m.id === ws.user.id" class="muted"
+              >({{ t("you") }})</span
+            ></strong
           >
-          <small>{{ m.email }}</small>
+          <small :title="m.email">{{ m.email }}</small>
         </span>
         <select
           v-if="manageable(m)"
@@ -134,7 +104,13 @@ async function copy() {
           :aria-label="`${t('role')} · ${m.name}`"
           @change="ws.changeRole(m, ($event.target as HTMLSelectElement).value)"
         >
-          <option v-for="r in ['owner', 'editor', 'viewer']" :key="r" :value="r">
+          <option
+            v-for="r in m.pending
+              ? ['editor', 'viewer']
+              : ['owner', 'editor', 'viewer']"
+            :key="r"
+            :value="r"
+          >
             {{ t(r as any) }}
           </option>
         </select>
@@ -145,6 +121,31 @@ async function copy() {
           trigger-class="icon-btn sm"
           :items="actions(m)"
         />
+        <small
+          v-if="m.mail"
+          class="member-mail"
+          :class="{ failed: m.mail.status === 'failed' }"
+        >
+          {{
+            t(
+              m.mail.status === "sent"
+                ? "mailSent"
+                : m.mail.status === "failed"
+                  ? "mailFailed"
+                  : m.mail.status === "cancelled"
+                    ? "mailCancelled"
+                    : "mailPending",
+            )
+          }}
+          <button
+            v-if="ws.owner.value && m.mail.status === 'failed'"
+            type="button"
+            class="btn sm"
+            @click="ws.retryMemberMail(m)"
+          >
+            {{ t("retryMail") }}
+          </button>
+        </small>
       </li>
     </ul>
     <p v-if="ws.owner.value" class="field-hint">{{ t("roleChangeNote") }}</p>
@@ -170,12 +171,16 @@ async function copy() {
 .invite-row .btn {
   height: 36px;
 }
-.invite-link {
+.member-mail {
+  grid-column: 2 / -1;
   display: flex;
-  gap: 4px;
+  gap: 8px;
+  align-items: center;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
 }
-.invite-link .input {
-  font: var(--text-sm) var(--font-mono);
+.member-mail.failed {
+  color: var(--danger);
 }
 .member-list {
   margin: 0 0 12px;
@@ -183,9 +188,10 @@ async function copy() {
   list-style: none;
 }
 .member-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 10px;
+  gap: 4px 10px;
   padding: 8px 4px;
   border-bottom: 1px solid var(--border);
 }

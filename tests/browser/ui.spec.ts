@@ -384,8 +384,10 @@ test("panels and in-page dialogs replace browser prompts", async ({
     .click();
   await page.getByLabel("Email").fill("carol@example.com");
   await page.getByLabel("Role", { exact: true }).selectOption("viewer");
-  await page.getByRole("button", { name: "Create invitation link" }).click();
-  await expect(page.locator("#invite-link")).toHaveValue(/invite=/);
+  await page.getByRole("button", { name: "Add member", exact: true }).click();
+  await expect(
+    page.locator(".member-row").filter({ hasText: "carol@example.com" }),
+  ).toContainText("Email sent");
 
   await page.getByRole("button", { name: "Account" }).click();
   await page.getByRole("menuitem", { name: "Dark" }).click();
@@ -805,9 +807,7 @@ test("Markdown source editing takes the lock, autosaves and returns to visual", 
     email: "bob@example.com",
     role: "editor",
   });
-  await call(peer, bob, "/invites/accept", "POST", {
-    token: new URL(invite.result.url).searchParams.get("invite"),
-  });
+  expect(invite.result.mail.status).toBe("sent");
   await open(page, name);
   await expect(
     page.getByRole("button", { name: "Account" }).locator("img"),

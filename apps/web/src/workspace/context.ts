@@ -29,7 +29,8 @@ export interface WorkspaceContext {
   makeCheckpoint: () => Promise<void>;
   compare: (id: string) => Promise<void>;
   restore: (id: string) => Promise<void>;
-  invite: (email: string, role: string) => Promise<string | undefined>;
+  invite: (email: string, role: string) => Promise<boolean>;
+  retryMemberMail: (member: any) => Promise<void>;
   changeRole: (
     m: any,
     role: string | null,

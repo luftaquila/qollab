@@ -122,15 +122,40 @@ it("completes a signed OIDC code+PKCE flow and rejects nonce, audience, signatur
       "INSERT INTO invites VALUES($1,$2,'OIDC@example.com','viewer',now()+interval '1 hour')",
       [randomUUID(), project],
     );
-    const invited = await flow("valid", "/?invite=original-token");
-    expect(invited.result.statusCode).toBe(302);
-    expect(invited.result.headers.location).toBe("/?invite=original-token");
     expect((await flow("unverified")).result.json().code).toBe(
       "IDENTITY_CLAIMS",
     );
+    expect(
+      (await pool.query("SELECT * FROM members WHERE project_id=$1", [project]))
+        .rowCount,
+    ).toBe(0);
+    // No account, approval-list entry or acceptance token is needed before first login.
+    await pool.query("DELETE FROM sessions WHERE user_id='oidc-sub'");
+    await pool.query("DELETE FROM users WHERE id='oidc-sub'");
+    const destination = "/docs/p/" + project + "/chapter.html#rule";
+    const invited = await flow("valid", destination);
+    expect(invited.result.statusCode, invited.result.body).toBe(302);
+    expect(invited.result.headers.location).toBe(destination);
+    expect(
+      (
+        await pool.query(
+          "SELECT user_id,role FROM members WHERE project_id=$1",
+          [project],
+        )
+      ).rows,
+    ).toEqual([{ user_id: "oidc-sub", role: "viewer" }]);
+    expect(
+      (await pool.query("SELECT * FROM invites WHERE project_id=$1", [project]))
+        .rowCount,
+    ).toBe(0);
+    expect((await flow("valid", destination)).result.headers.location).toBe(
+      destination,
+    );
+    // A removed member cannot reuse a former grant or an expired legacy invitation.
+    await pool.query("DELETE FROM members WHERE project_id=$1", [project]);
     await pool.query(
-      "UPDATE invites SET expires=now()-interval '1 second' WHERE project_id=$1",
-      [project],
+      "INSERT INTO invites(id,project_id,email,role,expires) VALUES($1,$2,'oidc@example.com','viewer',now()-interval '1 second')",
+      [randomUUID(), project],
     );
     expect((await flow("valid")).result.json().code).toBe("ACCOUNT_APPROVAL");
     await pool.query("INSERT INTO members VALUES($1,'oidc-sub','viewer')", [

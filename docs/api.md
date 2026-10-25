@@ -42,7 +42,7 @@
 
 ## 사용자 REST
 
-`ACCOUNT_POLICY=approval`의 로그인 승인 조건은 `APPROVED_EMAILS`, 만료 전 초대의 검증된 이메일, 기존 프로젝트 멤버십 중 하나다. 초대로 로그인했어도 `/invites/accept`를 완료하기 전에는 프로젝트 권한이 생기지 않는다. `GET /auth/google?returnTo=...`는 원래 문서·프로젝트·초대·반영 도구 경로를 로그인 후 복원한다. 외부 주소와 API 경로는 복귀 대상으로 허용하지 않는다. 익명 접근을 끄면 기존 게스트 쿠키도 거부하며 서버 시작 시 게스트 세션을 폐기한다.
+`ACCOUNT_POLICY=approval`의 로그인 승인 조건은 `APPROVED_EMAILS`, 프로젝트에 추가된 이메일, 기존 프로젝트 멤버십 중 하나다. 멤버를 추가하면 즉시 권한이 생기며 수락 링크는 없다. 계정이 아직 없으면 이메일 권한을 저장하고, 해당 이메일이 검증된 Google 계정의 첫 로그인 때 멤버십에 연결한다. 이미 로그인한 계정의 기존 초대도 다음 요청에서 연결한다. 이메일 권한은 자동 만료되지 않으며 Owner가 역할을 바꾸거나 삭제할 수 있다. `GET /auth/google?returnTo=...`는 원래 문서·프로젝트·반영 도구 경로를 로그인 후 복원한다. 외부 주소와 API 경로는 복귀 대상으로 허용하지 않는다. 익명 접근을 끄면 기존 게스트 쿠키도 거부하며 서버 시작 시 게스트 세션을 폐기한다.
 
 | Method / path | 요청·응답 | 최소 권한 |
 |---|---|---|
@@ -71,15 +71,18 @@
 | GET /projects/:pid/history/:cid | 버전 원문과 파일 매핑 | Viewer |
 | GET /projects/:pid/history/:cid/export | 해당 버전 ZIP·이미지 | Viewer |
 | POST /projects/:pid/history/:cid/restore | revision; 프로젝트 전체 복원 | Owner |
-| GET /projects/:pid/members | 이름·이메일·역할 | Viewer |
-| POST /projects/:pid/invites | revision, email, role(editor/viewer) → 7일 일회용 링크 | Owner |
-| POST /invites/accept | token; 로그인 계정 이메일 일치 | 로그인 |
+| GET /projects/:pid/members | 이름·이메일·역할, pending(첫 로그인 전 이메일 권한), mail(id/status/error) | Viewer |
+| POST /projects/:pid/invites | revision, email, name?, role(editor/viewer) → 즉시 권한 부여, 프로젝트 URL과 mail 발송 상태 | Owner |
+| PATCH /projects/:pid/invites/:uid | revision, role(editor/viewer/null=삭제); 첫 로그인 전 이메일 권한 변경 | Owner |
+| POST /projects/:pid/mail/:uid/retry | 실패한 안내 메일 재발송; 성공한 메일은 다시 보내지 않음 | Owner |
 | PATCH /projects/:pid/members/:uid | revision, role(null=삭제), transfer? | Owner |
 | GET /projects/:pid/export | 일관된 현재 ZIP | Viewer |
 | POST /import | name, bytes(base64); 새 프로젝트 | 로그인 |
 | GET/POST /projects/:pid/builds | 빌드 이력 / revision으로 수동 빌드 | Viewer/Editor |
 | POST /projects/:pid/builds/:bid/cancel | revision | Editor |
 | GET /projects/:pid/pdf | 마지막 정상 PDF; X-Qollab-Revision | Viewer |
+
+멤버 추가와 안내 메일은 DB에 함께 기록한다. SMTP 발송에 실패해도 부여한 권한은 유지되며 `mail.status=failed`로 반환한다. 발송 오류에는 진단 코드만 저장한다. Owner가 실패한 메일을 재시도할 수 있고, 권한을 삭제한 대상의 미발송 메일은 취소한다. 수락 API `/invites/accept`는 사용하지 않는다.
 
 이미지 응답은 저장된 파일 metadata와 요청 문서 기준 `relative` 경로다. 프로젝트·파일·업로드 응답의 이미지 `contentHash`는 원본 bytes의 SHA-256이며 PDF 캐시가 이미지 변경을 판별할 때 사용한다. `uploadId`는 재시도 동안 유지한다. 다른 콘텐츠에 같은 ID를 사용하면 거부한다. revision 충돌은 쓰기가 수행되지 않은 결과이며 브라우저는 최신 revision으로 최대 3회 재시도한다.
 

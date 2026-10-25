@@ -13,9 +13,12 @@ import { blobId, migrateBlobs } from "../apps/server/src/blobs.js";
 import { defaultNumbering } from "../packages/codec/src/numbering.js";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
+import type Mail from "nodemailer/lib/mailer/index.js";
 let app: Awaited<ReturnType<typeof createApp>>;
 const people: any = {};
 const sockets: WebSocket[] = [];
+const sentMail: Mail.Options[] = [];
+let failMail = false;
 async function request(
   user: string,
   url: string,
@@ -71,7 +74,17 @@ async function ws(p: any, who = "owner", epoch = 1) {
   return { socket, take, messages };
 }
 beforeAll(async () => {
-  app = await createApp({ logger: false });
+  app = await createApp({
+    logger: false,
+    mailSender: async (message) => {
+      if (failMail)
+        throw Object.assign(new Error("SMTP diagnostic with secret contents"), {
+          code: "ECONNECTION",
+        });
+      sentMail.push(message);
+      return { messageId: String(message.messageId) };
+    },
+  });
   await pool.query(
     "TRUNCATE projects,users,sessions,oidc_states,updates,checkpoints,restores,builds,members,invites,audit CASCADE",
   );
@@ -844,7 +857,7 @@ it("restores documents/assets with fresh generations while preserving members an
   const old = await ws(p);
   expect((await old.take("error")).code).toBe("STALE_DOCUMENT");
 });
-it("prevents removing last owner; accepts single-use targeted invitations", async () => {
+it("adds existing accounts immediately, protects the last owner and revokes access", async () => {
   const p = await project();
   expect(
     (
@@ -856,22 +869,207 @@ it("prevents removing last owner; accepts single-use targeted invitations", asyn
   ).toBe("LAST_OWNER");
   const invite = await request("owner", `/projects/${p.id}/invites`, "POST", {
     revision: 0,
-    email: "editor@example.com",
+    email: "  EDITOR@example.com  ",
     role: "editor",
   });
-  const tok = new URL(invite.json().result.url).searchParams.get("invite");
+  expect(invite.statusCode, invite.body).toBe(200);
+  expect(invite.json().result.url).toBe(`${config.origin}/projects/${p.id}`);
+  expect(invite.json().result.mail.status).toBe("sent");
+  expect((await request("editor", `/projects/${p.id}`)).json().role).toBe(
+    "editor",
+  );
+  expect((await request("viewer", `/projects/${p.id}`)).statusCode).toBe(404);
   expect(
-    (await request("viewer", "/invites/accept", "POST", { token: tok }))
-      .statusCode,
+    (await request("editor", "/projects"))
+      .json()
+      .some((r: any) => r.id === p.id),
+  ).toBe(true);
+  // Legacy grants must not silently restore access after the owner removes a member.
+  await pool.query(
+    "INSERT INTO invites(id,project_id,email,role,expires) VALUES($1,$2,'EDITOR@example.com','viewer','infinity')",
+    [randomUUID(), p.id],
+  );
+  const removed = await request(
+    "owner",
+    `/projects/${p.id}/members/editor`,
+    "PATCH",
+    {
+      revision: invite.json().revision,
+      role: null,
+    },
+  );
+  expect(removed.statusCode, removed.body).toBe(200);
+  expect((await request("editor", `/projects/${p.id}`)).statusCode).toBe(404);
+  expect(
+    (await pool.query("SELECT * FROM invites WHERE project_id=$1", [p.id]))
+      .rowCount,
+  ).toBe(0);
+});
+it("lists and manages email members before first login, without expiring their access", async () => {
+  const p = await project();
+  const invited = await request("owner", `/projects/${p.id}/invites`, "POST", {
+    revision: 0,
+    email: "new-member@example.com",
+    name: "<Member & Name>",
+    role: "editor",
+  });
+  expect(invited.statusCode, invited.body).toBe(200);
+  const members = (await request("owner", `/projects/${p.id}/members`)).json();
+  const member = members.find((m: any) => m.email === "new-member@example.com");
+  expect(member).toMatchObject({
+    name: "<Member & Name>",
+    role: "editor",
+    pending: true,
+    mail: { status: "sent" },
+  });
+  expect(
+    (
+      await pool.query(
+        "SELECT isfinite(expires) AS finite FROM invites WHERE id=$1",
+        [member.id],
+      )
+    ).rows[0].finite,
+  ).toBe(false);
+  const message = sentMail.find(
+    (m) =>
+      m.messageId === `<${member.mail.id}@${new URL(config.origin).hostname}>`,
+  )!;
+  expect(message.to).toEqual({
+    name: "<Member & Name>",
+    address: "new-member@example.com",
+  });
+  expect(message.text).toContain(`${config.origin}/projects/${p.id}`);
+  expect(message.text).toContain("별도 수락 절차 없이");
+  expect(message.html).toContain("&lt;Member &amp; Name&gt;");
+  expect(message.html).not.toContain("<Member & Name>");
+  expect(message.html).not.toContain("?invite=");
+  expect(
+    (
+      await request(
+        "viewer",
+        `/projects/${p.id}/invites/${member.id}`,
+        "PATCH",
+        { revision: invited.json().revision, role: null },
+      )
+    ).statusCode,
   ).toBe(404);
+  const changed = await request(
+    "owner",
+    `/projects/${p.id}/invites/${member.id}`,
+    "PATCH",
+    { revision: invited.json().revision, role: "viewer" },
+  );
+  expect(changed.statusCode, changed.body).toBe(200);
   expect(
-    (await request("editor", "/invites/accept", "POST", { token: tok }))
-      .statusCode,
+    (await request("owner", `/projects/${p.id}/members`))
+      .json()
+      .find((m: any) => m.id === member.id).role,
+  ).toBe("viewer");
+  expect(
+    (
+      await request(
+        "owner",
+        `/projects/${p.id}/invites/${member.id}`,
+        "PATCH",
+        { revision: changed.json().revision, role: null },
+      )
+    ).statusCode,
   ).toBe(200);
   expect(
-    (await request("editor", "/invites/accept", "POST", { token: tok }))
-      .statusCode,
+    (await request("owner", `/projects/${p.id}/members`)).json(),
+  ).toHaveLength(1);
+});
+it("keeps granted access on mail failure, retries once, and cancels mail for removed members", async () => {
+  const p = await project();
+  let invite;
+  failMail = true;
+  try {
+    invite = await request("owner", `/projects/${p.id}/invites`, "POST", {
+      revision: 0,
+      email: "editor@example.com",
+      role: "editor",
+    });
+  } finally {
+    failMail = false;
+  }
+  expect(invite.statusCode, invite.body).toBe(200);
+  expect(invite.json().result.mail).toMatchObject({
+    status: "failed",
+    error: "ECONNECTION",
+  });
+  expect((await request("editor", `/projects/${p.id}`)).json().role).toBe(
+    "editor",
+  );
+  const id = invite.json().result.mail.id;
+  const url = `/projects/${p.id}/mail/${id}/retry`;
+  expect((await request("editor", url, "POST", {})).statusCode).toBe(403);
+  const other = await project();
+  expect(
+    (
+      await request(
+        "owner",
+        `/projects/${other.id}/mail/${id}/retry`,
+        "POST",
+        {},
+      )
+    ).statusCode,
   ).toBe(404);
+  const before = sentMail.length;
+  const retries = await Promise.all([
+    request("owner", url, "POST", {}),
+    request("owner", url, "POST", {}),
+  ]);
+  for (const retry of retries)
+    expect(retry.json().status, retry.body).toBe("sent");
+  expect((await request("owner", url, "POST", {})).json().status).toBe("sent");
+  expect(sentMail.length).toBe(before + 1);
+  expect(
+    (
+      await pool.query(
+        "SELECT attempts,error,message_id FROM member_mail WHERE id=$1",
+        [id],
+      )
+    ).rows[0],
+  ).toMatchObject({
+    attempts: 2,
+    error: null,
+    message_id: sentMail.at(-1)!.messageId,
+  });
+  failMail = true;
+  let pending;
+  try {
+    pending = await request("owner", `/projects/${p.id}/invites`, "POST", {
+      revision: invite.json().revision,
+      email: "removed@example.com",
+      role: "viewer",
+    });
+  } finally {
+    failMail = false;
+  }
+  const member = (await request("owner", `/projects/${p.id}/members`))
+    .json()
+    .find((m: any) => m.email === "removed@example.com");
+  expect(
+    (
+      await request(
+        "owner",
+        `/projects/${p.id}/invites/${member.id}`,
+        "PATCH",
+        { revision: pending.json().revision, role: null },
+      )
+    ).statusCode,
+  ).toBe(200);
+  expect(
+    (
+      await request(
+        "owner",
+        `/projects/${p.id}/mail/${member.mail.id}/retry`,
+        "POST",
+        {},
+      )
+    ).json().status,
+  ).toBe("cancelled");
+  expect(sentMail.length).toBe(before + 1);
 });
 it("keeps last good PDF on failure and rejects stale leased results", async () => {
   const p = await project();

@@ -5,7 +5,21 @@ import { pool } from "../apps/server/src/db.js";
 import { token, hash } from "../apps/server/src/auth.js";
 import { createApplyApp } from "../apps/apply/server/app.js";
 import { FixtureSheets } from "./fixtures/apply-sheets.js";
-const app = await createApp({ logger: false });
+let failMail = false;
+const app = await createApp({
+  logger: false,
+  mailSender: async (message) => {
+    if (failMail)
+      throw Object.assign(new Error("Fixture SMTP failure"), {
+        code: "ECONNECTION",
+      });
+    return { messageId: String(message.messageId) };
+  },
+});
+app.put("/__test/mail", async (req) => {
+  failMail = !!(req.body as { fail: boolean }).fail;
+  return { ok: true };
+});
 const users = [];
 for (const name of ["Alice", "Bob"]) {
   const raw = token(),

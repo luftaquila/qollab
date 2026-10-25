@@ -11,7 +11,7 @@ import {
 } from "vue";
 import { api, base64, downloadText, uploadAsset } from "../api";
 import { t, fmt, errorText } from "../i18n";
-import { fail, notify, askText, askConfirm } from "../ui/feedback";
+import { fail, notify, dismiss, askText, askConfirm } from "../ui/feedback";
 import { preference } from "../theme";
 import Icon from "../ui/Icon.vue";
 import type { Heading } from "../editor-commands";
@@ -627,6 +627,7 @@ async function replaceFigure(files: File[]) {
   const src = await uploadImages(files);
   if (src && imageForm.value) imageForm.value = { ...imageForm.value, src };
 }
+let mailToast: number | undefined;
 async function invite(email: string, role: string) {
   try {
     const r = await api(`/projects/${project.value.id}/invites`, "POST", {
@@ -635,10 +636,35 @@ async function invite(email: string, role: string) {
       role,
     });
     await refresh();
-    return r.result.url as string;
+    if (mailToast !== undefined) dismiss(mailToast);
+    mailToast = notify(
+      t(
+        r.result.mail?.status === "sent"
+          ? "memberAddedMailSent"
+          : "memberAddedMailFailed",
+      ),
+      r.result.mail?.status === "sent" ? "info" : "error",
+    );
+    return true;
   } catch (e) {
     fail(e);
+    return false;
   }
+}
+async function retryMemberMail(member: any) {
+  await guarded(async () => {
+    const result = await api(
+      `/projects/${project.value.id}/mail/${member.mail.id}/retry`,
+      "POST",
+      {},
+    );
+    await refresh();
+    if (mailToast !== undefined) dismiss(mailToast);
+    mailToast = notify(
+      t(result.status === "sent" ? "mailSent" : "mailFailed"),
+      result.status === "sent" ? "info" : "error",
+    );
+  });
 }
 async function changeRole(m: any, role: string | null, transfer = false) {
   if (role === null || transfer) {
@@ -654,7 +680,7 @@ async function changeRole(m: any, role: string | null, transfer = false) {
   }
   await guarded(async () => {
     await api(
-      `/projects/${project.value.id}/members/${encodeURIComponent(m.id)}`,
+      `/projects/${project.value.id}/${m.pending ? "invites" : "members"}/${encodeURIComponent(m.id)}`,
       "PATCH",
       { revision: rev(), role, transfer },
     );
@@ -767,6 +793,7 @@ provide(workspaceKey, {
   compare,
   restore,
   invite,
+  retryMemberMail,
   changeRole,
   scrollToHeading: (index: number) => editor.value?.scrollToHeading(index),
   frontMatter,

@@ -21,8 +21,13 @@ import {
 import { builds } from "./builds.js";
 import { checkpoint, mirror, recover, writable } from "./store.js";
 import type { Configuration } from "openid-client";
+import { memberMailer, type MailSender } from "./mail.js";
 export async function createApp(
-  options: { oidc?: Configuration; logger?: boolean } = {},
+  options: {
+    oidc?: Configuration;
+    logger?: boolean;
+    mailSender?: MailSender;
+  } = {},
 ) {
   await migrate();
   if (!config.anonymous)
@@ -67,7 +72,18 @@ export async function createApp(
     return { ok: true };
   });
   await authRoutes(app, disconnectUser, options.oidc);
-  await routes(app, disconnectProject);
+  const mail = memberMailer(options.mailSender);
+  await routes(app, disconnectProject, mail);
+  const mailTimer = setInterval(() => {
+    void mail.flush().catch((e) => {
+      if (e.code !== "MAINTENANCE") app.log.error(e);
+    });
+  }, 10000);
+  mailTimer.unref();
+  app.addHook("onClose", async () => {
+    clearInterval(mailTimer);
+    await mail.close();
+  });
   await collaboration(app);
   await builds(app);
   await websiteRoutes(app);

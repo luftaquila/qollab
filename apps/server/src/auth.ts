@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { config } from "./config.js";
 import { pool, Fault } from "./db.js";
 import { returnDestination } from "../../../packages/shared/src/navigation.js";
+import { linkEmailMemberships } from "./memberships.js";
 export const token = () => randomBytes(32).toString("base64url");
 export const hash = (v: string) => createHash("sha256").update(v).digest("hex");
 export interface Identity {
@@ -19,12 +20,13 @@ export async function identity(req: FastifyRequest): Promise<Identity> {
   const raw = req.cookies.qollab;
   if (!raw) throw new Fault("UNAUTHENTICATED", 401);
   const r = await pool.query(
-    "SELECT u.*,CASE WHEN u.id='anonymous' THEN COALESCE(sp.display_name,'Guest '||left(s.id,6)) ELSE u.name END AS name,s.csrf,s.id AS session FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN session_profiles sp ON sp.session_id=s.id WHERE s.id=$1 AND s.expires>now()",
+    "SELECT u.*,CASE WHEN u.id='anonymous' THEN COALESCE(sp.display_name,'Guest '||left(s.id,6)) ELSE u.name END AS name,s.csrf,s.id AS session,EXISTS(SELECT 1 FROM invites i WHERE lower(i.email)=lower(u.email) AND i.expires>now()) AS email_grants FROM sessions s JOIN users u ON u.id=s.user_id LEFT JOIN session_profiles sp ON sp.session_id=s.id WHERE s.id=$1 AND s.expires>now()",
     [hash(raw)],
   );
   if (!r.rowCount) throw new Fault("UNAUTHENTICATED", 401);
   if (r.rows[0].id === guest.id && !config.anonymous)
     throw new Fault("UNAUTHENTICATED", 401);
+  if (r.rows[0].email_grants) await linkEmailMemberships(r.rows[0]);
   return r.rows[0];
 }
 /** The shared account for ANONYMOUS_ACCESS. Google subjects never use this id. */
@@ -78,7 +80,7 @@ export function validateClaims(
     picture: profilePicture(claims.picture),
   };
 }
-/** Invitations admit verified people; project membership still requires acceptance. */
+/** Email grants and existing memberships admit verified people. */
 export async function authorizeClaims(claims: oidc.IDToken) {
   const user = validateClaims(claims, {
     workspace: config.workspace,
@@ -119,6 +121,7 @@ export async function establishSession(
     "INSERT INTO users(id,email,name,picture) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET email=$2,name=$3,picture=$4",
     [user.id, user.email, user.name, user.picture ?? null],
   );
+  await linkEmailMemberships(user);
   const raw = token(),
     csrf = token();
   await pool.query(

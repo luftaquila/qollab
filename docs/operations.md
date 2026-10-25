@@ -45,11 +45,19 @@ Google의 [redirect URI 규칙](https://developers.google.com/identity/protocols
 
 1. OAuth 웹 클라이언트 생성. 일반 Gmail 계정은 Audience를 **External**로 설정한다. **Internal**은 같은 Google Workspace 조직 사용자만 허용할 때 사용한다. 승인된 redirect URI는 `${PUBLIC_ORIGIN}/api/auth/callback`.
 2. `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `PUBLIC_ORIGIN` 설정.
-3. 기본 `ACCOUNT_POLICY=approval`: 최초 운영 계정은 `APPROVED_EMAILS`에 지정한다. 만료되지 않은 프로젝트 초대를 받은 이메일과 기존 프로젝트 멤버도 로그인할 수 있어, 멤버마다 환경변수를 변경할 필요가 없다. `all`은 모든 검증된 Google 계정의 로그인·프로젝트 생성을 허용한다.
+3. 기본 `ACCOUNT_POLICY=approval`: 최초 운영 계정은 `APPROVED_EMAILS`에 지정한다. 프로젝트에 추가된 이메일과 기존 프로젝트 멤버도 로그인할 수 있어, 멤버마다 환경변수를 변경할 필요가 없다. 멤버 추가 즉시 권한이 생기며, 처음 방문한 사람은 해당 Google 계정으로 로그인하면 된다. 별도 수락은 없다. `all`은 모든 검증된 Google 계정의 로그인·프로젝트 생성을 허용한다.
 4. Workspace 제한이 필요하면 `GOOGLE_WORKSPACE_DOMAIN` 지정. 검증된 `hd` claim을 확인한다.
 5. 외부 서비스는 `PUBLIC_ORIGIN=https://docs.example.com`과 HTTPS 프록시 사용. WebSocket·SSE 프록시 버퍼링과 타임아웃도 설정한다.
 
 Google sub를 사용자 ID로 사용한다. 이메일 변경으로 계정을 합치지 않는다. Google token은 저장하지 않는다. 세션 cookie는 HttpOnly/SameSite=Lax, HTTPS origin에서는 Secure다. 변경 API의 CSRF와 Origin 검사는 항상 활성화된다.
+
+### 멤버 안내 메일
+
+앱에 `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`을 설정한다. 기본 포트 587은 STARTTLS를 필수로 사용한다. 465 포트는 `SMTP_SECURE=true`로 지정한다. SMTP 인증이 없는 릴레이는 사용자·비밀번호를 비운다. `SMTP_FROM`에는 메일 서버가 허용한 발신 주소를 지정하며 비밀번호는 Secret이나 비공개 환경변수로 전달한다.
+
+멤버 추가 시 프로젝트 이름, 역할, 프로젝트·웹 문서 링크를 안내한다. 추가한 이메일의 Google 계정으로 바로 접근하며 수락 링크는 보내지 않는다. 발송 결과는 멤버 목록에 표시하고, 실패하면 Owner가 재전송할 수 있다. 메일 설정 누락이나 발송 실패가 프로젝트 권한을 취소하지는 않는다. 발송 대기 작업은 DB에 저장되어 서버가 재시작해도 복구되며 실패한 작업은 자동으로 반복 발송하지 않는다. SMTP의 성공 응답은 서버 접수를 의미하며 수신함 도착이나 열람 확인은 아니다.
+
+기존 초대 중 유효한 이메일 권한은 만료 없이 유지하며, 이미 만료된 초대는 되살리지 않는다. 첫 로그인 전의 이메일 멤버도 목록에서 역할을 바꾸거나 제거할 수 있다.
 
 ### 로그인 없는 접근
 

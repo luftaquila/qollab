@@ -11,6 +11,13 @@ ALTER TABLE oidc_states ADD COLUMN IF NOT EXISTS return_to text NOT NULL DEFAULT
 CREATE TABLE IF NOT EXISTS projects(id uuid PRIMARY KEY,name text NOT NULL,revision bigint NOT NULL DEFAULT 0,data jsonb NOT NULL,created timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS members(project_id uuid REFERENCES projects(id) ON DELETE CASCADE,user_id text REFERENCES users(id),role text NOT NULL CHECK(role IN ('owner','editor','viewer')),PRIMARY KEY(project_id,user_id));
 CREATE TABLE IF NOT EXISTS invites(id text PRIMARY KEY,project_id uuid REFERENCES projects(id) ON DELETE CASCADE,email text NOT NULL,role text NOT NULL CHECK(role IN ('editor','viewer')),expires timestamptz NOT NULL);
+ALTER TABLE invites ADD COLUMN IF NOT EXISTS name text;
+DELETE FROM invites a USING invites b WHERE a.project_id=b.project_id AND lower(a.email)=lower(b.email) AND (a.expires,a.id)<(b.expires,b.id);
+CREATE UNIQUE INDEX IF NOT EXISTS invites_project_email ON invites(project_id,lower(email));
+CREATE INDEX IF NOT EXISTS invites_email ON invites(lower(email));
+UPDATE invites SET expires='infinity' WHERE expires>now() AND isfinite(expires);
+CREATE TABLE IF NOT EXISTS member_mail(id uuid PRIMARY KEY,project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,email text NOT NULL,payload jsonb NOT NULL,status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sending','sent','failed','cancelled')),attempts integer NOT NULL DEFAULT 0,error text,message_id text,lease_until timestamptz,created timestamptz NOT NULL DEFAULT now(),sent timestamptz);
+CREATE INDEX IF NOT EXISTS member_mail_project_email ON member_mail(project_id,lower(email),created DESC);
 CREATE TABLE IF NOT EXISTS document_generations(id uuid PRIMARY KEY,epoch integer NOT NULL);
 CREATE TABLE IF NOT EXISTS updates(document_id uuid NOT NULL,epoch integer NOT NULL,message_id uuid NOT NULL,user_id text NOT NULL,seq bigserial,bytes bytea NOT NULL,created timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(document_id,epoch,message_id));
 CREATE TABLE IF NOT EXISTS checkpoints(id uuid PRIMARY KEY,project_id uuid REFERENCES projects(id) ON DELETE CASCADE,revision bigint NOT NULL,label text NOT NULL,actor text,snapshot jsonb NOT NULL,git_hash text,created timestamptz NOT NULL DEFAULT now());

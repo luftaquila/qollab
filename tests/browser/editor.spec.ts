@@ -35,9 +35,7 @@ test("two browsers collaborate, preserve personal undo, upload images and retain
     email: "bob@example.com",
     role: "editor",
   });
-  await call(pb, ub, "/invites/accept", "POST", {
-    token: new URL(inv.result.url).searchParams.get("invite"),
-  });
+  expect(inv.result.mail.status).toBe("sent");
   await pb.goto("/");
   await pb
     .getByRole("button", { name: /Browser/ })

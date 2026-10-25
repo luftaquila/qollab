@@ -6,7 +6,8 @@ import type { ServerResponse } from "node:http";
 import sharp from "sharp";
 import { z } from "zod";
 import { pool, transaction, Fault } from "./db.js";
-import { identity, mutation, token, hash } from "./auth.js";
+import { identity, mutation } from "./auth.js";
+import type { MemberMailer } from "./mail.js";
 import {
   access,
   change,
@@ -144,6 +145,7 @@ function moveFile(p: Project, f: ProjectFile, path: string) {
 export async function routes(
   app: FastifyInstance,
   disconnect: (project: string) => void,
+  mail: MemberMailer,
 ) {
   const feeds = new Set<ServerResponse>();
   app.addHook("preClose", async () => {
@@ -732,20 +734,100 @@ export async function routes(
   app.get("/api/projects/:pid/members", async (req) => {
     const u = await identity(req);
     await access(pool, params(req).pid, u.id);
-    return (
-      await pool.query(
-        "SELECT u.id,u.email,u.name,u.picture,m.role FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=$1",
-        [params(req).pid],
-      )
-    ).rows;
+    const members = await pool.query(
+      `SELECT u.id,u.email,u.name,u.picture,m.role,false AS pending FROM members m JOIN users u ON u.id=m.user_id WHERE m.project_id=$1
+       UNION ALL SELECT id,email,COALESCE(NULLIF(name,''),email) AS name,NULL AS picture,role,true AS pending FROM invites WHERE project_id=$1 AND expires>now()`,
+      [params(req).pid],
+    );
+    const messages = await pool.query(
+      "SELECT DISTINCT ON(lower(email)) id,email,status,error FROM member_mail WHERE project_id=$1 ORDER BY lower(email),created DESC",
+      [params(req).pid],
+    );
+    return members.rows.map((m) => ({
+      ...m,
+      mail: messages.rows.find(
+        (n) => n.email.toLowerCase() === m.email.toLowerCase(),
+      ),
+    }));
   });
   app.post("/api/projects/:pid/invites", async (req) => {
     const u = await mutation(req),
       b = z
         .object({
           revision: rev,
-          email: z.email(),
+          email: z
+            .string()
+            .trim()
+            .email()
+            .transform((v) => v.toLowerCase()),
+          name: z.string().trim().max(80).optional(),
           role: z.enum(["editor", "viewer"]),
+        })
+        .parse(req.body);
+    const result = await change(
+      params(req).pid,
+      u,
+      b.revision,
+      "owner",
+      async (p, db) => {
+        const users = await db.query(
+          "SELECT id,name FROM users WHERE lower(email)=$1 AND id<>'anonymous'",
+          [b.email],
+        );
+        if (users.rowCount! > 1) throw new Fault("EMAIL_AMBIGUOUS", 409);
+        if (users.rowCount) {
+          await db.query(
+            "DELETE FROM invites WHERE project_id=$1 AND lower(email)=$2",
+            [p.id, b.email],
+          );
+          await db.query(
+            "INSERT INTO members VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
+            [p.id, users.rows[0].id, b.role],
+          );
+        } else {
+          await db.query(
+            "INSERT INTO invites(id,project_id,email,role,expires,name) VALUES($1,$2,$3,$4,'infinity',$5) ON CONFLICT(project_id,lower(email)) DO UPDATE SET role=excluded.role,expires='infinity',name=COALESCE(excluded.name,invites.name)",
+            [randomUUID(), p.id, b.email, b.role, b.name || null],
+          );
+        }
+        const message = randomUUID();
+        await db.query(
+          "INSERT INTO member_mail(id,project_id,email,payload) VALUES($1,$2,$3,$4)",
+          [
+            message,
+            p.id,
+            b.email,
+            {
+              project: p.name,
+              inviter: u.name,
+              name: b.name || users.rows[0]?.name || "",
+              role: b.role,
+            },
+          ],
+        );
+        await audit(db, p.id, u.id, "member.add", {
+          email: b.email,
+          role: b.role,
+          message,
+        });
+        return { url: `${config.origin}/projects/${p.id}`, message };
+      },
+      { build: false },
+    );
+    return {
+      ...result,
+      result: {
+        ...result.result,
+        mail: await mail.send(result.result.message),
+      },
+    };
+  });
+  app.patch("/api/projects/:pid/invites/:uid", async (req) => {
+    const u = await mutation(req),
+      b = z
+        .object({
+          revision: rev,
+          role: z.enum(["editor", "viewer"]).nullable(),
         })
         .parse(req.body);
     return change(
@@ -754,38 +836,34 @@ export async function routes(
       b.revision,
       "owner",
       async (p, db) => {
-        const raw = token();
-        await db.query(
-          "INSERT INTO invites VALUES($1,$2,$3,$4,now()+interval '7 days')",
-          [hash(raw), p.id, b.email.toLowerCase(), b.role],
-        );
-        await audit(db, p.id, u.id, "invite", { email: b.email, role: b.role });
-        return { url: config.origin + "/?invite=" + raw };
+        const r = b.role
+          ? await db.query(
+              "UPDATE invites SET role=$3 WHERE project_id=$1 AND id=$2 AND expires>now() RETURNING email",
+              [p.id, params(req).uid, b.role],
+            )
+          : await db.query(
+              "DELETE FROM invites WHERE project_id=$1 AND id=$2 RETURNING email",
+              [p.id, params(req).uid],
+            );
+        if (!r.rowCount) throw new Fault("NOT_FOUND", 404);
+        await audit(db, p.id, u.id, "member.change", {
+          email: r.rows[0].email,
+          role: b.role,
+        });
       },
       { build: false },
     );
   });
-  app.post("/api/invites/accept", async (req) => {
-    const u = await mutation(req),
-      b = z.object({ token: z.string() }).parse(req.body);
-    return transaction(async (db) => {
-      await writable(db);
-      const r = await db.query(
-        "DELETE FROM invites WHERE id=$1 AND expires>now() AND email=$2 RETURNING *",
-        [hash(b.token), u.email.toLowerCase()],
-      );
-      if (!r.rowCount) throw new Fault("INVITE_INVALID", 404);
-      const i = r.rows[0];
-      await db.query("SELECT id FROM projects WHERE id=$1 FOR UPDATE", [
-        i.project_id,
-      ]);
-      await db.query(
-        "INSERT INTO members VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
-        [i.project_id, u.id, i.role],
-      );
-      await audit(db, i.project_id, u.id, "invite.accept", {});
-      return { id: i.project_id };
-    });
+  app.post("/api/projects/:pid/mail/:uid/retry", async (req) => {
+    const u = await mutation(req);
+    await access(pool, params(req).pid, u.id, "owner");
+    const id = z.string().uuid().parse(params(req).uid);
+    const found = await pool.query(
+      "SELECT id FROM member_mail WHERE id=$1 AND project_id=$2",
+      [id, params(req).pid],
+    );
+    if (!found.rowCount) throw new Fault("NOT_FOUND", 404);
+    return mail.send(id, true);
   });
   app.patch("/api/projects/:pid/members/:uid", async (req) => {
     const u = await mutation(req),
@@ -809,6 +887,10 @@ export async function routes(
             [id, target],
           );
         if (!r.rowCount) throw new Fault("NOT_FOUND", 404);
+        await db.query(
+          "DELETE FROM invites WHERE project_id=$1 AND lower(email)=(SELECT lower(email) FROM users WHERE id=$2)",
+          [id, target],
+        );
         if (r.rows[0].role === "owner" && b.role !== "owner") {
           const owners = await db.query(
             "SELECT user_id FROM members WHERE project_id=$1 AND role='owner'",

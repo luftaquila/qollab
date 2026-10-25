@@ -27,6 +27,14 @@ export const config = {
     process.env.APPROVED_EMAILS?.split(",")
       .map((v) => v.trim().toLowerCase())
       .filter(Boolean) || [],
+  smtp: {
+    host: process.env.SMTP_HOST || "",
+    port: number("SMTP_PORT", 587),
+    secure: flag("SMTP_SECURE"),
+    user: process.env.SMTP_USER || "",
+    password: process.env.SMTP_PASSWORD || "",
+    from: process.env.SMTP_FROM || "",
+  },
   admission: process.env.ACCOUNT_POLICY || "approval",
   // Opt-in: anyone who can reach the server works as one shared guest account.
   anonymous: flag("ANONYMOUS_ACCESS"),

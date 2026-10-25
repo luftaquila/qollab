@@ -47,9 +47,7 @@ test("project members can read publications and revocation removes an already-op
     email: "bob@example.com",
     role: "viewer",
   });
-  await call(reader, bob, "/invites/accept", "POST", {
-    token: new URL(invite.result.url).searchParams.get("invite"),
-  });
+  expect(invite.result.mail.status).toBe("sent");
   const opened = await reader.goto(site.url);
   expect(opened?.headers()["cache-control"]).toBe("private, no-store");
   await reader

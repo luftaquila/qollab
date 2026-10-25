@@ -110,9 +110,7 @@ test("project-only VitePress pages search, refresh after collaboration and expor
     email: "bob@example.com",
     role: "editor",
   });
-  await call(pb, ub, "/invites/accept", "POST", {
-    token: new URL(invite.result.url).searchParams.get("invite"),
-  });
+  expect(invite.result.mail.status).toBe("sent");
   await pa.goto(`/projects/${p.id}/files/${made.result.id}`);
   await pb.goto(`/projects/${p.id}/files/${made.result.id}`);
   await expect(pa.locator(".ProseMirror")).toBeVisible();

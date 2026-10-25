@@ -65,11 +65,6 @@ onMounted(async () => {
       location.replace(destination);
       return;
     }
-    const invite = new URLSearchParams(location.search).get("invite");
-    if (s.user && invite) {
-      const p = await api("/invites/accept", "POST", { token: invite });
-      go(`/projects/${p.id}`, true);
-    }
     readLocation();
   } catch (e) {
     fail(e);
