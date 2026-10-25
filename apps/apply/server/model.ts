@@ -21,7 +21,7 @@ export const connectionSchema = z
       .array(
         z.object({
           value: z.string().min(1),
-          action: z.enum(["insert", "replace", "keep", "hold"]),
+          action: z.enum(["insert", "replace", "keep", "hold", "exclude"]),
         }),
       )
       .max(40),
@@ -29,7 +29,11 @@ export const connectionSchema = z
       .array(
         z.object({
           value: z.string().min(1),
-          year: z.number().int().min(2000).max(2200),
+          year: z.union([
+            z.number().int().min(2000).max(2200),
+            z.literal("edition"),
+            z.null(),
+          ]),
         }),
       )
       .max(30),
@@ -44,6 +48,16 @@ export const draftSchema = z.object({
   before: z.string().max(100000),
   final: z.string().max(100000),
   confirmed: z.boolean(),
+  deferred: z.boolean().optional(),
+  replacements: z
+    .array(
+      z.object({
+        from: z.string().min(1).max(10000),
+        to: z.string().max(100000),
+      }),
+    )
+    .max(2000)
+    .optional(),
   placement: z
     .object({
       heading: z.string().max(1000),
@@ -76,6 +90,7 @@ export interface Clause {
   sourceHash: string;
   approvalHash: string;
   missing: boolean;
+  matches?: boolean;
   draft: Draft;
   appliedHash?: string;
   appliedRevision?: number;

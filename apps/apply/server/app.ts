@@ -11,7 +11,6 @@ import { GoogleSheets, type Sheets } from "./sheets.js";
 import {
   ApplyError,
   connectionSchema,
-  draftSchema,
   digest,
   changeDigest,
   sourceRange,
@@ -26,6 +25,7 @@ import {
   patchDocument,
   scheduledText,
   schedulePlacement,
+  bindTargets,
 } from "./engine.js";
 
 export interface ApplyOptions {
@@ -222,6 +222,7 @@ export async function createApplyApp(options: ApplyOptions) {
       : {};
     return {
       source: file.source,
+      references,
       sections: sections(file.source).map((s) => ({
         ...s,
         number: references[s.label],
@@ -271,13 +272,17 @@ export async function createApplyApp(options: ApplyOptions) {
   });
   app.post("/apply/api/projects/:pid/import", async (req) => {
     const id = pid(req);
-    await context(req, id, "editor");
+    const { project } = await context(req, id, "editor");
     return lock(id, async () => {
       const state = store.get(id);
       expectVersion(state, (req.body as any).version);
       const c = connection(state);
       const values = await sheets.read(c.spreadsheetId, sourceRange(c));
-      const incoming = sourceClauses(values, c, state.clauses);
+      const incoming = bindTargets(
+        sourceClauses(values, c, state.clauses),
+        project.data.files,
+        c.year,
+      );
       const missing = state.clauses
         .filter((p) => !incoming.some((c) => c.id === p.id))
         .map((c) => ({ ...c, missing: true }));
@@ -285,15 +290,20 @@ export async function createApplyApp(options: ApplyOptions) {
       return store.put(id, state, state.version);
     });
   });
-  app.put("/apply/api/projects/:pid/clauses/:cid", async (req) => {
+  app.put("/apply/api/projects/:pid/clauses/:cid/target", async (req) => {
     const id = pid(req);
-    await context(req, id, "editor");
+    const { project } = await context(req, id, "editor");
     const cid = z
       .string()
       .uuid()
       .parse((req.params as any).cid);
     const body = z
-      .object({ version: z.number(), draft: draftSchema })
+      .object({
+        version: z.number(),
+        fileId: z.string().uuid(),
+        anchor: z.string().min(1).max(200),
+      })
+      .strict()
       .parse(req.body);
     return lock(id, async () => {
       const state = store.get(id);
@@ -304,8 +314,23 @@ export async function createApplyApp(options: ApplyOptions) {
         actual = current.clauses.find((c) => c.id === cid);
       if (!actual || actual.sourceHash !== clause.sourceHash)
         throw new ApplyError("SOURCE_CHANGED", 409);
-      clause.draft = body.draft;
-      clause.approvalHash = clause.sourceHash;
+      const file = project.data.files.find(
+        (f: any) => f.id === body.fileId && f.kind === "document",
+      );
+      if (!file) throw new ApplyError("NOT_FOUND", 404);
+      const placement = schedulePlacement(file.source, body.anchor);
+      if (!placement) throw new ApplyError("ANCHOR_NOT_FOUND", 409);
+      clause.draft = {
+        ...clause.draft,
+        fileId: body.fileId,
+        anchor: body.anchor,
+        placement,
+      };
+      state.clauses = bindTargets(
+        (await fresh(state)).clauses,
+        project.data.files,
+        connection(state).year,
+      );
       return store.put(id, state, state.version);
     });
   });
@@ -323,8 +348,19 @@ export async function createApplyApp(options: ApplyOptions) {
     return lock(id, async () => {
       const state = store.get(id);
       expectVersion(state, body.version);
-      const current = await fresh(state),
-        clauses = selected(current.clauses, body.ids);
+      const current = await fresh(state);
+      current.clauses = bindTargets(
+        current.clauses,
+        project.data.files,
+        connection(state).year,
+      );
+      const clauses = selected(current.clauses, body.ids);
+      for (const c of clauses)
+        if (
+          c.sourceHash !==
+          state.clauses.find((old) => old.id === c.id)?.sourceHash
+        )
+          throw new ApplyError("SOURCE_CHANGED", 409, c.key);
       const fileId = clauses[0].draft.fileId;
       const file = project.data.files.find(
         (f: any) => f.id === fileId && f.kind === "document",
@@ -370,12 +406,21 @@ export async function createApplyApp(options: ApplyOptions) {
           ids: plan.ids,
           before: plan.before,
           after: plan.after,
+          references: {
+            before: project.data.numbering?.headings.enabled
+              ? numberDocument(plan.before, project.data.numbering).references
+              : {},
+            after: project.data.numbering?.headings.enabled
+              ? numberDocument(plan.after, project.data.numbering).references
+              : {},
+          },
           diff: createTwoFilesPatch(
             file.path,
             file.path,
             plan.before,
             plan.after,
           ),
+          unchanged: plan.before === plan.after,
         },
       };
     });

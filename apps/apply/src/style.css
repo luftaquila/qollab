@@ -586,3 +586,46 @@ summary {
     flex-wrap: wrap;
   }
 }
+
+.sheet-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin: 0;
+}
+.sheet-values dt {
+  color: var(--muted, #68788b);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+.sheet-values dd {
+  margin: 0;
+  font-weight: 600;
+}
+.sheet-values small {
+  font-weight: 400;
+}
+.clause-comparison {
+  margin: 18px 0;
+}
+.rendered {
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+  overflow-x: auto;
+}
+.rendered p {
+  white-space: normal;
+}
+.rendered table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.rendered td,
+.rendered th {
+  border: 1px solid #dce3eb;
+  padding: 6px;
+}
+.source-details > .twocol,
+.target-settings form {
+  margin-top: 18px;
+}

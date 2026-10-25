@@ -8,6 +8,30 @@ import {
   type Draft,
 } from "./model.js";
 const text = (v: unknown) => (v == null ? "" : String(v).trim());
+function rewriteLiterals(
+  source: string,
+  replacements: Draft["replacements"] = [],
+) {
+  if (!replacements.length) return source;
+  const values = new Map(replacements.map((r) => [r.from, r.to]));
+  const pattern = [...values.keys()]
+    .sort((a, b) => b.length - a.length)
+    .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  return source.replace(
+    new RegExp(pattern, "g"),
+    (match: string, offset: number) => {
+      const before = source[offset - 1] || "",
+        after = source[offset + match.length] || "";
+      if (
+        (/\w/.test(match[0]) && /[\w.]/.test(before)) ||
+        (/\w/.test(match.at(-1)!) && /[\w.]/.test(after))
+      )
+        return match;
+      return values.get(match)!;
+    },
+  );
+}
 // UUID v8 derived from source identity survives a lost first-import response.
 const sourceId = (sourceKey: string) => {
   const h = digest(sourceKey);
@@ -70,27 +94,51 @@ export function sourceClauses(
     const draft: Draft = previous
       ? { ...previous.draft }
       : {
-          year: c.timings.find((t) => t.value === fields.timing)?.year ?? null,
-          action:
-            c.decisions.find((d) => d.value === fields.decision)?.action ??
-            "hold",
+          year: null,
+          action: "hold",
           fileId: "",
           anchor: "",
           before: fields.current,
           final: "",
           confirmed: false,
         };
-    if (previous && previous.sourceHash !== sourceHash) draft.confirmed = false;
+    const decision = c.decisions.find(
+      (d) => d.value === fields.decision,
+    )?.action;
+    const timing = c.timings.find((t) => t.value === fields.timing);
+    const approved = !!decision && decision !== "hold";
+    draft.year = timing?.year === "edition" ? c.year : (timing?.year ?? null);
+    draft.deferred = decision === "exclude" || timing?.year === null;
+    draft.action =
+      approved && draft.anchor
+        ? "schedule"
+        : decision === "exclude"
+          ? "hold"
+          : decision || "hold";
+    const material = decision === "keep" ? fields.current : fields.source;
+    // Wording also comes from the sheet; explicit rendering mappings preserve links and tables.
+    if (approved && decision !== "exclude") {
+      draft.final = material
+        .replace(/\\r\\n|\\n/g, "\n")
+        .replace(/\r\n?/g, "\n")
+        .replace(/\\t/g, "\t")
+        .replace(/^[▪•]\s*/gm, "- ")
+        .trim();
+      draft.final = rewriteLiterals(draft.final, draft.replacements);
+    }
+    draft.confirmed =
+      approved &&
+      (!!timing || decision === "exclude") &&
+      !!draft.fileId &&
+      !!draft.anchor &&
+      (!!draft.final || !!draft.deferred);
     return {
       ...previous,
       ...fields,
       id: previous?.id || sourceId(sourceKey),
       sourceKey,
       sourceHash,
-      approvalHash:
-        previous?.sourceHash === sourceHash
-          ? previous.approvalHash
-          : sourceHash,
+      approvalHash: sourceHash,
       firstRow: g.firstRow,
       lastRow: g.lastRow,
       missing: false,
@@ -107,7 +155,9 @@ export interface Section {
 }
 /** A proposal stays in review storage when its introduction is after this edition. */
 export const scheduledText = (draft: Draft, year: number) =>
-  draft.year !== null && draft.year <= year ? draft.final.trim() : "";
+  !draft.deferred && draft.year !== null && draft.year <= year
+    ? draft.final.trim()
+    : "";
 /** Existing Markdown heading labels define scopes; visible numbers never identify edits. */
 export function sections(source: string): Section[] {
   const headings: {
@@ -169,6 +219,40 @@ export function schedulePlacement(
     next: scopes.find((s) => s.start >= scope.end)?.label,
     previous: scopes.filter((s) => s.end <= scope.start).at(-1)?.label,
   };
+}
+/** Capture the current clause for a comparison, never ask an operator to select raw text. */
+export function bindTargets(
+  clauses: Clause[],
+  files: { id: string; source?: string }[],
+  year: number,
+) {
+  const scopes = new Map(
+    files
+      .filter((f) => f.source !== undefined)
+      .map((f) => [f.id, sections(f.source!)]),
+  );
+  for (const c of clauses) {
+    c.matches = false;
+    const d = c.draft,
+      file = files.find((f) => f.id === d.fileId);
+    if (file?.source === undefined) {
+      d.confirmed = false;
+      continue;
+    }
+    const scope = scopes.get(d.fileId)?.find((s) => s.label === d.anchor);
+    if (!scope && !d.placement) {
+      d.confirmed = false;
+      continue;
+    }
+    d.before = scope
+      ? scope.body.slice(scope.body.indexOf("\n") + 1).trim()
+      : "";
+    d.placement ||= schedulePlacement(file.source, d.anchor);
+    const wanted = scheduledText(d, year);
+    c.matches =
+      d.confirmed && (wanted ? !!scope && d.before === wanted : !scope);
+  }
+  return clauses;
 }
 function scheduleClause(
   source: string,
@@ -289,7 +373,9 @@ export function patchDocument(
     if (
       c.missing ||
       !d.confirmed ||
-      (d.action === "schedule" ? d.year === null : d.year !== year) ||
+      (d.action === "schedule"
+        ? d.year === null && !d.deferred
+        : d.year !== year) ||
       c.approvalHash !== c.sourceHash
     )
       throw new ApplyError("CLAUSE_NOT_READY", 409, c.key);
@@ -301,7 +387,7 @@ export function patchDocument(
     )
       throw new ApplyError("TARGET_REQUIRED", 409, c.key);
     if (d.action === "keep") continue;
-    if (!d.final.trim())
+    if (!d.final.trim() && !(d.action === "schedule" && d.deferred))
       throw new ApplyError("FINAL_TEXT_REQUIRED", 409, c.key);
     const scope = d.anchor
       ? scopes.find((s) => s.label === d.anchor)

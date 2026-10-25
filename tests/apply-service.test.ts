@@ -36,8 +36,10 @@ const settings: Connection = {
   timings: [
     { value: "2027", year: 2027 },
     { value: "2028", year: 2028 },
+    { value: "Later", year: null },
   ],
 };
+const finalText = "New condition\n\nAdditional detail";
 const source =
   "---\nformat: typst\n---\n\n```{=typst}\n#custom[untouched]\n```\n\n# Chapter {#scope}\n\nold condition\n\n# Other {#other}\n\nunchanged text\n";
 const headers = (user = "owner") => ({
@@ -88,7 +90,7 @@ beforeAll(async () => {
       const saving =
         init?.method === "PUT" &&
         url.pathname.endsWith("/raw") &&
-        body?.source.includes("new condition");
+        body?.source.includes("New condition");
       if (saving && failSave)
         return new Response(JSON.stringify({ code: "UNSAFE_BOUNDARY" }), {
           status: 409,
@@ -149,17 +151,10 @@ async function fixture() {
   expect(response.statusCode, response.body).toBe(200);
   let state: State = response.json();
   const clause = state.clauses[0];
-  const draft = {
-    ...clause.draft,
+  response = await call(`/projects/${id}/clauses/${clause.id}/target`, "PUT", {
+    version: state.version,
     fileId: file.id,
     anchor: "scope",
-    before: "old condition",
-    final: "new condition",
-    confirmed: true,
-  };
-  response = await call(`/projects/${id}/clauses/${clause.id}`, "PUT", {
-    version: state.version,
-    draft,
   });
   expect(response.statusCode, response.body).toBe(200);
   state = response.json();
@@ -188,25 +183,110 @@ it("shows computed document numbers when choosing a clause target", async () => 
     "Article 2",
   ]);
 });
-it("preserves local review drafts when public source rows are refreshed", async () => {
+it("refreshes sheet decisions while preserving target bindings without writing to the sheet", async () => {
   const f = await fixture();
   const sourceBefore = JSON.stringify(sheets.values);
   const refreshed = await call(`/projects/${f.id}/import`, "POST", {
     version: f.state.version,
   });
   expect(refreshed.statusCode).toBe(200);
-  expect(refreshed.json().clauses[0].draft.final).toBe("new condition");
+  expect(refreshed.json().clauses[0].draft.final).toBe(finalText);
   expect(refreshed.json().clauses[0].id).toBe(f.clauseId);
   expect(JSON.stringify(sheets.values)).toBe(sourceBefore);
 });
+it("does not accept local edits of sheet decisions and clears stale timing on reimport", async () => {
+  const f = await fixture();
+  expect(
+    (
+      await call(`/projects/${f.id}/clauses/${f.clauseId}`, "PUT", {
+        version: f.state.version,
+        draft: { ...f.state.clauses[0].draft, year: 2099 },
+      })
+    ).statusCode,
+  ).toBe(404);
+  expect(
+    (
+      await call(`/projects/${f.id}/clauses/${f.clauseId}/target`, "PUT", {
+        version: f.state.version,
+        fileId: f.fileId,
+        anchor: "scope",
+        year: 2099,
+      })
+    ).statusCode,
+  ).toBe(400);
+  sheets.values.Source[1][5] = "";
+  try {
+    const imported = (
+      await call(`/projects/${f.id}/import`, "POST", {
+        version: f.state.version,
+      })
+    ).json();
+    expect(imported.clauses[0].draft).toMatchObject({
+      year: null,
+      confirmed: false,
+      anchor: "scope",
+    });
+    expect(
+      (
+        await call(`/projects/${f.id}/preview`, "POST", {
+          version: imported.version,
+          ids: [f.clauseId],
+        })
+      ).json().code,
+    ).toBe("CLAUSE_NOT_READY");
+    expect((await api(`/projects/${f.id}`)).json().data.files[0].source).toBe(
+      source,
+    );
+  } finally {
+    sheets.values.Source[1][5] = "2027";
+  }
+});
+it("compares the current document after independent editor changes", async () => {
+  const f = await fixture();
+  const p = (await api(`/projects/${f.id}`)).json();
+  const lock = (
+    await api(`/projects/${f.id}/files/${f.fileId}/raw`, "POST", {
+      revision: p.revision,
+    })
+  ).json();
+  const edited = source.replace("old condition", "independent edit");
+  await api(`/projects/${f.id}/files/${f.fileId}/raw`, "PUT", {
+    revision: lock.revision,
+    epoch: lock.result.epoch,
+    rawVersion: lock.result.rawVersion,
+    source: edited,
+    visual: true,
+  });
+  const preview = await call(`/projects/${f.id}/preview`, "POST", {
+    version: f.state.version,
+    ids: [f.clauseId],
+  });
+  expect(preview.statusCode, preview.body).toBe(200);
+  expect(preview.json().state.clauses[0].draft.before).toBe("independent edit");
+  expect(preview.json().plan.before).toBe(edited);
+  expect(preview.json().plan.after).toBe(
+    edited.replace("independent edit", finalText),
+  );
+});
 it("records a deferred introduction and can later put the preserved proposal back", async () => {
   const f = await fixture();
+  const numbering = defaultNumbering();
+  numbering.headings.enabled = true;
+  numbering.headings.levels[0].format = "Article {n}";
+  expect(
+    (
+      await api(`/projects/${f.id}/numbering`, "PATCH", {
+        expected: null,
+        numbering,
+      })
+    ).statusCode,
+  ).toBe(200);
   let state = f.state;
-  for (const year of [2028, 2027]) {
+  for (const year of [null, 2027]) {
     const c = state.clauses.find((c) => c.id === f.clauseId)!;
-    const review = await call(`/projects/${f.id}/clauses/${c.id}`, "PUT", {
+    sheets.values.Source[1][5] = year === null ? "Later" : "2027";
+    const review = await call(`/projects/${f.id}/import`, "POST", {
       version: state.version,
-      draft: { ...c.draft, action: "schedule", year, confirmed: true },
     });
     expect(review.statusCode, review.body).toBe(200);
     state = review.json();
@@ -218,15 +298,18 @@ it("records a deferred introduction and can later put the preserved proposal bac
     const plan = preview.json().plan;
     expect(plan.after.includes("# Chapter {#scope}")).toBe(year === 2027);
     expect(plan.after).toContain("#custom[untouched]");
-    expect(plan.after.includes("new condition")).toBe(year === 2027);
+    expect(plan.after.includes("New condition")).toBe(year === 2027);
+    expect(plan.references.after.other).toBe(
+      year === 2027 ? "Article 2" : "Article 1",
+    );
     const saved = await call(`/projects/${f.id}/apply`, "POST", {
       planId: plan.id,
     });
     expect(saved.statusCode, saved.body).toBe(200);
     state = saved.json().state;
     const actual = state.clauses.find((c) => c.id === f.clauseId)!;
-    expect(actual.draft.before).toBe(year === 2027 ? "new condition" : "");
-    expect(actual.draft.final).toBe("new condition");
+    expect(actual.draft.before).toBe(year === 2027 ? finalText : "");
+    expect(actual.draft.final).toBe(finalText);
     expect(actual.appliedHash).toBe(changeDigest(actual));
     const again = await call(`/projects/${f.id}/apply`, "POST", {
       planId: plan.id,
@@ -289,7 +372,7 @@ it("previews exact changes, saves as the operator, checkpoints and makes retries
     before.revision,
   );
   const plan = preview.json().plan;
-  expect(plan.after).toBe(source.replace("old condition", "new condition"));
+  expect(plan.after).toBe(source.replace("old condition", finalText));
   const saved = await call(
     `/projects/${f.id}/apply`,
     "POST",
@@ -304,6 +387,12 @@ it("previews exact changes, saves as the operator, checkpoints and makes retries
   const current = (await api(`/projects/${f.id}`)).json();
   expect(current.data.files[0].source).toBe(plan.after);
   expect(current.data.files[0].mode).toBe("visual");
+  const synced = (
+    await call(`/projects/${f.id}/import`, "POST", {
+      version: saved.json().state.version,
+    })
+  ).json();
+  expect(synced.clauses[0].matches).toBe(true);
   const retry = await call(
     `/projects/${f.id}/apply`,
     "POST",
@@ -375,7 +464,7 @@ it("recovers an acknowledged write whose HTTP response was lost without duplicat
   expect(result.statusCode, result.body).toBe(200);
   expect(result.json().run.status).toBe("applied");
   expect((await api(`/projects/${f.id}`)).json().data.files[0].source).toBe(
-    source.replace("old condition", "new condition"),
+    source.replace("old condition", finalText),
   );
 });
 it("releases its raw editing lock on rejected content and safely retries the document change", async () => {

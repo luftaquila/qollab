@@ -46,7 +46,7 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
   await page
     .getByLabel("판단값과 작업 연결")
     .fill("Replace=replace\nHold=hold");
-  await page.getByLabel("적용 시기와 연도 연결").fill("2027=2027\n2028=2028");
+  await page.getByLabel("적용 시기와 연도 연결").fill("2027=2027\nLater=defer");
   await page.getByRole("button", { name: "연결 저장" }).click();
   await expect(
     page.getByRole("button", { name: "항목 가져오기" }),
@@ -60,24 +60,27 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
   await expect(page.locator(".review-detail")).toContainText(
     "Additional detail",
   );
+  await page.getByText("문서 조항 연결", { exact: true }).click();
   await page
     .getByRole("combobox", { name: "반영 위치", exact: true })
     .selectOption("scope");
-  await page.getByLabel("최종 문안", { exact: true }).fill("new condition");
-  await page.getByLabel("문안·시행연도·반영 위치를 확인했습니다").check();
-  await page
-    .getByRole("button", { name: "검토 내용 저장", exact: true })
-    .click();
-  await expect(page.locator(".success")).toContainText(
-    "검토 내용을 저장했습니다",
-  );
+  await page.getByRole("button", { name: "조항 연결", exact: true }).click();
+  await expect(page.locator(".success")).toContainText("조항을 연결했습니다");
+  await expect(page.getByLabel("시트 판정")).toContainText("2027");
+  await expect(page.getByLabel("시행연도", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByText("현재 문서의 원문 확인", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "검토 내용 저장", exact: true }),
+  ).toHaveCount(0);
   await page
     .getByRole("checkbox", { name: "Rule one 선택", exact: true })
     .check();
   await page.getByRole("button", { name: "반영 예정 비교" }).click();
   const dialog = page.getByRole("dialog", { name: "반영 예정 내용" });
   await expect(dialog).toContainText("old condition");
-  await expect(dialog).toContainText("new condition");
+  await expect(dialog).toContainText("New condition");
   await page.screenshot({ path: "tmp/apply-review.png", fullPage: true });
   await dialog.getByRole("button", { name: "이 내용으로 문서에 반영" }).click();
   await expect(page.locator(".success")).toContainText(
@@ -85,23 +88,19 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
   );
   const current = await call(page, user, `/projects/${p.id}`);
   expect(current.data.files[0].source).toBe(
-    "# Chapter {#scope}\n\nnew condition\n\n# Other {#other}\n\nunchanged text\n",
+    "# Chapter {#scope}\n\nNew condition\n\nAdditional detail\n\n# Other {#other}\n\nunchanged text\n",
   );
   expect(current.data.files[0].source).not.toContain("Future proposal");
   await expect(page.locator(".runs")).toContainText("Alice");
-  await page
-    .getByRole("combobox", { name: "작업", exact: true })
-    .selectOption("schedule");
-  await page.getByLabel("교체할 원문", { exact: true }).fill("new condition");
-  for (const year of [2028, 2027]) {
-    await page.getByLabel("시행연도", { exact: true }).fill(String(year));
-    await page.getByLabel("문안·시행연도·반영 위치를 확인했습니다").check();
+  for (const timing of ["Later", "2027"]) {
+    await page.request.put("/__test/apply-sheet", { data: { timing } });
     await page
-      .getByRole("button", { name: "검토 내용 저장", exact: true })
+      .getByRole("button", { name: "항목 가져오기", exact: true })
       .click();
     await expect(page.locator(".success")).toContainText(
-      "검토 내용을 저장했습니다",
+      "시트 판정·적용 시기를 갱신했습니다",
     );
+    await expect(page.getByLabel("시트 판정")).toContainText(timing);
     await page
       .getByRole("checkbox", { name: "Rule one 선택", exact: true })
       .check();
@@ -114,19 +113,13 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
       "문서에 반영하고 이력을 저장했습니다",
     );
     const dated = await call(page, user, `/projects/${p.id}`);
-    expect(dated.data.files[0].source.includes("new condition")).toBe(
-      year === 2027,
+    expect(dated.data.files[0].source.includes("New condition")).toBe(
+      timing === "2027",
     );
     expect(dated.data.files[0].source.includes("# Chapter {#scope}")).toBe(
-      year === 2027,
+      timing === "2027",
     );
-    await expect(page.getByLabel("교체할 원문", { exact: true })).toHaveValue(
-      year === 2027 ? "new condition" : "",
-    );
-    if (year === 2028)
-      await expect(
-        page.getByRole("combobox", { name: "반영 위치", exact: true }),
-      ).toHaveValue("scope");
+    await expect(page.locator(".runs")).toContainText("Alice");
   }
   expect(errors).toEqual([]);
   const stranger = await browser.newContext();

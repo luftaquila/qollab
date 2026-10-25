@@ -33,11 +33,16 @@ await mkdir("tmp", { recursive: true });
 await writeFile("tmp/e2e-sessions.json", JSON.stringify(users), {
   mode: 0o600,
 });
+const sheets = new FixtureSheets();
+app.put("/__test/apply-sheet", async (req) => {
+  sheets.values.Source[1][5] = (req.body as { timing: string }).timing;
+  return { ok: true };
+});
 const apply = await createApplyApp({
   origin: "http://127.0.0.1:3200",
   qollabOrigin: "http://127.0.0.1:3200",
   database: ".data/e2e/apply.sqlite",
-  sheets: new FixtureSheets(),
+  sheets,
   logger: false,
 });
 await apply.listen({ host: "127.0.0.1", port: 3201 });

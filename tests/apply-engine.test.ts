@@ -60,6 +60,81 @@ function clause(): Clause {
   return c;
 }
 describe("sheet-driven document changes", () => {
+  it("refreshes decisions and timing from the sheet on every import without manual overrides", () => {
+    const config: Connection = {
+      ...connection,
+      decisions: [
+        { value: "Approve", action: "replace" },
+        { value: "Retain", action: "keep" },
+        { value: "Reject", action: "exclude" },
+      ],
+      timings: [
+        { value: "This edition", year: "edition" },
+        { value: "Later", year: null },
+      ],
+    };
+    const row = [
+      "key",
+      "group",
+      "See other",
+      "",
+      "current text",
+      "",
+      "Approve",
+      "",
+    ];
+    let previous = sourceClauses([row], config, []);
+    previous[0].draft = {
+      ...previous[0].draft,
+      fileId: randomUUID(),
+      anchor: "target",
+      final: "See \\ref{other}",
+      replacements: [{ from: "other", to: "\\ref{other}" }],
+    };
+    const get = (decision: string, timing: string, text = "See other") => {
+      const rows = [
+        [...row.slice(0, 2), text, ...row.slice(3, 6), decision, timing],
+      ];
+      previous = sourceClauses(rows, config, previous);
+      return previous[0].draft;
+    };
+    expect(get("Approve", "This edition")).toMatchObject({
+      year: 2027,
+      confirmed: true,
+      action: "schedule",
+      final: "See \\ref{other}",
+    });
+    expect(get("Approve", "Later")).toMatchObject({
+      year: null,
+      deferred: true,
+      confirmed: true,
+    });
+    expect(get("Approve", "")).toMatchObject({
+      year: null,
+      deferred: false,
+      confirmed: false,
+    });
+    expect(get("Approve", "Unknown")).toMatchObject({
+      year: null,
+      confirmed: false,
+    });
+    expect(get("Approve", "This edition", "Revised other").final).toBe(
+      "Revised \\ref{other}",
+    );
+    expect(
+      get("Approve", "This edition", "First\r\n• See other\\nlast").final,
+    ).toBe("First\n- See \\ref{other}\nlast");
+    expect(get("Retain", "This edition").final).toBe("current text");
+    expect(get("Undecided", "This edition")).toMatchObject({
+      action: "hold",
+      confirmed: false,
+    });
+    expect(get("Reject", "")).toMatchObject({
+      action: "schedule",
+      deferred: true,
+      confirmed: true,
+    });
+  });
   it("reads exactly through the highest configured column, including beyond AZ", () => {
     expect(sourceRange(connection)).toBe("'Source'!A3:H100");
     expect(

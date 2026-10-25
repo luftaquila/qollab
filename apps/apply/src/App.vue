@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
+import MarkdownIt from "markdown-it";
 import type { State, Draft, Clause, Connection } from "../server/model";
 const session = ref<any>(),
   projects = ref<any[]>([]),
@@ -18,7 +19,6 @@ const busy = ref(""),
   cloneName = ref("");
 const draft = ref<Draft>(),
   document = ref<any>(),
-  sourceBox = ref<HTMLTextAreaElement>(),
   plan = ref<any>();
 const applied = ref<Record<string, boolean>>({});
 const fields = ref({
@@ -52,18 +52,19 @@ const messages: Record<string, string> = {
     "다른 작업으로 내용이 바뀌었습니다. 새로 불러온 뒤 다시 확인해 주세요.",
   SOURCE_CHANGED: "원본 시트가 바뀌었습니다. 항목을 다시 불러와 확인해 주세요.",
   REVIEW_CHANGED:
-    "시트의 최종 문안 또는 확정 정보가 바뀌었습니다. 다시 불러와 확인해 주세요.",
+    "시트 판정 또는 문서 연결이 바뀌었습니다. 다시 불러와 확인해 주세요.",
   DOCUMENT_CHANGED:
     "비교 이후 문서가 수정되었습니다. 반영 예정 내용을 다시 비교해 주세요.",
   BEFORE_TEXT_CHANGED:
-    "교체할 원문이 문서에 없거나 여러 번 나옵니다. 문서에서 정확한 부분을 선택해 주세요.",
-  CLAUSE_NOT_READY: "시행연도와 최종 문안을 확인하고 확정해 주세요.",
+    "문서 내용이 변경되었습니다. 항목을 다시 가져와 반영 예정 내용을 확인해 주세요.",
+  CLAUSE_NOT_READY:
+    "시트의 적용 여부·적용 시기를 결정하고 항목 가져오기를 눌러 주세요.",
   TARGET_REQUIRED:
-    "선택한 항목의 대상 문서와 작업을 확인해 주세요. 한 번에 한 문서씩 반영합니다.",
+    "선택한 항목의 문서 연결을 확인해 주세요. 한 번에 한 문서씩 반영합니다.",
   DOCUMENT_LOCKED:
     "문서를 원문 편집 중입니다. 편집을 마친 뒤 다시 시도해 주세요.",
-  FINAL_TEXT_REQUIRED: "최종 문안을 입력해 주세요.",
-  BEFORE_TEXT_REQUIRED: "교체할 원문을 선택해 주세요.",
+  FINAL_TEXT_REQUIRED: "시트에 반영할 문안이 없습니다.",
+  BEFORE_TEXT_REQUIRED: "연결된 문서의 조항을 확인해 주세요.",
   ANCHOR_NOT_FOUND:
     "대상 라벨이 문서에 없습니다. 반영 위치를 다시 선택해 주세요.",
   BROKEN_REFERENCE:
@@ -145,7 +146,7 @@ async function setState(value: State) {
   if (selectedId.value && !value.clauses.some((c) => c.id === selectedId.value))
     selectedId.value = "";
   selected.value = selected.value.filter((id) =>
-    value.clauses.some((c) => c.id === id),
+    value.clauses.some((c) => c.id === id && ready(c)),
   );
 }
 const current = computed(() =>
@@ -156,10 +157,11 @@ const owner = computed(() => project.value?.role === "owner"),
 function ready(c: Clause) {
   return (
     !c.missing &&
+    !c.matches &&
     !applied.value[c.id] &&
     c.draft.confirmed &&
     (c.draft.action === "schedule"
-      ? c.draft.year !== null
+      ? c.draft.year !== null || c.draft.deferred
       : c.draft.year === state.value.connection?.year) &&
     ["insert", "replace", "keep", "schedule"].includes(c.draft.action) &&
     !!c.draft.fileId
@@ -170,11 +172,17 @@ function status(c: Clause) {
     ? "원본 없음"
     : applied.value[c.id]
       ? "반영 완료"
-      : ready(c)
-        ? "반영 가능"
-        : c.draft.year && c.draft.year !== state.value.connection?.year
-          ? "다른 연도"
-          : "검토 중";
+      : c.matches
+        ? "문서와 일치"
+        : ready(c)
+          ? "반영 가능"
+          : c.draft.year && c.draft.year !== state.value.connection?.year
+            ? "추후 도입"
+            : !c.timing
+              ? "시기 미정"
+              : !c.draft.confirmed
+                ? "연결 또는 판정 확인"
+                : "검토 중";
 }
 const filtered = computed(() =>
   state.value.clauses.filter(
@@ -182,21 +190,41 @@ const filtered = computed(() =>
       (filter.value === "all" ||
         (filter.value === "ready" && ready(c)) ||
         (filter.value === "applied" && applied.value[c.id]) ||
-        (filter.value === "pending" && !ready(c) && !applied.value[c.id])) &&
-      [c.key, c.source, c.notes, ...c.context]
+        (filter.value === "matched" && c.matches) ||
+        (filter.value === "pending" &&
+          !ready(c) &&
+          !applied.value[c.id] &&
+          !c.matches)) &&
+      [c.key, c.source, c.notes, c.decision, c.timing, ...c.context]
         .join(" ")
         .toLowerCase()
         .includes(query.value.toLowerCase()),
   ),
 );
 const readyCount = computed(() => state.value.clauses.filter(ready).length);
-const sourceText = computed(
-  () =>
-    document.value?.sections.find((s: any) => s.label === draft.value?.anchor)
-      ?.body ||
-    document.value?.source ||
-    "",
+const currentText = computed(() => {
+  const scope = document.value?.sections.find(
+    (s: any) => s.label === draft.value?.anchor,
+  );
+  return scope ? scope.body.slice(scope.body.indexOf("\n") + 1).trim() : "";
+});
+const target = computed(() =>
+  document.value?.sections.find((s: any) => s.label === draft.value?.anchor),
 );
+const isExcluded = (c: Clause) =>
+  !!c.draft.deferred ||
+  (c.draft.year !== null && c.draft.year > (state.value.connection?.year || 0));
+const afterText = (c: Clause) =>
+  isExcluded(c) ? "이번 문서에서 제외됩니다." : c.draft.final;
+const markdown = new MarkdownIt({ html: false, breaks: true });
+function rendered(source: string, references = document.value?.references) {
+  return markdown.render(
+    source.replace(
+      /\\ref\{([\w:-]+)\}/g,
+      (_whole, id) => references?.[id] || "참조 확인 필요",
+    ),
+  );
+}
 function settingsFromState() {
   const c = state.value.connection;
   if (!c) return;
@@ -214,7 +242,7 @@ function settingsFromState() {
     decision: c.columns.decision || "",
     timing: c.columns.timing || "",
     decisions: c.decisions.map((d) => `${d.value}=${d.action}`).join("\n"),
-    timings: c.timings.map((d) => `${d.value}=${d.year}`).join("\n"),
+    timings: c.timings.map((d) => `${d.value}=${d.year ?? "defer"}`).join("\n"),
   };
 }
 async function loadProject() {
@@ -242,14 +270,6 @@ async function loadDocument() {
   if (draft.value?.fileId)
     document.value = await call(
       `/projects/${projectId.value}/document?fileId=${encodeURIComponent(draft.value.fileId)}`,
-    );
-}
-function chooseBefore() {
-  const el = sourceBox.value;
-  if (el && draft.value)
-    draft.value.before = sourceText.value.slice(
-      el.selectionStart,
-      el.selectionEnd,
     );
 }
 function toggle(id: string, checked: boolean) {
@@ -299,7 +319,8 @@ async function saveConnection() {
     })),
     timings: mappings(f.timings).map(([value, year]) => ({
       value,
-      year: Number(year),
+      year:
+        year === "defer" ? null : year === "edition" ? "edition" : Number(year),
     })),
   };
   await setState(
@@ -320,24 +341,23 @@ async function importRows() {
     }),
   );
   if (current.value) await showClause(current.value);
-  notice.value = `${state.value.clauses.filter((c) => !c.missing).length}개 항목을 불러왔습니다. 문서는 아직 변경하지 않았습니다.`;
+  notice.value = `${state.value.clauses.filter((c) => !c.missing).length}개 항목의 시트 판정·적용 시기를 갱신했습니다. 반영 예정 비교에서 문서 변경을 확인하세요.`;
 }
-async function saveDraft() {
+async function saveTarget() {
   await setState(
     await call(
-      `/projects/${projectId.value}/clauses/${selectedId.value}`,
+      `/projects/${projectId.value}/clauses/${selectedId.value}/target`,
       "PUT",
       {
         version: state.value.version,
-        draft: {
-          ...draft.value,
-          year: draft.value?.year ? Number(draft.value.year) : null,
-        },
+        fileId: draft.value?.fileId,
+        anchor: draft.value?.anchor,
       },
     ),
   );
+  if (current.value) await showClause(current.value);
   plan.value = undefined;
-  notice.value = "검토 내용을 저장했습니다.";
+  notice.value = "조항을 연결했습니다.";
 }
 async function preview() {
   const r = await call(`/projects/${projectId.value}/preview`, "POST", {
@@ -447,8 +467,8 @@ onMounted(() =>
     >
       <h2>시트 연결</h2>
       <p>
-        링크로 공개된 시트의 범위와 열을 지정합니다. 원본 시트는 읽기만 하며,
-        최종 문안·시행연도·반영 이력은 이 도구에 저장합니다.
+        링크로 공개된 시트의 범위와 열을 지정합니다. 문안·적용 여부·적용 시기는
+        시트에서 결정하며, 이 도구는 문서에 반영하고 이력을 저장합니다.
       </p>
       <div class="formgrid">
         <label class="wide"
@@ -516,16 +536,19 @@ onMounted(() =>
             placeholder="판단값=insert&#10;판단값=replace&#10;판단값=keep&#10;판단값=hold"
           ></textarea
           ><small
-            >insert 추가 · replace 교체 · keep 유지 · hold 보류. 연결하지 않은
-            값은 보류합니다.</small
+            >insert 추가 · replace 교체 · keep 현행 문안 · hold 미정 · exclude
+            미도입. 연결하지 않은 값은 보류합니다.</small
           ></label
         ><label
           >적용 시기와 연도 연결<textarea
             v-model="fields.timings"
             rows="5"
-            placeholder="시트의 시기값=2027"
+            placeholder="시트의 시기값=2027&#10;추후를 나타내는 값=defer"
           ></textarea
-          ><small>비어 있는 시기는 확정으로 취급하지 않습니다.</small></label
+          ><small
+            >edition은 대상 문서의 연도, defer는 연도 미정인 추후 도입입니다. 빈
+            시기는 반영하지 않습니다.</small
+          ></label
         >
       </div>
       <div class="actions">
@@ -581,11 +604,15 @@ onMounted(() =>
               <option value="all">전체 항목</option>
               <option value="ready">반영 가능</option>
               <option value="pending">검토 중</option>
+              <option value="matched">문서와 일치</option>
               <option value="applied">반영 완료</option></select
             ><button
               :disabled="!editable"
               @click="
-                selected = filtered.filter(ready).map((c) => c.id);
+                selected = filtered
+                  .filter(ready)
+                  .slice(0, 100)
+                  .map((c) => c.id);
                 plan = undefined;
               "
             >
@@ -601,7 +628,11 @@ onMounted(() =>
             <input
               type="checkbox"
               :checked="selected.includes(c.id)"
-              :disabled="!editable || c.missing || applied[c.id]"
+              :disabled="
+                !editable ||
+                !ready(c) ||
+                (selected.length >= 100 && !selected.includes(c.id))
+              "
               :aria-label="c.key + ' 선택'"
               @change="
                 toggle(c.id, ($event.target as HTMLInputElement).checked)
@@ -614,9 +645,8 @@ onMounted(() =>
               ><span>{{ c.context.join(" / ") }}</span
               ><small :class="{ ready: ready(c) }"
                 >{{ status(c)
-                }}<template v-if="c.decision">
-                  · {{ c.decision }}</template
-                ></small
+                }}<template v-if="c.decision"> · {{ c.decision }}</template
+                ><template v-if="c.timing"> · {{ c.timing }}</template></small
               >
             </button>
           </div>
@@ -630,174 +660,155 @@ onMounted(() =>
             </div>
             <span>원본 {{ current.firstRow }}–{{ current.lastRow }}행</span>
           </div>
-          <div class="twocol">
+          <section class="card sheet-decision" aria-label="시트 판정">
+            <dl class="sheet-values">
+              <div>
+                <dt>적용 여부</dt>
+                <dd>{{ current.decision || "미정" }}</dd>
+              </div>
+              <div>
+                <dt>적용 시기</dt>
+                <dd>
+                  {{ current.timing || "미정"
+                  }}<small v-if="current.draft.confirmed">
+                    ·
+                    {{
+                      isExcluded(current)
+                        ? "이번 문서에서 제외"
+                        : state.connection.year + "년 문서에 포함"
+                    }}</small
+                  >
+                </dd>
+              </div>
+              <div>
+                <dt>연결된 조항</dt>
+                <dd>
+                  {{
+                    target
+                      ? [target.number, target.title].filter(Boolean).join(" ")
+                      : draft.placement
+                        ? "원래 순서로 추가"
+                        : "연결 필요"
+                  }}
+                </dd>
+              </div>
+            </dl>
+            <p class="hint">
+              적용 여부와 적용 시기는 원본 시트에서 결정합니다. 변경 후 항목
+              가져오기를 누르면 갱신됩니다.
+            </p>
+            <p v-if="!current.draft.confirmed" class="hint">
+              {{
+                !current.timing
+                  ? "적용 시기가 미정입니다."
+                  : !state.connection.timings.some(
+                        (t) => t.value === current?.timing,
+                      )
+                    ? "시트의 적용 시기 값이 연결되지 않았습니다. 시트 연결 설정을 확인하세요."
+                    : current.draft.action === "hold"
+                      ? "시트에서 적용 여부를 결정해 주세요."
+                      : !current.draft.final && !isExcluded(current)
+                        ? "시트에 반영할 문안이 없습니다."
+                        : "문서 조항 연결을 확인해 주세요."
+              }}
+            </p>
+          </section>
+          <div class="twocol clause-comparison">
             <section class="card">
-              <h2>참고 문안</h2>
-              <pre class="prose">{{ current.source }}</pre>
-              <button
-                v-if="editable"
-                @click="
-                  draft.final = current.source.replace(/^[▪•]\s*/gm, '- ');
-                  draft.confirmed = false;
+              <h2>현재 문서</h2>
+              <div
+                class="rendered"
+                v-html="
+                  rendered(currentText || '아직 포함되지 않은 조항입니다.')
                 "
-              >
-                이 문안으로 초안 만들기
-              </button>
+              ></div>
             </section>
             <section class="card">
-              <h2>기존 문안 · 검토의견</h2>
-              <pre class="prose">{{
-                current.current || "연결된 기존 문안이 없습니다."
-              }}</pre>
-              <hr />
-              <pre class="prose opinion">{{
-                current.notes || "검토의견이 없습니다."
-              }}</pre>
+              <h2>반영 후</h2>
+              <p v-if="!current.draft.confirmed" class="hint">
+                시트 판정이 완료되면 반영할 수 있습니다.
+              </p>
+              <div
+                class="rendered"
+                v-html="
+                  rendered(afterText(current) || '반영할 문안이 없습니다.')
+                "
+              ></div>
             </section>
           </div>
-          <form
-            class="card draft"
-            @submit.prevent="perform('검토 내용 저장하는 중', saveDraft)"
-          >
-            <div class="formgrid">
-              <label
-                >시행연도<input
-                  v-model.number="draft.year"
-                  type="number"
-                  min="2000"
-                  max="2200"
-                  :disabled="!editable"
-                  @input="draft.confirmed = false" /></label
-              ><label
-                >작업<select
-                  v-model="draft.action"
-                  :disabled="!editable"
-                  @change="draft.confirmed = false"
-                >
-                  <option value="hold">보류</option>
-                  <option value="insert">추가</option>
-                  <option value="replace">교체</option>
-                  <option value="keep">현행 유지</option>
-                  <option value="schedule">도입 연도 적용</option>
-                </select></label
-              ><label
-                >대상 문서<select
-                  v-model="draft.fileId"
-                  :disabled="!editable"
-                  @change="
-                    draft.anchor = '';
-                    draft.confirmed = false;
-                    perform('문서 불러오는 중', loadDocument);
+          <details class="card source-details">
+            <summary>시트 문안과 검토의견</summary>
+            <div class="twocol">
+              <section>
+                <h2>참고 문안</h2>
+                <div class="rendered" v-html="rendered(current.source)"></div>
+              </section>
+              <section>
+                <h2>기존 문안 · 검토의견</h2>
+                <div
+                  class="rendered"
+                  v-html="
+                    rendered(current.current || '연결된 기존 문안이 없습니다.')
                   "
-                >
-                  <option value="">문서 선택</option>
-                  <option v-for="f in project.files" :value="f.id">
-                    {{ f.path }}
-                  </option>
-                </select></label
-              ><label
-                >반영 위치<select
-                  v-model="draft.anchor"
-                  :disabled="!editable"
-                  @change="draft.confirmed = false"
-                >
-                  <option value="">
-                    {{
-                      draft.action === "insert"
-                        ? "문서 끝에 추가"
-                        : "문서 전체에서 찾기"
-                    }}
-                  </option>
-                  <option
-                    v-if="
-                      draft.placement &&
-                      draft.anchor &&
-                      !document?.sections.some(
-                        (s: any) => s.label === draft?.anchor,
-                      )
+                ></div>
+                <hr />
+                <div
+                  class="rendered opinion"
+                  v-html="rendered(current.notes || '검토의견이 없습니다.')"
+                ></div>
+              </section>
+            </div>
+          </details>
+          <details
+            v-if="editable && !draft.placement"
+            class="card target-settings"
+          >
+            <summary>문서 조항 연결</summary>
+            <form @submit.prevent="perform('조항 연결 중', saveTarget)">
+              <div class="formgrid">
+                <label
+                  >대상 문서<select
+                    v-model="draft.fileId"
+                    @change="
+                      draft.anchor = '';
+                      perform('문서 불러오는 중', loadDocument);
                     "
-                    :value="draft.anchor"
                   >
-                    원래 위치에 다시 포함 · {{ current?.key }}
-                  </option>
-                  <option
-                    v-for="s in document?.sections || []"
-                    :value="s.label"
-                    :title="s.label"
-                  >
-                    {{ s.number ? s.number + " " : "" }}{{ s.title }}
-                  </option>
-                </select></label
-              >
-            </div>
-            <p v-if="draft.action === 'schedule'" class="hint">
-              {{ state.connection?.year }}년까지 도입하는 조항은 최종 문안을
-              넣고, 이후 도입하는 조항은 이 문서에서 제외합니다. 제외한 문안은
-              이 도구에 남아 있으며, 연도를 바꿔 다시 반영할 수 있습니다.
-            </p>
-            <details v-if="document" class="source-details">
-              <summary>현재 문서의 원문 확인</summary>
-              <textarea
-                ref="sourceBox"
-                class="code"
-                readonly
-                :value="sourceText"
-                rows="12"
-                aria-label="현재 문서 원문"
-              ></textarea
-              ><button
-                type="button"
-                v-if="
-                  ['replace', 'schedule'].includes(draft.action) && editable
-                "
-                @click="
-                  chooseBefore();
-                  draft.confirmed = false;
-                "
-              >
-                선택한 원문을 교체 대상으로
+                    <option value="">문서 선택</option>
+                    <option v-for="f in project.files" :value="f.id">
+                      {{ f.path }}
+                    </option>
+                  </select></label
+                >
+                <label
+                  >반영 위치<select v-model="draft.anchor">
+                    <option value="">조항 선택</option>
+                    <option
+                      v-for="s in document?.sections || []"
+                      :value="s.label"
+                    >
+                      {{ s.number ? s.number + " " : "" }}{{ s.title }}
+                    </option>
+                  </select></label
+                >
+              </div>
+              <button :disabled="!draft.fileId || !draft.anchor || !!busy">
+                조항 연결
               </button>
-            </details>
-            <label v-if="['replace', 'schedule'].includes(draft.action)"
-              >교체할 원문<textarea
-                v-model="draft.before"
-                rows="5"
-                :disabled="!editable"
-                @input="draft.confirmed = false"
-                spellcheck="false"
-              ></textarea></label
-            ><label
-              >최종 문안<textarea
-                v-model="draft.final"
-                rows="12"
-                :disabled="!editable"
-                @input="draft.confirmed = false"
-                spellcheck="false"
-                placeholder="문서에 들어갈 최종 Markdown 문안"
-              ></textarea></label
-            ><label class="check"
-              ><input
-                v-model="draft.confirmed"
-                type="checkbox"
-                :disabled="!editable"
-              />문안·시행연도·반영 위치를 확인했습니다</label
-            >
-            <div class="actions">
-              <span>검토 내용을 저장한 뒤 반영 예정 내용을 비교하세요.</span
-              ><button class="primary" :disabled="!editable || !!busy">
-                검토 내용 저장
-              </button>
-            </div>
-          </form>
+            </form>
+          </details>
         </section>
         <section class="empty" v-else>
           <h2>검토할 항목을 선택하세요</h2>
-          <p>최종 문안과 시행연도를 확인한 항목만 문서에 반영합니다.</p>
+          <p>
+            시트에서 적용 여부·적용 시기를 결정한 항목을 비교하고 문서에
+            반영합니다.
+          </p>
         </section>
       </main>
       <div class="batchbar">
         <strong>{{ selected.length }}개 선택</strong
-        ><span>한 문서씩 변경 내용을 비교합니다.</span
+        ><span>한 문서에서 최대 100개씩 비교하고 반영합니다.</span
         ><button
           class="primary"
           :disabled="!editable || !selected.length || !!busy"
@@ -867,32 +878,37 @@ onMounted(() =>
             <div class="twocol">
               <section>
                 <h4>변경 전</h4>
-                <pre class="prose">{{
-                  state.clauses.find((c) => c.id === id)?.draft.before ||
-                  "추가할 항목입니다."
-                }}</pre>
+                <div
+                  class="rendered"
+                  v-html="
+                    rendered(
+                      state.clauses.find((c) => c.id === id)?.draft.before ||
+                        '아직 포함되지 않은 조항입니다.',
+                      plan.references.before,
+                    )
+                  "
+                ></div>
               </section>
               <section>
                 <h4>변경 후</h4>
-                <pre class="prose">{{
-                  state.clauses.find((c) => c.id === id)?.draft.action ===
-                  "keep"
-                    ? "기존 문안 유지"
-                    : state.clauses.find((c) => c.id === id)?.draft.final
-                }}</pre>
+                <div
+                  class="rendered"
+                  v-html="
+                    rendered(
+                      afterText(state.clauses.find((c) => c.id === id)!),
+                      plan.references.after,
+                    )
+                  "
+                ></div>
               </section>
             </div>
           </article>
-          <details>
-            <summary>문서 전체 변경 확인</summary>
-            <pre class="code">{{ plan.diff }}</pre>
-          </details>
+          <p v-if="plan.unchanged" class="hint">
+            현재 문서와 내용이 같습니다. 본문 수정 없이 반영 기록만 남깁니다.
+          </p>
         </div>
         <footer>
-          <p>
-            반영하는 동안 원문 편집 잠금을 사용하며 공동편집 연결이
-            재접속됩니다.
-          </p>
+          <p>확인한 내용을 연결된 프로젝트 문서에 반영합니다.</p>
           <button
             class="primary"
             :disabled="!!busy"
