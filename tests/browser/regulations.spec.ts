@@ -471,7 +471,18 @@ test("reserved PDF tabs close on cancellation and a new attempt opens in the nat
   ).toBeVisible();
   expect(context.pages()).toHaveLength(2);
   cancelled = true;
-  await preparing.getByRole("button", { name: "취소", exact: true }).click();
+  // The click closes the tab it runs in, which can end the action before it
+  // reports back. A failed click counts only when the tab stays open.
+  const closing = preparing.waitForEvent("close");
+  await preparing
+    .getByRole("button", { name: "취소", exact: true })
+    .click()
+    .catch((error) =>
+      closing.catch(() => {
+        throw error;
+      }),
+    );
+  await closing;
   await expect.poll(() => preparing.isClosed()).toBe(true);
   releaseExport();
   await finished;

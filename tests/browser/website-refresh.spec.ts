@@ -91,7 +91,11 @@ test("published HTML refreshes during continuous typing and immediately checks w
     await expect(returningReader.locator(".VPNavBarTitle")).toHaveText(
       "Publication timing",
     );
-    await returningReader.clock.pauseAt(new Date());
+    // Pause just ahead of the tab's own clock. A time taken here is already
+    // in the tab's past when its clock ticks before the request arrives.
+    await returningReader.clock.pauseAt(
+      (await returningReader.evaluate(() => Date.now())) + 1000,
+    );
     const current = await call(page, user, `/projects/${p.id}`);
     await call(page, user, `/projects/${p.id}`, "PATCH", {
       revision: Number(current.revision),
