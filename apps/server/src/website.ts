@@ -24,6 +24,7 @@ import type { Project } from "./model.js";
 import { renderDocument } from "../../web/src/web-document.js";
 import { webFormatSource } from "../../../packages/codec/src/web-format.js";
 import { WebsiteRefresh } from "./website-refresh.js";
+import { popoverCss, popoverScript } from "./website-popover.js";
 import {
   splitLevel,
   sidebarItems,
@@ -33,7 +34,12 @@ const exec = promisify(execFile);
 const hash = (s: string) =>
   createHash("sha256").update(s).digest("hex").slice(0, 16);
 // Invalidate generated themes while retaining old chunks for already-open tabs.
-const siteGenerations = ["websites-v4", "websites-v3", "websites-v2"];
+const siteGenerations = [
+  "websites-v5",
+  "websites-v4",
+  "websites-v3",
+  "websites-v2",
+];
 export const websiteBase = (id: string) =>
   config.docsProject === id ? "/docs/" : `/docs/p/${id}/`;
 const siteRoot = (id: string, revision: number, portable = false) =>
@@ -161,13 +167,17 @@ export async function buildWebsite(project: Project, portable = false) {
     resolve(root, "public/site-version.json"),
     JSON.stringify({ revision: project.revision }),
   );
-  await writeFile(resolve(root, ".vitepress/theme/style.css"), siteCss);
+  await writeFile(
+    resolve(root, ".vitepress/theme/style.css"),
+    siteCss + popoverCss(base),
+  );
   // No session, collaboration, editor or project-list dependency in the site.
   await writeFile(
     resolve(root, ".vitepress/theme/index.js"),
     `import DefaultTheme from 'vitepress/theme';
 import './style.css';
 import 'katex/dist/katex.min.css';
+${popoverScript}
 export default {extends:DefaultTheme,enhanceApp(){
   if(typeof window === 'undefined')return;
   let timer,active=true,checking=false,controller;
@@ -195,6 +205,7 @@ export default {extends:DefaultTheme,enhanceApp(){
   window.addEventListener('pageshow',start);
   window.addEventListener('pagehide',()=>{active=false;clearInterval(timer);controller?.abort()});
   start();
+  referencePopovers(import.meta.env.BASE_URL);
 }};
 `,
   );

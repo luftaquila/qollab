@@ -146,14 +146,14 @@ it("guards every hosted document resource, old asset and alias with current proj
   ]);
   const root = resolve(
     config.data,
-    "websites-v4",
+    "websites-v5",
     p.id,
     String(p.revision),
     "hosted/.vitepress/dist",
   );
   const older = resolve(
     config.data,
-    "websites-v3",
+    "websites-v4",
     p.id,
     "0",
     "hosted/.vitepress/dist",
@@ -225,11 +225,11 @@ it("guards every hosted document resource, old asset and alias with current proj
   } finally {
     config.docsProject = previousDefault;
     await pool.query("DELETE FROM websites WHERE project_id=$1", [p.id]);
-    await rm(resolve(config.data, "websites-v4", p.id), {
+    await rm(resolve(config.data, "websites-v5", p.id), {
       recursive: true,
       force: true,
     });
-    await rm(resolve(config.data, "websites-v3", p.id), {
+    await rm(resolve(config.data, "websites-v4", p.id), {
       recursive: true,
       force: true,
     });
