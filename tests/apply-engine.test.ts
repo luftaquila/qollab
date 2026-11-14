@@ -5,6 +5,7 @@ import {
   patchDocument,
   sections,
   schedulePlacement,
+  bindTargets,
 } from "../apps/apply/server/engine";
 import { numberDocument } from "../packages/codec/src/document-numbering";
 import { defaultNumbering } from "../packages/codec/src/numbering";
@@ -235,6 +236,61 @@ describe("sheet-driven document changes", () => {
     c.draft.final = "## Another {#scope}";
     expect(() => patchDocument(source, [c], 2027, c.draft.fileId)).toThrow(
       "DUPLICATE_DOCUMENT_LABEL",
+    );
+  });
+  it("names both clauses of a reference that sheet decisions would break, before and during comparison", () => {
+    const fileId = randomUUID(),
+      source =
+        "# Chassis {#chassis}\n\n## Mounting {#mounting}\n\n### Clause {#mount}\n\nComponents withstand 40 g.\n\n![Mount](mount.png){#fig-mount}\n\n## Battery {#battery}\n\n### Clause {#tsac}\n\nTSAC withstands \\ref{mount}. See \\ref{fig-mount} and \\ref{mounting}.\n";
+    const mount = clause();
+    mount.key = "T 3.3.1";
+    mount.draft = {
+      ...mount.draft,
+      action: "schedule",
+      fileId,
+      anchor: "mount",
+      year: null,
+      deferred: true,
+      final: "Components withstand 40 g.",
+    };
+    const tsac = structuredClone(mount);
+    tsac.id = randomUUID();
+    tsac.key = "EV 5.5.8";
+    tsac.draft = {
+      ...tsac.draft,
+      anchor: "tsac",
+      deferred: false,
+      confirmed: false,
+      final: "TSAC withstands 40 g.",
+    };
+    const all = [mount, tsac],
+      files = [{ id: fileId, source }];
+    bindTargets(all, files, 2027);
+    const pairs = [
+      { from: "EV 5.5.8", to: "T 3.3.1" },
+      { from: "EV 5.5.8", to: "T 3.3.1의 그림" },
+      { from: "EV 5.5.8", to: "‘Mounting’" },
+    ];
+    expect(mount.brokenReferences).toEqual(pairs);
+    expect(tsac.brokenReferences).toEqual(pairs);
+    let detail = "";
+    try {
+      patchDocument(source, [mount], 2027, fileId, all);
+    } catch (e: any) {
+      expect(e.code).toBe("BROKEN_REFERENCE");
+      detail = e.detail;
+    }
+    expect(detail).toBe(
+      "EV 5.5.8에서 T 3.3.1 참조, EV 5.5.8에서 T 3.3.1의 그림 참조, EV 5.5.8에서 ‘Mounting’ 참조",
+    );
+    // Rewording the referring clause for the same edition resolves the conflict.
+    tsac.draft.confirmed = true;
+    tsac.draft.year = 2027;
+    bindTargets(all, files, 2027);
+    expect(mount.brokenReferences).toBeUndefined();
+    expect(tsac.brokenReferences).toBeUndefined();
+    expect(patchDocument(source, all, 2027, fileId, all)).toBe(
+      "# Chassis {#chassis}\n\n## Battery {#battery}\n\n### Clause {#tsac}\n\nTSAC withstands 40 g.\n\n",
     );
   });
   it("inserts a selected group in order and leaves future or held proposals out", () => {

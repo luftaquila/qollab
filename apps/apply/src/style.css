@@ -300,6 +300,28 @@ pre {
 .clause-button .ready {
   color: #267044;
 }
+.clause-button .conflict {
+  color: #9e342c;
+}
+.reference-conflict {
+  margin-top: 18px;
+  padding: 14px 18px;
+  background: #fff0ef;
+  border: 1px solid #efc2bd;
+  border-radius: 10px;
+  color: #7c2a23;
+}
+.reference-conflict h2 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+.reference-conflict p,
+.reference-conflict ul {
+  margin: 6px 0;
+}
+.reference-conflict ul {
+  padding-left: 20px;
+}
 .detail-heading {
   display: flex;
   justify-content: space-between;

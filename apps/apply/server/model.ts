@@ -91,6 +91,8 @@ export interface Clause {
   approvalHash: string;
   missing: boolean;
   matches?: boolean;
+  /** References the edition decided in the sheet would leave without a target. */
+  brokenReferences?: { from: string; to: string }[];
   draft: Draft;
   appliedHash?: string;
   appliedRevision?: number;

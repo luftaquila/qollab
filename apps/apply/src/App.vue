@@ -68,7 +68,7 @@ const messages: Record<string, string> = {
   ANCHOR_NOT_FOUND:
     "대상 라벨이 문서에 없습니다. 반영 위치를 다시 선택해 주세요.",
   BROKEN_REFERENCE:
-    "존재하지 않는 참조가 생깁니다. 대상 조항과 그림을 함께 확인해 주세요.",
+    "반영 후 문서에 없는 대상을 참조하게 됩니다. 참조하는 조항의 문안이나 대상의 적용 여부·적용 시기를 확인해 주세요.",
   DUPLICATE_DOCUMENT_LABEL:
     "같은 라벨이 중복됩니다. 조항 식별자를 확인해 주세요.",
   DUPLICATE_SOURCE_KEY:
@@ -154,9 +154,11 @@ const current = computed(() =>
 );
 const owner = computed(() => project.value?.role === "owner"),
   editable = computed(() => ["owner", "editor"].includes(project.value?.role));
+const conflicted = (c: Clause) => !c.missing && !!c.brokenReferences?.length;
 function ready(c: Clause) {
   return (
     !c.missing &&
+    !conflicted(c) &&
     !c.matches &&
     !applied.value[c.id] &&
     c.draft.confirmed &&
@@ -170,19 +172,21 @@ function ready(c: Clause) {
 function status(c: Clause) {
   return c.missing
     ? "원본 없음"
-    : applied.value[c.id]
-      ? "반영 완료"
-      : c.matches
-        ? "문서와 일치"
-        : ready(c)
-          ? "반영 가능"
-          : c.draft.year && c.draft.year !== state.value.connection?.year
-            ? "추후 도입"
-            : !c.timing
-              ? "시기 미정"
-              : !c.draft.confirmed
-                ? "적용 정보 확인"
-                : "반영 대기";
+    : conflicted(c)
+      ? "참조 충돌"
+      : applied.value[c.id]
+        ? "반영 완료"
+        : c.matches
+          ? "문서와 일치"
+          : ready(c)
+            ? "반영 가능"
+            : c.draft.year && c.draft.year !== state.value.connection?.year
+              ? "추후 도입"
+              : !c.timing
+                ? "시기 미정"
+                : !c.draft.confirmed
+                  ? "적용 정보 확인"
+                  : "반영 대기";
 }
 const filtered = computed(() =>
   state.value.clauses.filter(
@@ -191,6 +195,7 @@ const filtered = computed(() =>
         (filter.value === "ready" && ready(c)) ||
         (filter.value === "applied" && applied.value[c.id]) ||
         (filter.value === "matched" && c.matches) ||
+        (filter.value === "conflict" && conflicted(c)) ||
         (filter.value === "pending" &&
           !ready(c) &&
           !applied.value[c.id] &&
@@ -201,7 +206,8 @@ const filtered = computed(() =>
         .includes(query.value.toLowerCase()),
   ),
 );
-const readyCount = computed(() => state.value.clauses.filter(ready).length);
+const readyCount = computed(() => state.value.clauses.filter(ready).length),
+  conflictCount = computed(() => state.value.clauses.filter(conflicted).length);
 const currentText = computed(() => {
   const scope = document.value?.sections.find(
     (s: any) => s.label === draft.value?.anchor,
@@ -580,7 +586,9 @@ onMounted(() =>
           <strong>{{ state.connection.year }}년 반영</strong
           ><span
             >{{ state.clauses.length }}개 항목 · 반영 가능
-            {{ readyCount }}개</span
+            {{ readyCount }}개<template v-if="conflictCount">
+              · 참조 충돌 {{ conflictCount }}개</template
+            ></span
           >
         </div>
         <div class="actions">
@@ -609,6 +617,7 @@ onMounted(() =>
               <option value="ready">반영 가능</option>
               <option value="pending">반영 대기</option>
               <option value="matched">문서와 일치</option>
+              <option value="conflict">참조 충돌</option>
               <option value="applied">반영 완료</option></select
             ><button
               :disabled="!editable"
@@ -647,7 +656,7 @@ onMounted(() =>
             >
               <strong>{{ c.key }}</strong
               ><span>{{ c.context.join(" / ") }}</span
-              ><small :class="{ ready: ready(c) }"
+              ><small :class="{ ready: ready(c), conflict: conflicted(c) }"
                 >{{ status(c)
                 }}<template v-if="c.decision"> · {{ c.decision }}</template
                 ><template v-if="c.timing"> · {{ c.timing }}</template></small
@@ -664,6 +673,27 @@ onMounted(() =>
             </div>
             <span>원본 {{ current.firstRow }}–{{ current.lastRow }}행</span>
           </div>
+          <section
+            v-if="conflicted(current)"
+            class="reference-conflict"
+            aria-label="참조 충돌"
+          >
+            <h2>참조 충돌</h2>
+            <p>
+              시트에서 정한 대로 반영하면 문서에 없는 대상을 참조하게 되어
+              반영할 수 없습니다.
+            </p>
+            <ul>
+              <li v-for="r in current.brokenReferences">
+                <strong>{{ r.from }}</strong
+                >에서 <strong>{{ r.to }}</strong> 참조
+              </li>
+            </ul>
+            <p>
+              참조하는 조항의 문안에서 참조를 빼거나 대상을 이번 문서에 포함한
+              뒤 항목 가져오기를 눌러 주세요.
+            </p>
+          </section>
           <div class="twocol clause-comparison">
             <section class="card">
               <h2>현재 문서</h2>

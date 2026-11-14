@@ -174,6 +174,45 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
       });
     }
   }
+  // Remaining text that refers to the clause blocks deferring it, and names both ends.
+  const latest = await call(page, user, `/projects/${p.id}`),
+    relock = await call(
+      page,
+      user,
+      `/projects/${p.id}/files/${file.id}/raw`,
+      "POST",
+      { revision: latest.revision },
+    );
+  await call(page, user, `/projects/${p.id}/files/${file.id}/raw`, "PUT", {
+    revision: relock.revision,
+    epoch: relock.result.epoch,
+    rawVersion: relock.result.rawVersion,
+    source: latest.data.files[0].source.replace(
+      "unchanged text",
+      "unchanged text, see \\ref{scope}",
+    ),
+    visual: true,
+  });
+  await page.request.put("/__test/apply-sheet", {
+    data: { timing: "Later", decision: "Replace" },
+  });
+  await page
+    .getByRole("button", { name: "항목 가져오기", exact: true })
+    .click();
+  await expect(page.locator(".reference-conflict")).toContainText(
+    "‘Other’에서 Rule one 참조",
+  );
+  await expect(page.locator(".summary")).toContainText("참조 충돌 1개");
+  await expect(
+    page.getByRole("button", { name: /Rule one/ }).locator("small"),
+  ).toContainText("참조 충돌");
+  await expect(
+    page.getByRole("checkbox", { name: "Rule one 선택", exact: true }),
+  ).toBeDisabled();
+  await page.screenshot({
+    path: "tmp/apply-reference-conflict.png",
+    fullPage: true,
+  });
   expect(errors).toEqual([]);
   const stranger = await browser.newContext();
   const denied = await stranger.request.get(`/apply/?project=${p.id}`, {
