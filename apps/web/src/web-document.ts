@@ -20,6 +20,11 @@ export interface WebDocumentOptions {
   path: string;
   numbering?: Numbering;
   webFormat?: string;
+  /**
+   * Pandoc's `split-level`: headings of this level become web pages and
+   * higher ones group them. Unset or above the document, the top heading level.
+   */
+  splitLevel?: number;
 }
 export interface DocumentHeading {
   id: string;
@@ -254,27 +259,89 @@ export function renderDocument(source: string, options: WebDocumentOptions) {
     ]);
   headings.push(...collectHeadings(visible));
   // Project headings join the outline without changing Markdown chapter boundaries.
-  const chapterLevel = Math.min(
-    ...visible
-      .filter((t) => t.type === "heading_open")
-      .map((t) => Number(t.tag.slice(1))),
+  const level = (t: Token) => Number(t.tag.slice(1));
+  const chapterLevel = Math.max(
+    Math.min(...visible.filter((t) => t.type === "heading_open").map(level)),
+    options.splitLevel ?? 0,
   );
   const starts = visible.flatMap((token, i) =>
-    token.type === "heading_open" && Number(token.tag.slice(1)) === chapterLevel
-      ? [i]
-      : [],
+    token.type === "heading_open" && level(token) <= chapterLevel ? [i] : [],
   );
-  const pages = starts.map((start, i) => {
-    const end = starts[i + 1] ?? visible.length;
-    const id = visible[start].attrGet("id")!;
-    const pageHeadings = collectHeadings(visible.slice(start, end));
-    return {
+  // Headings above the split level group the pages under them. A group with
+  // text of its own is a page too; a bare group heading leads its first page,
+  // or stands as its own page when no page follows inside it.
+  type Page = {
+    id: string;
+    title: string;
+    headings: DocumentHeading[];
+    html: string;
+    groups: { id: string; title: string }[];
+    group: boolean;
+  };
+  const pages: Page[] = [];
+  const page = (
+    id: string,
+    title: string,
+    tokens: Token[],
+    groups: Page["groups"],
+    group: boolean,
+  ) =>
+    pages.push({
       id,
-      title: pageHeadings[0].text,
-      headings: pageHeadings,
-      html: md.renderer.render(visible.slice(start, end), md.options, {}),
-    };
+      title,
+      headings: collectHeadings(tokens),
+      html: md.renderer.render(tokens, md.options, {}),
+      groups,
+      group,
+    });
+  const trail: { id: string; title: string; level: number }[] = [];
+  let bare: {
+    tokens: Token[];
+    level: number;
+    id: string;
+    title: string;
+    groups: Page["groups"];
+  }[] = [];
+  const standalone = () => {
+    const last = bare.at(-1)!;
+    page(
+      last.id,
+      last.title,
+      bare.flatMap((b) => b.tokens),
+      last.groups,
+      true,
+    );
+    bare = [];
+  };
+  starts.forEach((start, i) => {
+    const end = starts[i + 1] ?? visible.length;
+    const heading = visible[start],
+      depth = level(heading),
+      id = heading.attrGet("id")!,
+      segment = visible.slice(start, end),
+      title = collectHeadings(segment)[0].text;
+    if (bare.length && bare.at(-1)!.level >= depth) standalone();
+    while (trail.length && trail.at(-1)!.level >= depth) trail.pop();
+    const groups = trail.map((g) => ({ id: g.id, title: g.title }));
+    const group = depth < chapterLevel;
+    if (group) {
+      trail.push({ id, title, level: depth });
+      // heading_open, inline, heading_close and nothing else
+      if (segment.length === 3) {
+        bare.push({ tokens: segment, level: depth, id, title, groups });
+        return;
+      }
+    }
+    page(
+      id,
+      title,
+      [...bare.flatMap((b) => b.tokens), ...segment],
+      groups,
+      group,
+    );
+    bare = [];
   });
+  if (bare.length) standalone();
   return {
     html,
     source,

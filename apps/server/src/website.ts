@@ -24,6 +24,11 @@ import type { Project } from "./model.js";
 import { renderDocument } from "../../web/src/web-document.js";
 import { webFormatSource } from "../../../packages/codec/src/web-format.js";
 import { WebsiteRefresh } from "./website-refresh.js";
+import {
+  splitLevel,
+  sidebarItems,
+  type SidebarItem,
+} from "./website-sidebar.js";
 const exec = promisify(execFile);
 const hash = (s: string) =>
   createHash("sha256").update(s).digest("hex").slice(0, 16);
@@ -75,6 +80,10 @@ export async function buildWebsite(project: Project, portable = false) {
       path: file.path,
       numbering: project.data.numbering,
       webFormat: webFormatSource(project.data.files),
+      splitLevel: splitLevel(
+        file.source || "",
+        project.data.files.find((f) => f.path === "_quarto.yml")?.source,
+      ),
       resource: (path, image, anchor) =>
         image
           ? media.get(path) || ""
@@ -116,7 +125,7 @@ export async function buildWebsite(project: Project, portable = false) {
       `---\ntitle: ${JSON.stringify(title)}\n---\n\n<div v-pre class="document-content">\n\n${html(value, originalPath)}\n\n</div>\n`,
     );
   };
-  const sidebar: any[] = [];
+  const sidebar: SidebarItem[] = [];
   const target =
     rendered.find((d) => d.file.path === project.data.target) || rendered[0];
   const titleHtml = `<h1 id="document-title">${escape(project.name)}</h1>`;
@@ -134,12 +143,17 @@ export async function buildWebsite(project: Project, portable = false) {
         (doc.pages.length ? doc.introduction : doc.html),
       file.path,
     );
-    const items = [];
-    for (const page of doc.pages) {
-      const path = `${file.id}/${hash(page.id)}`;
-      await writePage(path + ".md", page.title, page.html, file.path);
-      items.push({ text: page.title, link: "/" + path });
-    }
+    for (const page of doc.pages)
+      await writePage(
+        `${file.id}/${hash(page.id)}.md`,
+        page.title,
+        page.html,
+        file.path,
+      );
+    const items = sidebarItems(
+      doc.pages,
+      (page) => `/${file.id}/${hash(page.id)}`,
+    );
     if (rendered.length === 1) sidebar.push(...items);
     else sidebar.push({ text: file.path, link: `/${file.id}/`, items });
   }

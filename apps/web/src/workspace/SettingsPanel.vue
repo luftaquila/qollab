@@ -287,6 +287,20 @@ const sections: { title: Word; hint?: Word; fields: Field[] }[] = [
         when: on("toc"),
       },
       { key: ["toc-title"], label: "fTocTitle", kind: "text", when: on("toc") },
+      {
+        key: ["split-level"],
+        label: "fSplitLevel",
+        kind: "select",
+        choices: Array.from({ length: 4 }, (_, i) => ({
+          value: String(i + 1),
+          label: [`제목 ${i + 1}마다`, `Each heading ${i + 1}`] as [
+            string,
+            string,
+          ],
+        })),
+        empty: "splitLevelTop",
+        hint: "fSplitLevelHint",
+      },
       { key: ["colorlinks"], label: "fColorLinks", kind: "check" },
       {
         key: ["linkcolor"],
@@ -416,9 +430,12 @@ function commit(field: Field, event: Event) {
     return write(field.key, input.checked === base ? undefined : input.checked);
   }
   const raw = text(event);
-  const numeric = ["linestretch", "number-depth", "toc-depth"].includes(
-    field.key[0],
-  );
+  const numeric = [
+    "linestretch",
+    "number-depth",
+    "toc-depth",
+    "split-level",
+  ].includes(field.key[0]);
   write(field.key, raw === "" ? undefined : numeric ? Number(raw) : raw);
 }
 

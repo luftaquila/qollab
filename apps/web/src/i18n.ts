@@ -497,6 +497,12 @@ const words = {
   fToc: ["목차 넣기", "Table of contents"],
   fTocDepth: ["목차 깊이", "Contents depth"],
   fTocTitle: ["목차 제목", "Contents title"],
+  fSplitLevel: ["웹 문서 페이지 단위", "Web document pages"],
+  fSplitLevelHint: [
+    "이 제목마다 웹 문서 페이지를 나누고, 더 높은 제목은 왼쪽 목차에서 묶음이 됩니다.",
+    "Splits the web document into a page at each such heading; higher headings group them in the sidebar.",
+  ],
+  splitLevelTop: ["최상위 제목마다", "Each top-level heading"],
   fColorLinks: ["링크에 색 넣기", "Colored links"],
   fLinkColor: ["문서 안 링크 색", "Internal link color"],
   fFigTitle: ["그림 이름", "Figure name"],

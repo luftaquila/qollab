@@ -521,6 +521,10 @@ test("document settings edit YAML front matter and _quarto.yml without losing co
   await label("Date format").selectOption("long");
   // Links are colored by default, so turning them off writes false.
   await panel.getByText("Colored links").click();
+  await expect(
+    label("Web document pages").locator("option").first(),
+  ).toHaveText("Default · Each top-level heading");
+  await label("Web document pages").selectOption("2");
   await label("Figure name").fill("그림");
   await label("Figure name").press("Tab");
   await expect.poll(() => source(page, user, id)).toContain("fig-title: 그림");
@@ -539,6 +543,7 @@ test("document settings edit YAML front matter and _quarto.yml without losing co
     "date: today",
     "date-format: long",
     "colorlinks: false",
+    "split-level: 2",
   ])
     expect(text).toContain(line);
   expect(text).toContain("\n---\n\n# Introduction");

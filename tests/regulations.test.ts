@@ -7,6 +7,7 @@ import {
   numberSymbol,
 } from "../packages/codec/src/numbering";
 import { renderDocument } from "../apps/web/src/web-document";
+import { splitLevel, sidebarItems } from "../apps/server/src/website-sidebar";
 const options = { project: "test-project", path: "rules/EV.qmd" };
 describe("web chapters and optional numbering", () => {
   it("formats arbitrary heading text and only interprets explicitly supplied prefix rules", () => {
@@ -71,6 +72,64 @@ describe("web chapters and optional numbering", () => {
     expect(out.pages[1].html).toContain('href="#first"');
     expect(out.introduction).toContain("Preface");
     expect(out.source).toBe(source);
+  });
+  it("splits pages at the configured level and groups them under higher headings", () => {
+    const source =
+      "Preface\n\n# T {#part-t}\n\n## One {#one}\n\nA\n\n## Two\n\nB\n\n# CV {#part-cv}\n\nIntro\n\n## Three\n\nC\n\n# EV {#part-ev}\n\n# IN {#part-in}\n\n## Four\n\nD\n";
+    // Unset, pages follow the top heading level as before.
+    expect(renderDocument(source, options).pages.map((p) => p.title)).toEqual([
+      "T",
+      "CV",
+      "EV",
+      "IN",
+    ]);
+    const out = renderDocument(source, { ...options, splitLevel: 2 });
+    expect(
+      out.pages.map((p) => [p.title, p.group, p.groups.map((g) => g.title)]),
+    ).toEqual([
+      ["One", false, ["T"]],
+      ["Two", false, ["T"]],
+      ["CV", true, []],
+      ["Three", false, ["CV"]],
+      ["EV", true, []],
+      ["Four", false, ["IN"]],
+    ]);
+    // A bare part heading opens its first page, so its anchor still resolves.
+    expect(out.pages[0].html).toMatch(/id="part-t"[\s\S]*id="one"/);
+    expect(out.pages[1].html).not.toContain('id="part-t"');
+    expect(out.pages[2].html).toContain("Intro");
+    expect(out.pages[2].html).not.toContain("Three");
+    expect(out.pages[4].html).toContain('id="part-ev"');
+    expect(out.pages[5].html).toMatch(/id="part-in"[\s\S]*id="four"/);
+    expect(out.introduction).toContain("Preface");
+    // A level above the document's headings falls back to the top level.
+    expect(
+      renderDocument("## A\n\nx\n\n## B\n", { ...options, splitLevel: 1 }).pages
+        .length,
+    ).toBe(2);
+    expect(
+      sidebarItems(out.pages, (p) => "/" + p.id).map((item) => [
+        item.text,
+        item.link,
+        item.items?.map((i) => i.text),
+      ]),
+    ).toEqual([
+      ["T", undefined, ["One", "Two"]],
+      ["CV", "/part-cv", ["Three"]],
+      ["EV", "/part-ev", undefined],
+      ["IN", undefined, ["Four"]],
+    ]);
+  });
+  it("reads split-level from the document, then the project, and ignores invalid values", () => {
+    expect(splitLevel("---\nsplit-level: 2\n---\n# A", "split-level: 3")).toBe(
+      2,
+    );
+    expect(splitLevel("# A", "split-level: 3")).toBe(3);
+    expect(splitLevel("---\ntitle: x\n---\n# A")).toBeUndefined();
+    expect(
+      splitLevel("---\nsplit-level: two\n---\n", "split-level: 3"),
+    ).toBeUndefined();
+    expect(splitLevel("---\nsplit-level: [\n---\n", "split-level: 3")).toBe(3);
   });
   it("numbers lists by level and handles starts, multi-letter and circled overflow", () => {
     expect(numberSymbol(27, { style: "lower-alpha", symbols: [] })).toBe("aa");
