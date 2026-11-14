@@ -76,6 +76,14 @@
 .editor-host .milkdown .ProseMirror h3 {
   font-size: 21px;
 }
+/* Deeper headings would otherwise take the editor theme's larger default size. */
+.editor-host .milkdown .ProseMirror h4 {
+  font-size: 18px;
+}
+.editor-host .milkdown .ProseMirror h5,
+.editor-host .milkdown .ProseMirror h6 {
+  font-size: 17px;
+}
 .qollab-raw {
   border: 1px solid var(--raw-border);
   border-left: 3px solid var(--raw-accent);
