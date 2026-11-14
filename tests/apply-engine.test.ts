@@ -339,6 +339,68 @@ describe("sheet-driven document changes", () => {
       "# Chassis {#chassis}\n\n## Battery {#battery}\n\n### Clause {#tsac}\n\nTSAC withstands 40 g.\n\n",
     );
   });
+  it("links rule codes in sheet text to clauses and sections included in this edition", () => {
+    const config: Connection = {
+      ...connection,
+      decisions: [{ value: "Approve", action: "replace" }],
+      timings: [
+        { value: "This edition", year: "edition" },
+        { value: "Later", year: null },
+      ],
+    };
+    const row = (
+      key: string,
+      context: string,
+      text: string,
+      timing: string,
+    ) => [key, context, text, "", "", "", "Approve", timing];
+    const rows = (later: string) => [
+      row("T 3.2.1", "T 3.2 Materials", "Use steel.", "This edition"),
+      row(
+        "T 3.2.2",
+        "T 3.2 Materials",
+        "Bends keep T 3.2.1. See T 3.2 and T 3.2.15.",
+        "This edition",
+      ),
+      row(
+        "T 4.1.1",
+        "T 4.1 Cockpit",
+        "Seats meet T 3.2. Brakes follow T 5.1.1.",
+        "This edition",
+      ),
+      row("T 5.1.1", "T 5.1 Brakes", "Brakes stop.", later),
+    ];
+    const fileId = randomUUID(),
+      parents = {
+        "T 3.2": { label: "materials", heading: "## Materials {#materials}" },
+        "T 4.1": { label: "cockpit", heading: "## Cockpit {#cockpit}" },
+        "T 5.1": { label: "brakes", heading: "## Brakes {#brakes}" },
+      };
+    let clauses = sourceClauses(rows("Later"), config, []);
+    clauses.forEach((c, i) => {
+      c.draft = {
+        ...c.draft,
+        fileId,
+        anchor: `c${i + 1}`,
+        placement: {
+          heading: `### Clause {#c${i + 1}}`,
+          parents: [parents[c.key.slice(0, 5) as keyof typeof parents]],
+        },
+      };
+    });
+    clauses = sourceClauses(rows("Later"), config, clauses);
+    expect(clauses.map((c) => c.draft.final)).toEqual([
+      "Use steel.",
+      "Bends keep \\ref{c1}. See \\ref{materials} and T 3.2.15.",
+      "Seats meet \\ref{materials}. Brakes follow T 5.1.1.",
+      "Brakes stop.",
+    ]);
+    // Once the referenced clause joins this edition, its code links too.
+    clauses = sourceClauses(rows("This edition"), config, clauses);
+    expect(clauses[2].draft.final).toBe(
+      "Seats meet \\ref{materials}. Brakes follow \\ref{c4}.",
+    );
+  });
   it("inserts a selected group in order and leaves future or held proposals out", () => {
     const c = clause();
     c.draft.action = "insert";

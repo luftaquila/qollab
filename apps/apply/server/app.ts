@@ -26,7 +26,7 @@ import {
   scheduledText,
   schedulePlacement,
   bindTargets,
-  proposalText,
+  linkProposals,
 } from "./engine.js";
 
 export interface ApplyOptions {
@@ -197,12 +197,7 @@ export async function createApplyApp(options: ApplyOptions) {
       { project } = await context(req, id);
     const state = store.get(id);
     if (state.connection) {
-      for (const clause of state.clauses)
-        clause.draft.final = proposalText(
-          clause,
-          state.connection,
-          clause.draft.replacements,
-        );
+      linkProposals(state.clauses, state.connection);
       bindTargets(state.clauses, project.data.files, state.connection.year);
     }
     return {

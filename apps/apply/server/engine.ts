@@ -9,29 +9,30 @@ import {
 } from "./model.js";
 import { labelKind } from "../../../packages/codec/src/labels.js";
 const text = (v: unknown) => (v == null ? "" : String(v).trim());
-function rewriteLiterals(
-  source: string,
-  replacements: Draft["replacements"] = [],
-) {
-  if (!replacements.length) return source;
+function literals(replacements: Draft["replacements"] = []) {
+  if (!replacements.length) return (source: string) => source;
   const values = new Map(replacements.map((r) => [r.from, r.to]));
-  const pattern = [...values.keys()]
-    .sort((a, b) => b.length - a.length)
-    .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("|");
-  return source.replace(
-    new RegExp(pattern, "g"),
-    (match: string, offset: number) => {
+  const pattern = new RegExp(
+    [...values.keys()]
+      .sort((a, b) => b.length - a.length)
+      .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("|"),
+    "g",
+  );
+  return (source: string) =>
+    source.replace(pattern, (match: string, offset: number) => {
       const before = source[offset - 1] || "",
-        after = source[offset + match.length] || "";
+        after = source[offset + match.length] || "",
+        next = source[offset + match.length + 1] || "";
+      // A period continues a number only when a digit follows, not at a sentence end.
       if (
         (/\w/.test(match[0]) && /[\w.]/.test(before)) ||
-        (/\w/.test(match.at(-1)!) && /[\w.]/.test(after))
+        (/\w/.test(match.at(-1)!) &&
+          (/\w/.test(after) || (after === "." && /\d/.test(next))))
       )
         return match;
       return values.get(match)!;
-    },
-  );
+    });
 }
 /** Reading a proposed clause does not require a decision to introduce it. */
 export function proposalText(
@@ -43,14 +44,13 @@ export function proposalText(
     (d) => d.value === fields.decision,
   )?.action;
   const material = action === "keep" ? fields.current : fields.source;
-  return rewriteLiterals(
+  return literals(replacements)(
     material
       .replace(/\\r\\n|\\n/g, "\n")
       .replace(/\r\n?/g, "\n")
       .replace(/\\t/g, "\t")
       .replace(/^[▪•]\s*/gm, "- ")
       .trim(),
-    replacements,
   );
 }
 // UUID v8 derived from source identity survives a lost first-import response.
@@ -133,7 +133,7 @@ export function sourceClauses(
     const same = old.filter((o) => o.key === g.key && !seen.has(o.sourceKey));
     return same.length === 1 ? same[0] : undefined;
   };
-  return groups.map((g) => {
+  const clauses: Clause[] = groups.map((g) => {
     const sourceKey: string = g.sourceKey;
     const fields = {
       key: g.key,
@@ -190,6 +190,7 @@ export function sourceClauses(
       draft,
     };
   });
+  return linkProposals(clauses, c);
 }
 export interface Section {
   label: string;
@@ -203,6 +204,46 @@ export const scheduledText = (draft: Draft, year: number) =>
   !draft.deferred && draft.year !== null && draft.year <= year
     ? draft.final.trim()
     : "";
+const ruleCode = /^[A-Z]{1,4} ?\d+(?:\.\d+)*$/;
+/**
+ * A rule code written in sheet text links to its clause, or to the chapter or
+ * section a context column names, once that target is part of this edition.
+ * Codes whose target is deferred, undecided or ambiguous stay plain text.
+ */
+export function linkProposals(clauses: Clause[], connection: Connection) {
+  const targets = new Map<string, Map<string, Set<string>>>();
+  for (const c of clauses) {
+    const d = c.draft;
+    d.final = proposalText(c, connection, d.replacements);
+    if (c.missing || !d.confirmed || !scheduledText(d, connection.year))
+      continue;
+    const codes = targets.get(d.fileId) ?? new Map<string, Set<string>>();
+    targets.set(d.fileId, codes);
+    const add = (code: string, label: string) => {
+      if (ruleCode.test(code))
+        codes.set(code, (codes.get(code) ?? new Set()).add(label));
+    };
+    add(c.key, d.anchor);
+    for (const parent of d.placement?.parents ?? []) {
+      const title = sections(parent.heading + "\n")[0]?.title,
+        value = title && c.context.find((v) => v.endsWith(" " + title));
+      if (value) add(value.slice(0, -title.length).trim(), parent.label);
+    }
+  }
+  for (const [fileId, codes] of targets) {
+    const link = literals(
+      [...codes]
+        .filter(([, labels]) => labels.size === 1)
+        .map(([code, labels]) => ({
+          from: code,
+          to: `\\ref{${[...labels][0]}}`,
+        })),
+    );
+    for (const c of clauses)
+      if (c.draft.fileId === fileId) c.draft.final = link(c.draft.final);
+  }
+  return clauses;
+}
 /** Existing Markdown heading labels define scopes; visible numbers never identify edits. */
 export function sections(source: string): Section[] {
   const headings: {
