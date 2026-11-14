@@ -38,7 +38,8 @@ test("a separate authenticated tool reviews sheet clauses and applies the select
     .fill("fixture-spreadsheet");
   await page.getByLabel("원본 시트 이름", { exact: true }).fill("Source");
   await page.getByLabel("본문 시작 행").fill("2");
-  await page.getByLabel("본문 마지막 행").fill("4");
+  // The last row stays empty: the tool reads to the end of the sheet.
+  await expect(page.getByLabel("본문 마지막 행")).toHaveValue("");
   await page.getByLabel("대상 시행연도").fill("2027");
   await page.getByLabel("검토의견 열").fill("D");
   await page.getByLabel("적용 여부 열", { exact: true }).fill("E");

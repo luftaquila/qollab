@@ -68,14 +68,31 @@ export function sourceClauses(
   const context = c.columns.context.map(() => "");
   const get = (row: unknown[], col?: string) =>
     col ? text(row[columnIndex(col)]) : "";
+  const add = (g: any, row: unknown[], at: number) => {
+    g.lastRow = c.firstRow + at;
+    for (const field of ["source", "current"] as const)
+      for (const col of c.columns[field])
+        if (get(row, col)) g[field].push(get(row, col));
+    for (const field of ["notes", "decision", "timing"] as const)
+      if (get(row, c.columns[field])) g[field].push(get(row, c.columns[field]));
+  };
+  // A row that opens a new chapter or section without a key (a figure caption,
+  // an introduction) leads into that section's first clause. When no clause
+  // follows before the next heading, as for trailing tables, it belongs to none.
+  let lead: number[] = [],
+    attached = false;
   for (let i = 0; i < values.length; i++) {
     const row = values[i];
+    let heading = false;
     c.columns.context.forEach((col, j) => {
-      if (get(row, col)) context[j] = get(row, col);
+      const value = get(row, col);
+      if (!value) return;
+      heading ||= value !== context[j];
+      context[j] = value;
     });
     const key = get(row, c.columns.key);
-    if (key)
-      groups.push({
+    if (key) {
+      const g = {
         key,
         context: [...context],
         source: [],
@@ -83,24 +100,41 @@ export function sourceClauses(
         notes: [],
         decision: [],
         timing: [],
-        firstRow: c.firstRow + i,
+        firstRow: c.firstRow + (lead[0] ?? i),
         lastRow: c.firstRow + i,
-      });
-    const g = groups.at(-1);
-    if (!g) continue;
-    g.lastRow = c.firstRow + i;
-    for (const field of ["source", "current"] as const)
-      for (const col of c.columns[field])
-        if (get(row, col)) g[field].push(get(row, col));
-    for (const field of ["notes", "decision", "timing"] as const)
-      if (get(row, c.columns[field])) g[field].push(get(row, c.columns[field]));
+      };
+      groups.push(g);
+      for (const at of lead) add(g, values[at], at);
+      lead = [];
+      attached = true;
+    } else if (heading) {
+      lead = [i];
+      attached = false;
+      continue;
+    } else if (!attached) {
+      if (lead.length) lead.push(i);
+      continue;
+    }
+    add(groups.at(-1), row, i);
   }
-  const seen = new Set<string>();
-  return groups.map((g) => {
-    const sourceKey = digest([c.spreadsheetId, c.sheet, g.context, g.key]);
-    if (seen.has(sourceKey))
+  const seen = new Set<string>(),
+    keys = new Map<string, number>();
+  for (const g of groups) {
+    g.sourceKey = digest([c.spreadsheetId, c.sheet, g.context, g.key]);
+    if (seen.has(g.sourceKey))
       throw new ApplyError("DUPLICATE_SOURCE_KEY", 409, g.key);
-    seen.add(sourceKey);
+    seen.add(g.sourceKey);
+    keys.set(g.key, (keys.get(g.key) || 0) + 1);
+  }
+  // Renaming a chapter or section keeps a clause whose key is unique on both sides.
+  const earlier = (g: { key: string; sourceKey: string }) => {
+    const exact = old.find((o) => o.sourceKey === g.sourceKey);
+    if (exact || keys.get(g.key) !== 1) return exact;
+    const same = old.filter((o) => o.key === g.key && !seen.has(o.sourceKey));
+    return same.length === 1 ? same[0] : undefined;
+  };
+  return groups.map((g) => {
+    const sourceKey: string = g.sourceKey;
     const fields = {
       key: g.key,
       context: g.context,
@@ -111,7 +145,7 @@ export function sourceClauses(
       timing: [...new Set(g.timing)].join(" / "),
     };
     const sourceHash = digest(fields);
-    const previous = old.find((o) => o.sourceKey === sourceKey);
+    const previous = earlier(g);
     const draft: Draft = previous
       ? { ...previous.draft }
       : {

@@ -152,6 +152,52 @@ describe("sheet-driven document changes", () => {
         columns: { ...connection.columns, notes: "BA" },
       }),
     ).toBe("'Team''s rules'!A3:BA100");
+    // An empty last row reads to the end of the sheet, within the reader's 10000 rows.
+    expect(sourceRange({ ...connection, lastRow: null })).toBe(
+      "'Source'!A3:H10002",
+    );
+  });
+  it("keeps a clause when its chapter or section title is renamed, unless its key repeats", () => {
+    const rename = (rows: unknown[][]) =>
+      rows.map((r) =>
+        r[1] === "section" ? [r[0], "renamed", ...r.slice(2)] : r,
+      );
+    const first = sourceClauses(values, connection, []);
+    first[0].draft.anchor = "scope";
+    const renamed = sourceClauses(rename(values), connection, first);
+    expect(renamed.map((c) => c.id)).toEqual(first.map((c) => c.id));
+    expect(renamed[0]).toMatchObject({ context: ["renamed"] });
+    expect(renamed[0].draft.anchor).toBe("scope");
+    expect(renamed[0].sourceKey).not.toBe(first[0].sourceKey);
+    // The same key in two sections cannot be told apart once a title changes.
+    const twice = [...values, ["arbitrary-id", "other", "Again"]];
+    const both = sourceClauses(twice, connection, []);
+    const moved = sourceClauses(rename(twice), connection, both);
+    expect(moved[0].id).not.toBe(both[0].id);
+    expect(moved[2].id).toBe(both[2].id);
+  });
+  it("leads a heading row without a key into the next clause and leaves trailing tables out", () => {
+    const rows = [
+      ["a 1", "one", "First"],
+      ["", "two", "Figure 2: caption", "", "", "", "", "이번 개정"],
+      ["a 2", "", "Second", "", "", "", "새 문안", "이번 개정"],
+      ["", "Table 1", "| x | y |"],
+      ["", "", "| 1 | 2 |"],
+    ];
+    const clauses = sourceClauses(rows, connection, []);
+    expect(clauses).toHaveLength(2);
+    expect(clauses[0]).toMatchObject({
+      source: "First",
+      firstRow: 3,
+      lastRow: 3,
+    });
+    expect(clauses[1]).toMatchObject({
+      context: ["two"],
+      source: "Figure 2: caption\n\nSecond",
+      timing: "이번 개정",
+      firstRow: 4,
+      lastRow: 5,
+    });
   });
   it("groups continuation rows and preserves identity when rows move", () => {
     const first = sourceClauses(values, connection, []);

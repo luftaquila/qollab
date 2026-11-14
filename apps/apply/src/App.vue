@@ -25,7 +25,7 @@ const fields = ref({
   spreadsheet: "",
   sheet: "",
   firstRow: 2,
-  lastRow: 2000,
+  lastRow: "" as number | "",
   year: new Date().getFullYear() + 1,
   key: "A",
   context: "",
@@ -240,7 +240,7 @@ function settingsFromState() {
     spreadsheet: c.spreadsheetId,
     sheet: c.sheet,
     firstRow: c.firstRow,
-    lastRow: c.lastRow,
+    lastRow: c.lastRow ?? "",
     year: c.year,
     key: c.columns.key,
     context: c.columns.context.join(","),
@@ -310,7 +310,7 @@ async function saveConnection() {
     spreadsheetId: id,
     sheet: f.sheet.trim(),
     firstRow: Number(f.firstRow),
-    lastRow: Number(f.lastRow),
+    lastRow: f.lastRow === "" ? null : Number(f.lastRow),
     year: Number(f.year),
     columns: {
       key: f.key.trim().toUpperCase(),
@@ -496,7 +496,7 @@ onMounted(() =>
             type="number"
             min="1"
             max="10000"
-            required /></label
+            placeholder="비우면 시트 끝까지" /></label
         ><label
           >대상 시행연도<input
             v-model.number="fields.year"
@@ -509,7 +509,9 @@ onMounted(() =>
       <h3>열 연결</h3>
       <p>
         열 문자를 입력합니다. 여러 열은 쉼표로 구분합니다. 식별자가 빈 행은 바로
-        위 항목에 포함됩니다.
+        위 항목에 포함되고, 식별자 없이 상위 분류만 바뀐 행부터는 다음
+        식별자까지 어느 항목에도 넣지 않습니다. 상위 분류 제목을 고쳐도 식별자가
+        시트에서 하나뿐이면 같은 항목으로 이어집니다.
       </p>
       <div class="formgrid">
         <label

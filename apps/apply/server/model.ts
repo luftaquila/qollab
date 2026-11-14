@@ -6,7 +6,8 @@ export const connectionSchema = z
     spreadsheetId: z.string().regex(/^[\w-]{15,150}$/),
     sheet: z.string().trim().min(1).max(100),
     firstRow: z.number().int().min(1).max(10000),
-    lastRow: z.number().int().min(1).max(10000),
+    /** Empty reads to the end of the sheet, so inserted rows never push clauses out. */
+    lastRow: z.number().int().min(1).max(10000).nullable().default(null),
     year: z.number().int().min(2000).max(2200),
     columns: z.object({
       key: column,
@@ -38,7 +39,10 @@ export const connectionSchema = z
       )
       .max(30),
   })
-  .refine((c) => c.lastRow >= c.firstRow, "Invalid source range");
+  .refine(
+    (c) => c.lastRow === null || c.lastRow >= c.firstRow,
+    "Invalid source range",
+  );
 export type Connection = z.infer<typeof connectionSchema>;
 export const draftSchema = z.object({
   year: z.number().int().min(2000).max(2200).nullable(),
@@ -158,5 +162,7 @@ export function sourceRange(connection: Connection) {
   const last = columns.reduce((a, b) =>
     columnIndex(a) > columnIndex(b) ? a : b,
   );
-  return `${quoteSheet(connection.sheet)}!A${connection.firstRow}:${last}${connection.lastRow}`;
+  // The reader accepts at most 10000 rows; it stops at the sheet's last row.
+  const end = connection.lastRow ?? connection.firstRow + 9999;
+  return `${quoteSheet(connection.sheet)}!A${connection.firstRow}:${last}${end}`;
 }
