@@ -36,14 +36,15 @@ function literals(replacements: Draft["replacements"] = []) {
 }
 /** Reading a proposed clause does not require a decision to introduce it. */
 export function proposalText(
-  fields: Pick<Clause, "source" | "current" | "decision">,
+  fields: Pick<Clause, "source" | "current" | "decision" | "wording">,
   connection: Connection,
   replacements?: Draft["replacements"],
 ) {
   const action = connection.decisions.find(
     (d) => d.value === fields.decision,
   )?.action;
-  const material = action === "keep" ? fields.current : fields.source;
+  const material =
+    fields.wording || (action === "keep" ? fields.current : fields.source);
   return literals(replacements)(
     material
       .replace(/\\r\\n|\\n/g, "\n")
@@ -73,7 +74,7 @@ export function sourceClauses(
     for (const field of ["source", "current"] as const)
       for (const col of c.columns[field])
         if (get(row, col)) g[field].push(get(row, col));
-    for (const field of ["notes", "decision", "timing"] as const)
+    for (const field of ["notes", "decision", "timing", "wording"] as const)
       if (get(row, c.columns[field])) g[field].push(get(row, c.columns[field]));
   };
   // A row that opens a new chapter or section without a key (a figure caption,
@@ -100,6 +101,7 @@ export function sourceClauses(
         notes: [],
         decision: [],
         timing: [],
+        wording: [],
         firstRow: c.firstRow + (lead[0] ?? i),
         lastRow: c.firstRow + i,
       };
@@ -143,6 +145,8 @@ export function sourceClauses(
       notes: [...new Set(g.notes)].join("\n\n"),
       decision: [...new Set(g.decision)].join(" / "),
       timing: [...new Set(g.timing)].join(" / "),
+      // Left out of the hash while empty, so a clause without it keeps its hash.
+      wording: g.wording.join("\n\n") || undefined,
     };
     const sourceHash = digest(fields);
     const previous = earlier(g);
@@ -157,13 +161,20 @@ export function sourceClauses(
           final: "",
           confirmed: false,
         };
-    const decision = c.decisions.find(
-      (d) => d.value === fields.decision,
-    )?.action;
+    const mapped = c.decisions.find((d) => d.value === fields.decision)?.action;
     const timing = c.timings.find((t) => t.value === fields.timing);
+    // Final wording is this edition's text whatever the decision and timing cells say.
+    const decision =
+      fields.wording && (!mapped || mapped === "hold" || mapped === "exclude")
+        ? "replace"
+        : mapped;
     const approved = !!decision && decision !== "hold";
-    draft.year = timing?.year === "edition" ? c.year : (timing?.year ?? null);
-    draft.deferred = decision === "exclude" || timing?.year === null;
+    draft.year =
+      fields.wording || timing?.year === "edition"
+        ? c.year
+        : (timing?.year ?? null);
+    draft.deferred =
+      !fields.wording && (decision === "exclude" || timing?.year === null);
     draft.action =
       approved && draft.anchor
         ? "schedule"
@@ -173,7 +184,7 @@ export function sourceClauses(
     draft.final = proposalText(fields, c, draft.replacements);
     draft.confirmed =
       approved &&
-      (!!timing || decision === "exclude") &&
+      (!!fields.wording || !!timing || decision === "exclude") &&
       !!draft.fileId &&
       !!draft.anchor &&
       (!!draft.final || !!draft.deferred);
@@ -251,8 +262,9 @@ export function finalizeProposals(clauses: Clause[], connection: Connection) {
     for (const c of clauses)
       if (c.draft.fileId === fileId) c.draft.final = link(c.draft.final);
   }
-  for (const { draft: d } of clauses)
-    if (scheduledText(d) && d.year! > connection.year)
+  // Final wording already holds whatever year notes it needs.
+  for (const { draft: d, wording } of clauses)
+    if (!wording && scheduledText(d) && d.year! > connection.year)
       d.final = announce(d.final, d.year!);
   return clauses;
 }

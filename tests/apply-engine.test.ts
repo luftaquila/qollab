@@ -6,11 +6,14 @@ import {
   sections,
   schedulePlacement,
   bindTargets,
+  finalizeProposals,
 } from "../apps/apply/server/engine";
 import { numberDocument } from "../packages/codec/src/document-numbering";
 import { defaultNumbering } from "../packages/codec/src/numbering";
 import {
   changeDigest,
+  connectionSchema,
+  digest,
   sourceRange,
   type Connection,
   type Clause,
@@ -594,5 +597,292 @@ describe("sheet-driven document changes", () => {
         patchDocument(deferred, selected.toReversed(), 2027, fileId, clauses),
       ).toBe(source);
     }
+  });
+});
+describe("final wording from the sheet", () => {
+  const config: Connection = {
+    ...connection,
+    columns: { ...connection.columns, wording: "I" },
+    decisions: [
+      { value: "Approve", action: "replace" },
+      { value: "Add", action: "insert" },
+      { value: "Retain", action: "keep" },
+      { value: "Wait", action: "hold" },
+      { value: "Reject", action: "exclude" },
+    ],
+    timings: [
+      { value: "This edition", year: "edition" },
+      { value: "Next year", year: 2028 },
+      { value: "Later", year: null },
+    ],
+  };
+  // The same settings as saved before the column existed.
+  const plain: Connection = { ...config, columns: connection.columns };
+  const row = (
+    key: string,
+    decision: string,
+    timing: string,
+    wording = "",
+    source = "Translated text",
+  ) => [
+    key,
+    "T 1.1 Rules",
+    source,
+    "",
+    "Existing text",
+    "",
+    decision,
+    timing,
+    wording,
+  ];
+  const fileId = randomUUID();
+  const document = (count: number) =>
+    "# Rules {#rules}\n\n" +
+    Array.from(
+      { length: count },
+      (_, i) => `## Clause {#c${i + 1}}\n\nold ${i + 1}\n\n`,
+    ).join("");
+  // Every clause gets its document section, as an operator connects it once.
+  const bound = (rows: unknown[][], settings = config) => {
+    const clauses = sourceClauses(rows, settings, []);
+    clauses.forEach((c, i) => {
+      c.draft = { ...c.draft, fileId, anchor: `c${i + 1}` };
+    });
+    return bindTargets(
+      sourceClauses(rows, settings, clauses),
+      [{ id: fileId, source: document(clauses.length) }],
+      settings.year,
+    );
+  };
+  it("reads the column and uses its text instead of the source or current text", () => {
+    expect(sourceRange(config)).toBe("'Source'!A3:I100");
+    expect(connectionSchema.safeParse(config).success).toBe(true);
+    expect(connectionSchema.safeParse(plain).success).toBe(true);
+    const clauses = sourceClauses(
+      [
+        row("T 1.1.1", "Approve", "This edition", "Final one"),
+        row("T 1.1.2", "Retain", "This edition", "Final two"),
+        ["", "", "More translated", "", "", "", "", "", "Second part"],
+        row("T 1.1.3", "Add", "This edition", "Final three"),
+        row("T 1.1.4", "Approve", "This edition"),
+        row("T 1.1.5", "Retain", "This edition"),
+      ],
+      config,
+      [],
+    );
+    expect(clauses.map((c) => c.wording)).toEqual([
+      "Final one",
+      "Final two\n\nSecond part",
+      "Final three",
+      undefined,
+      undefined,
+    ]);
+    expect(clauses.map((c) => c.draft.final)).toEqual([
+      "Final one",
+      "Final two\n\nSecond part",
+      "Final three",
+      "Translated text",
+      "Existing text",
+    ]);
+    // A decision that names an action keeps it.
+    expect(clauses.map((c) => c.draft.action)).toEqual([
+      "replace",
+      "keep",
+      "insert",
+      "replace",
+      "keep",
+    ]);
+  });
+  it("confirms a connected clause whose rows disagree on decision and timing", () => {
+    const rows = (wording: string) => [
+      row("T 1.1.1", "Retain", "This edition", wording),
+      ["", "", "More translated", "", "", "", "Approve", "Next year"],
+      ["", "", "", "", "", "", "Unsure"],
+    ];
+    const undecided = bound(rows(""))[0];
+    expect(undecided).toMatchObject({
+      decision: "Retain / Approve / Unsure",
+      timing: "This edition / Next year",
+    });
+    expect(undecided.draft).toMatchObject({
+      action: "hold",
+      year: null,
+      confirmed: false,
+    });
+    // Without a file and anchor it is approved but not yet confirmed.
+    expect(
+      sourceClauses(rows("Final text"), config, [])[0].draft,
+    ).toMatchObject({
+      action: "replace",
+      year: 2027,
+      deferred: false,
+      confirmed: false,
+      final: "Final text",
+    });
+    const clauses = bound(rows("Final text"));
+    expect(clauses[0]).toMatchObject({
+      decision: "Retain / Approve / Unsure",
+      timing: "This edition / Next year",
+    });
+    expect(clauses[0].draft).toMatchObject({
+      action: "schedule",
+      year: 2027,
+      deferred: false,
+      confirmed: true,
+      final: "Final text",
+    });
+    expect(patchDocument(document(1), clauses, 2027, fileId)).toBe(
+      "# Rules {#rules}\n\n## Clause {#c1}\n\nFinal text\n\n",
+    );
+  });
+  it("gives a clause without decision and timing the edition year", () => {
+    const rows = [row("T 1.1.1", "", "", "Final text")];
+    expect(sourceClauses(rows, config, [])[0].draft).toMatchObject({
+      action: "replace",
+      year: 2027,
+      deferred: false,
+      confirmed: false,
+    });
+    const [c] = bound(rows);
+    expect(c).toMatchObject({ decision: "", timing: "" });
+    expect(c.draft).toMatchObject({
+      action: "schedule",
+      year: 2027,
+      deferred: false,
+      confirmed: true,
+      final: "Final text",
+    });
+    expect(bound(rows, { ...config, year: 2030 })[0].draft.year).toBe(2030);
+  });
+  it("includes it in this edition without a year note, whatever the cells defer or exclude", () => {
+    const clauses = bound([
+      row("T 1.1.1", "Approve", "Next year", "Tests: (2028년 도입)\n\n- shake"),
+      row("T 1.1.2", "Approve", "Next year"),
+      row("T 1.1.3", "Approve", "Later", "Final three"),
+      row("T 1.1.4", "Reject", "", "Final four"),
+      row("T 1.1.5", "Wait", "This edition", "Final five (2027년 적용)"),
+    ]);
+    const finals = [
+      "Tests: (2028년 도입)\n\n- shake",
+      "Translated text (2028년 도입)",
+      "Final three",
+      "Final four",
+      "Final five (2027년 적용)",
+    ];
+    expect(clauses.map((c) => c.draft.final)).toEqual(finals);
+    expect(clauses.map((c) => c.draft.year)).toEqual([
+      2027, 2028, 2027, 2027, 2027,
+    ]);
+    for (const c of clauses)
+      expect(c.draft).toMatchObject({
+        action: "schedule",
+        deferred: false,
+        confirmed: true,
+      });
+    expect(patchDocument(document(5), clauses, 2027, fileId)).toBe(
+      "# Rules {#rules}\n\n" +
+        finals.map((t, i) => `## Clause {#c${i + 1}}\n\n${t}\n\n`).join(""),
+    );
+    // Stored clauses shown under a lowered edition year still take no note.
+    const stored: Clause[] = JSON.parse(JSON.stringify(clauses));
+    finalizeProposals(stored, { ...config, year: 2026 });
+    expect(stored.map((c) => c.draft.final)).toEqual(finals);
+  });
+  it("normalizes bullets and links rule codes in it like other sheet text", () => {
+    const rows = [
+      row("T 1.1.1", "Approve", "This edition"),
+      row(
+        "T 1.1.2",
+        "",
+        "",
+        "Per T 1.1.1 the car has:\\n▪ four wheels\r\n• one seat (2027년 적용)\\n\\tand T 9.9.9",
+      ),
+      row("T 1.1.3", "Approve", "This edition", "", "Wheels follow T 1.1.2."),
+    ];
+    let clauses = bound(rows);
+    expect(clauses.map((c) => c.draft.final)).toEqual([
+      "Translated text",
+      "Per \\ref{c1} the car has:\n- four wheels\n- one seat (2027년 적용)\n\tand T 9.9.9",
+      "Wheels follow \\ref{c2}.",
+    ]);
+    clauses[1].draft.replacements = [{ from: "four wheels", to: "4 wheels" }];
+    clauses = sourceClauses(rows, config, clauses);
+    expect(clauses[1].draft.final).toBe(
+      "Per \\ref{c1} the car has:\n- 4 wheels\n- one seat (2027년 적용)\n\tand T 9.9.9",
+    );
+  });
+  it("leaves a clause without it exactly as before, including its hash", () => {
+    const rows = [
+      row("T 1.1.1", "Approve", "This edition"),
+      row("T 1.1.2", "Retain", "Next year"),
+      row("T 1.1.3", "Reject", ""),
+      row("T 1.1.4", "Unsure", ""),
+      row("T 1.1.5", "Approve", "Later"),
+      row("T 1.1.6", "", ""),
+    ];
+    const before = bound(rows, plain);
+    expect(bound(rows, config)).toEqual(before);
+    expect(before.map((c) => c.draft)).toMatchObject([
+      { action: "schedule", year: 2027, confirmed: true, deferred: false },
+      { action: "schedule", year: 2028, confirmed: true, deferred: false },
+      { action: "schedule", year: null, confirmed: true, deferred: true },
+      { action: "hold", year: null, confirmed: false, deferred: false },
+      { action: "schedule", year: null, confirmed: true, deferred: true },
+      { action: "hold", year: null, confirmed: false, deferred: false },
+    ]);
+    expect(before.map((c) => c.draft.final)).toEqual([
+      "Translated text",
+      "Existing text (2028년 도입)",
+      "Translated text",
+      "Translated text",
+      "Translated text",
+      "Translated text",
+    ]);
+    expect(sourceClauses(rows, config, [])[0].sourceHash).toBe(
+      digest({
+        key: "T 1.1.1",
+        context: ["T 1.1 Rules"],
+        source: "Translated text",
+        current: "Existing text",
+        notes: "",
+        decision: "Approve",
+        timing: "This edition",
+      }),
+    );
+    // Clauses stored before the column existed have no such field.
+    const stored: Clause[] = JSON.parse(JSON.stringify(before));
+    for (const c of stored) expect(c).not.toHaveProperty("wording");
+    expect(finalizeProposals(stored, config)).toEqual(before);
+    expect(sourceClauses(rows, config, stored)).toEqual(
+      sourceClauses(rows, plain, stored),
+    );
+  });
+  it("treats an edit of it as a source change and returns to the sheet cells once it is removed", () => {
+    const read = (wording: string, previous: Clause[]) =>
+      sourceClauses([row("T 1.1.1", "Reject", "", wording)], config, previous);
+    const first = read("Final text", []);
+    first[0].draft = { ...first[0].draft, fileId, anchor: "c1" };
+    const included = read("Final text", first)[0];
+    expect(included.draft).toMatchObject({
+      year: 2027,
+      deferred: false,
+      confirmed: true,
+      final: "Final text",
+    });
+    const edited = read("Final text, revised", [included])[0];
+    expect(edited.id).toBe(included.id);
+    expect(edited.sourceHash).not.toBe(included.sourceHash);
+    expect(edited.draft.final).toBe("Final text, revised");
+    const removed = read("", [edited])[0];
+    expect(removed.wording).toBeUndefined();
+    expect(removed.sourceHash).toBe(read("", [])[0].sourceHash);
+    expect(removed.sourceHash).not.toBe(included.sourceHash);
+    expect(removed.draft).toMatchObject({
+      action: "schedule",
+      year: null,
+      deferred: true,
+      confirmed: true,
+      final: "Translated text",
+    });
   });
 });

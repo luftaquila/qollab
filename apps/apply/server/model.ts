@@ -17,6 +17,8 @@ export const connectionSchema = z
       notes: column.optional(),
       decision: column.optional(),
       timing: column.optional(),
+      /** Hand-edited text of a clause; where filled, it is this edition's text. */
+      wording: column.optional(),
     }),
     decisions: z
       .array(
@@ -89,6 +91,8 @@ export interface Clause {
   notes: string;
   decision: string;
   timing: string;
+  /** Final text from the sheet. Absent when the sheet has none for this clause. */
+  wording?: string;
   firstRow: number;
   lastRow: number;
   sourceHash: string;

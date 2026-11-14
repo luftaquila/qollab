@@ -34,6 +34,7 @@ const fields = ref({
   notes: "",
   decision: "",
   timing: "",
+  wording: "",
   decisions: "",
   timings: "",
 });
@@ -252,6 +253,7 @@ function settingsFromState() {
     notes: c.columns.notes || "",
     decision: c.columns.decision || "",
     timing: c.columns.timing || "",
+    wording: c.columns.wording || "",
     decisions: c.decisions.map((d) => `${d.value}=${d.action}`).join("\n"),
     timings: c.timings.map((d) => `${d.value}=${d.year ?? "defer"}`).join("\n"),
   };
@@ -323,6 +325,7 @@ async function saveConnection() {
       ...(f.notes ? { notes: f.notes.trim().toUpperCase() } : {}),
       ...(f.decision ? { decision: f.decision.trim().toUpperCase() } : {}),
       ...(f.timing ? { timing: f.timing.trim().toUpperCase() } : {}),
+      ...(f.wording ? { wording: f.wording.trim().toUpperCase() } : {}),
     },
     decisions: mappings(f.decisions).map(([value, action]) => ({
       value,
@@ -514,7 +517,9 @@ onMounted(() =>
         열 문자를 입력합니다. 여러 열은 쉼표로 구분합니다. 식별자가 빈 행은 바로
         위 항목에 포함되고, 식별자 없이 상위 분류만 바뀐 행부터는 다음
         식별자까지 어느 항목에도 넣지 않습니다. 상위 분류 제목을 고쳐도 식별자가
-        시트에서 하나뿐이면 같은 항목으로 이어집니다.
+        시트에서 하나뿐이면 같은 항목으로 이어집니다. 최종 문안 열에 글이 있는
+        항목은 적용 여부·시기 값과 관계없이 그 글을 이번 문서에 그대로 싣고,
+        연도 표시는 덧붙이지 않습니다.
       </p>
       <div class="formgrid">
         <label
@@ -540,7 +545,9 @@ onMounted(() =>
             v-model="fields.decision"
             placeholder="K" /></label
         ><label
-          >적용 시기 열<input v-model="fields.timing" placeholder="L"
+          >적용 시기 열<input v-model="fields.timing" placeholder="L" /></label
+        ><label
+          >최종 문안 열<input v-model="fields.wording" placeholder="P"
         /></label>
       </div>
       <div class="twocol">

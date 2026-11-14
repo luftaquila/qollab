@@ -563,3 +563,88 @@ it("releases its raw editing lock on rejected content and safely retries the doc
   expect(retry.json().run.status).toBe("applied");
   expect((await api(`/projects/${f.id}`)).json().revision).toBe(revision);
 });
+it("applies the final wording of a clause whose decision and timing rows disagree", async () => {
+  const f = await fixture();
+  // State saved before the column existed has neither the setting nor the field.
+  expect(f.state.connection!.columns).not.toHaveProperty("wording");
+  expect(f.state.clauses[0]).not.toHaveProperty("wording");
+  const rows = sheets.values.Source,
+    wording = "Final condition\n• first item\n• second item (2028년 도입)",
+    final = "Final condition\n- first item\n- second item (2028년 도입)";
+  let state = f.state;
+  const reimport = async () => {
+    const response = await call(`/projects/${f.id}/import`, "POST", {
+      version: state.version,
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    state = response.json();
+    return state.clauses[0];
+  };
+  try {
+    const connected = await call(`/projects/${f.id}/connection`, "POST", {
+      version: state.version,
+      connection: {
+        ...settings,
+        columns: { ...settings.columns, wording: "G" },
+      },
+    });
+    expect(connected.statusCode, connected.body).toBe(200);
+    state = connected.json();
+    expect(state.connection!.columns.wording).toBe("G");
+    // A clause without text in the new column is read as before.
+    expect(await reimport()).toEqual(f.state.clauses[0]);
+    rows[2] = ["", "Additional detail", "", "", "Hold", "2028"];
+    let clause = await reimport();
+    expect(clause).toMatchObject({
+      decision: "Replace / Hold",
+      timing: "2027 / 2028",
+    });
+    expect(clause.draft).toMatchObject({ year: null, confirmed: false });
+    rows[1][6] = wording;
+    clause = await reimport();
+    expect(clause).toMatchObject({
+      wording,
+      decision: "Replace / Hold",
+      timing: "2027 / 2028",
+    });
+    expect(clause.sourceHash).not.toBe(f.state.clauses[0].sourceHash);
+    expect(clause.draft).toMatchObject({
+      action: "schedule",
+      year: 2027,
+      deferred: false,
+      confirmed: true,
+      final,
+    });
+    expect(
+      (await call(`/projects/${f.id}`)).json().state.clauses[0].draft.final,
+    ).toBe(final);
+    const preview = await call(`/projects/${f.id}/preview`, "POST", {
+      version: state.version,
+      ids: [f.clauseId],
+    });
+    expect(preview.statusCode, preview.body).toBe(200);
+    const plan = preview.json().plan;
+    expect(plan.after).toBe(source.replace("old condition", final));
+    // An edit of the final wording after review is a source change.
+    rows[1][6] = wording + " edited";
+    expect(
+      (
+        await call(`/projects/${f.id}/apply`, "POST", { planId: plan.id })
+      ).json().code,
+    ).toBe("SOURCE_CHANGED");
+    rows[1][6] = wording;
+    const saved = await call(`/projects/${f.id}/apply`, "POST", {
+      planId: plan.id,
+    });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json().run.status).toBe("applied");
+    expect((await api(`/projects/${f.id}`)).json().data.files[0].source).toBe(
+      plan.after,
+    );
+    state = saved.json().state;
+    expect((await reimport()).matches).toBe(true);
+  } finally {
+    rows[1].length = 6;
+    rows[2] = ["", "Additional detail"];
+  }
+});
