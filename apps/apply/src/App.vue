@@ -180,13 +180,11 @@ function status(c: Clause) {
           ? "문서와 일치"
           : ready(c)
             ? "반영 가능"
-            : c.draft.year && c.draft.year !== state.value.connection?.year
-              ? "추후 도입"
-              : !c.timing
-                ? "시기 미정"
-                : !c.draft.confirmed
-                  ? "적용 정보 확인"
-                  : "반영 대기";
+            : !c.timing
+              ? "시기 미정"
+              : !c.draft.confirmed
+                ? "적용 정보 확인"
+                : "반영 대기";
 }
 const filtered = computed(() =>
   state.value.clauses.filter(
@@ -217,9 +215,14 @@ const currentText = computed(() => {
 const target = computed(() =>
   document.value?.sections.find((s: any) => s.label === draft.value?.anchor),
 );
-const isExcluded = (c: Clause) =>
-  !!c.draft.deferred ||
-  (c.draft.year !== null && c.draft.year > (state.value.connection?.year || 0));
+const isExcluded = (c: Clause) => !!c.draft.deferred;
+// A clause introduced after this edition is printed with its introduction year.
+const inclusion = (c: Clause) =>
+  isExcluded(c)
+    ? "이번 문서에서 제외"
+    : c.draft.year !== null && c.draft.year > state.value.connection!.year
+      ? `${state.value.connection!.year}년 문서에 ${c.draft.year}년 도입으로 포함`
+      : `${state.value.connection!.year}년 문서에 포함`;
 const afterText = (c: Clause) =>
   c.draft.confirmed && isExcluded(c)
     ? "이번 문서에서 제외됩니다."
@@ -558,8 +561,9 @@ onMounted(() =>
             placeholder="시트의 시기값=2027&#10;추후를 나타내는 값=defer"
           ></textarea
           ><small
-            >edition은 대상 문서의 연도, defer는 연도 미정인 추후 도입입니다. 빈
-            시기는 반영하지 않습니다.</small
+            >edition은 대상 문서의 연도입니다. 대상 문서보다 늦은 연도는 문서에
+            싣고 첫 문단 뒤에 (연도년 도입)을 붙입니다. defer는 연도 미정인 추후
+            도입으로 문서에서 뺍니다. 빈 시기는 반영하지 않습니다.</small
           ></label
         >
       </div>
@@ -738,12 +742,7 @@ onMounted(() =>
                 <dd>
                   {{ current.timing || "미정"
                   }}<small v-if="current.draft.confirmed">
-                    ·
-                    {{
-                      isExcluded(current)
-                        ? "이번 문서에서 제외"
-                        : state.connection.year + "년 문서에 포함"
-                    }}</small
+                    · {{ inclusion(current) }}</small
                   >
                 </dd>
               </div>

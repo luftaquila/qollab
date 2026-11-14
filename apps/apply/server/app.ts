@@ -26,7 +26,7 @@ import {
   scheduledText,
   schedulePlacement,
   bindTargets,
-  linkProposals,
+  finalizeProposals,
 } from "./engine.js";
 
 export interface ApplyOptions {
@@ -197,7 +197,7 @@ export async function createApplyApp(options: ApplyOptions) {
       { project } = await context(req, id);
     const state = store.get(id);
     if (state.connection) {
-      linkProposals(state.clauses, state.connection);
+      finalizeProposals(state.clauses, state.connection);
       bindTargets(state.clauses, project.data.files, state.connection.year);
     }
     return {
@@ -447,10 +447,7 @@ export async function createApplyApp(options: ApplyOptions) {
           clause.draft.placement =
             schedulePlacement(plan.before, clause.draft.anchor) ||
             clause.draft.placement;
-          clause.draft.before = scheduledText(
-            clause.draft,
-            plan.year ?? connection(state).year,
-          );
+          clause.draft.before = scheduledText(clause.draft);
           clause.appliedHash = changeDigest(clause);
         } else clause.appliedHash = plan.digests[clause.id];
         clause.appliedRevision = revision;

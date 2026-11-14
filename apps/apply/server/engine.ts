@@ -190,7 +190,7 @@ export function sourceClauses(
       draft,
     };
   });
-  return linkProposals(clauses, c);
+  return finalizeProposals(clauses, c);
 }
 export interface Section {
   label: string;
@@ -199,24 +199,33 @@ export interface Section {
   end: number;
   body: string;
 }
-/** A proposal stays in review storage when its introduction is after this edition. */
-export const scheduledText = (draft: Draft, year: number) =>
-  !draft.deferred && draft.year !== null && draft.year <= year
-    ? draft.final.trim()
-    : "";
+/** A proposal without an introduction year, or one not introduced at all, stays in review storage. */
+export const scheduledText = (draft: Draft) =>
+  !draft.deferred && draft.year !== null ? draft.final.trim() : "";
+/** A clause introduced after this edition is printed with its year after the lead paragraph. */
+function announce(text: string, year: number) {
+  const note = `(${year}년 도입)`,
+    end = text.search(/\n[ \t]*\n/),
+    lead = end < 0 ? text : text.slice(0, end);
+  // A list, table, figure or fenced block cannot take trailing words, so the note leads it.
+  if (/^(?:(?:[-*+]|\d+[.)])\s|[|!<>#:$`~])/.test(lead))
+    return `${note}\n\n${text}`;
+  return lead.trimEnd() + " " + note + text.slice(lead.length);
+}
 const ruleCode = /^[A-Z]{1,4} ?\d+(?:\.\d+)*$/;
 /**
- * A rule code written in sheet text links to its clause, or to the chapter or
- * section a context column names, once that target is part of this edition.
- * Codes whose target is deferred, undecided or ambiguous stay plain text.
+ * The document text of each proposal. A rule code written in sheet text links
+ * to its clause, or to the chapter or section a context column names, once
+ * that target is part of this edition; codes whose target is deferred,
+ * undecided or ambiguous stay plain text. A clause introduced after this
+ * edition carries its introduction year.
  */
-export function linkProposals(clauses: Clause[], connection: Connection) {
+export function finalizeProposals(clauses: Clause[], connection: Connection) {
   const targets = new Map<string, Map<string, Set<string>>>();
   for (const c of clauses) {
     const d = c.draft;
     d.final = proposalText(c, connection, d.replacements);
-    if (c.missing || !d.confirmed || !scheduledText(d, connection.year))
-      continue;
+    if (c.missing || !d.confirmed || !scheduledText(d)) continue;
     const codes = targets.get(d.fileId) ?? new Map<string, Set<string>>();
     targets.set(d.fileId, codes);
     const add = (code: string, label: string) => {
@@ -242,6 +251,9 @@ export function linkProposals(clauses: Clause[], connection: Connection) {
     for (const c of clauses)
       if (c.draft.fileId === fileId) c.draft.final = link(c.draft.final);
   }
+  for (const { draft: d } of clauses)
+    if (scheduledText(d) && d.year! > connection.year)
+      d.final = announce(d.final, d.year!);
   return clauses;
 }
 /** Existing Markdown heading labels define scopes; visible numbers never identify edits. */
@@ -339,7 +351,7 @@ export function bindTargets(
       ? scope.body.slice(scope.body.indexOf("\n") + 1).trim()
       : "";
     d.placement ||= schedulePlacement(file.source, d.anchor);
-    const wanted = scheduledText(d, year);
+    const wanted = scheduledText(d);
     c.matches =
       d.confirmed && (wanted ? !!scope && d.before === wanted : !scope);
   }
@@ -370,14 +382,13 @@ export function bindTargets(
 function scheduleClause(
   source: string,
   clause: Clause,
-  year: number,
   all: Clause[],
   scopes: Section[],
 ) {
   const d = clause.draft,
     scope = scopes.find((s) => s.label === d.anchor);
   if (!d.anchor) throw new ApplyError("ANCHOR_NOT_FOUND", 409, clause.key);
-  const wanted = scheduledText(d, year);
+  const wanted = scheduledText(d);
   if (scope) {
     const headerEnd = scope.body.indexOf("\n") + 1;
     if (!headerEnd || scope.body.slice(headerEnd).trim() !== d.before.trim())
@@ -510,7 +521,7 @@ export function patchDocument(
     if (d.anchor && !scope && d.action !== "schedule")
       throw new ApplyError("ANCHOR_NOT_FOUND", 409, c.key);
     if (d.action === "schedule") {
-      const result = scheduleClause(source, c, year, allClauses, scopes);
+      const result = scheduleClause(source, c, allClauses, scopes);
       return validate
         ? validatePatched(source, result, fileId, allClauses)
         : result;

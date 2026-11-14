@@ -401,6 +401,77 @@ describe("sheet-driven document changes", () => {
       "Seats meet \\ref{materials}. Brakes follow \\ref{c4}.",
     );
   });
+  it("prints a clause introduced after this edition with its year after the lead paragraph", () => {
+    const config: Connection = {
+      ...connection,
+      decisions: [{ value: "Approve", action: "replace" }],
+      timings: [
+        { value: "This edition", year: "edition" },
+        { value: "Next year", year: 2028 },
+        { value: "Undecided", year: null },
+      ],
+    };
+    const rows = (timing: string) => [
+      [
+        "T 1.1.1",
+        "T 1.1 Rules",
+        "Wheels are round.",
+        "",
+        "",
+        "",
+        "Approve",
+        "This edition",
+      ],
+      [
+        "T 1.1.2",
+        "T 1.1 Rules",
+        "Tests include:\n\n- shake\n- tilt",
+        "",
+        "",
+        "",
+        "Approve",
+        timing,
+      ],
+      [
+        "T 1.1.3",
+        "T 1.1 Rules",
+        "- only a list",
+        "",
+        "",
+        "",
+        "Approve",
+        timing,
+      ],
+    ];
+    const fileId = randomUUID(),
+      source =
+        "# Rules {#rules}\n\n## Clause {#c1}\n\nWheels are round.\n\n## Clause {#c2}\n\nold tests\n\n";
+    let clauses = sourceClauses(rows("Next year"), config, []);
+    clauses.forEach((c, i) => {
+      c.draft = { ...c.draft, fileId, anchor: `c${i + 1}` };
+    });
+    bindTargets(clauses, [{ id: fileId, source }], 2027);
+    clauses[2].draft.placement = {
+      heading: "## Clause {#c3}",
+      parents: [{ label: "rules", heading: "# Rules {#rules}" }],
+    };
+    clauses = sourceClauses(rows("Next year"), config, clauses);
+    expect(clauses.map((c) => c.draft.final)).toEqual([
+      "Wheels are round.",
+      "Tests include: (2028년 도입)\n\n- shake\n- tilt",
+      "(2028년 도입)\n\n- only a list",
+    ]);
+    bindTargets(clauses, [{ id: fileId, source }], 2027);
+    expect(patchDocument(source, clauses.slice(1), 2027, fileId, clauses)).toBe(
+      "# Rules {#rules}\n\n## Clause {#c1}\n\nWheels are round.\n\n## Clause {#c2}\n\nTests include: (2028년 도입)\n\n- shake\n- tilt\n\n## Clause {#c3}\n\n(2028년 도입)\n\n- only a list\n\n",
+    );
+    // A timing without a year still keeps the clause out of the document.
+    clauses = sourceClauses(rows("Undecided"), config, clauses);
+    expect(clauses[1].draft).toMatchObject({
+      deferred: true,
+      final: "Tests include:\n\n- shake\n- tilt",
+    });
+  });
   it("inserts a selected group in order and leaves future or held proposals out", () => {
     const c = clause();
     c.draft.action = "insert";
@@ -426,11 +497,12 @@ describe("sheet-driven document changes", () => {
     expect(() => patchDocument(source, [c], 2027, c.draft.fileId)).toThrow(
       "CLAUSE_NOT_READY",
     );
-    c.draft.year = 2028;
+    c.draft.deferred = true;
     c.draft.placement = schedulePlacement(source, c.draft.anchor);
     const deferred = patchDocument(source, [c], 2027, c.draft.fileId);
     expect(deferred).toBe("# Other {#other}\n\nuntouched\n");
     c.draft.before = "";
+    c.draft.deferred = false;
     c.draft.year = 2027;
     const included = patchDocument(deferred, [c], 2027, c.draft.fileId);
     expect(included).toBe(source.replace("old text", "new text"));
@@ -459,7 +531,8 @@ describe("sheet-driven document changes", () => {
     const a = clause();
     a.draft.action = "schedule";
     a.draft.final = "old text";
-    a.draft.year = 2028;
+    a.draft.year = null;
+    a.draft.deferred = true;
     a.draft.placement = schedulePlacement(source, "scope");
     const b = structuredClone(a);
     b.id = randomUUID();
@@ -473,6 +546,7 @@ describe("sheet-driven document changes", () => {
     settings.headings.levels[2].format = "{1}.{2}.{3}";
     expect(numberDocument(deferred, settings).references.later).toBe("1.1.1");
     a.draft.before = "";
+    a.draft.deferred = false;
     a.draft.year = 2027;
     expect(patchDocument(deferred, [a], 2027, a.draft.fileId, [a, b])).toBe(
       source,
@@ -496,7 +570,8 @@ describe("sheet-driven document changes", () => {
         anchor: `item-${i}`,
         before: `text ${i}`,
         final: `text ${i}`,
-        year: 2028,
+        year: null,
+        deferred: true,
       };
       return c;
     });
@@ -512,6 +587,7 @@ describe("sheet-driven document changes", () => {
       ).toHaveLength(6 - selected.length);
       for (const c of selected) {
         c.draft.before = "";
+        c.draft.deferred = false;
         c.draft.year = 2027;
       }
       expect(
