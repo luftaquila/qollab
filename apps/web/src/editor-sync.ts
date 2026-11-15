@@ -13,8 +13,15 @@ export interface SyncAnchor {
   after: string[];
   /** Position in the document (0–1), to choose among repeated text. */
   order: number;
-  /** Height of the anchor in the editor's viewport (0–1). */
+  /** Height of the anchor in the editor's viewport (0–1, beyond it off screen). */
   ratio: number;
+  /**
+   * While scrolling no single place is shown: `line` is the height of the
+   * viewport to match and `around` the blocks next to this one, so the preview
+   * moves in proportion between the nearest block above and below the line.
+   */
+  line?: number;
+  around?: SyncAnchor[];
 }
 
 // Spaces, soft hyphens, zero-width characters and dashes differ between the
@@ -34,6 +41,8 @@ function normalizeChar(c: string) {
   return out;
 }
 export const normalize = (text: string) => Array.from(text, normalizeChar).join("");
+/** Punctuation alone is found anywhere: only text with a letter or digit names a place. */
+export const worded = (text: string) => /[\p{L}\p{N}]/u.test(text);
 
 /** The text a line of LaTeX prints, cell by cell (tables, raw blocks). */
 function latexRuns(line: string) {
@@ -45,7 +54,7 @@ function latexRuns(line: string) {
     .replace(/[{}$^_~]/g, "")
     .split("&")
     .map((cell) => normalize(cell.replace(/\u0001/g, "&")))
-    .filter((cell) => cell.length > 0);
+    .filter(worded);
 }
 const isFrontMatter = (node: PMNode) =>
   node.type.name === "qollab_raw" && /^---\r?\n/.test(node.textContent);
@@ -71,7 +80,7 @@ function blockRuns(node: PMNode, cut: number) {
     return { runs: lines.length ? lines : [""], run: 0, offset: 0 };
   }
   const runs = [""];
-  let run = 0,
+  let run = -1,
     offset = 0;
   node.forEach((child, start) => {
     if (child.isText) {
@@ -89,6 +98,9 @@ function blockRuns(node: PMNode, cut: number) {
       runs.push("");
     }
   });
+  // Away from a cursor the block stands for its first text of some length.
+  if (run < 0) run = runs.findIndex((text) => text.length >= 4);
+  if (run < 0) run = Math.max(0, runs.findIndex((text) => text.length > 0));
   return { runs, run, offset };
 }
 /** The block at a document position: its node, start and the offset in it. */
@@ -127,9 +139,75 @@ function neighbours(doc: PMNode, from: number, to: number) {
   });
   return { before: before.slice(0, 3), after };
 }
+/** The blocks of the document around a position, nearest first. */
+function blocksAround(doc: PMNode, pos: number, before: number, after: number) {
+  const above: { node: PMNode; start: number }[] = [],
+    below: { node: PMNode; start: number }[] = [];
+  doc.nodesBetween(Math.max(0, pos - 6000), pos, (node, start) => {
+    if (start + node.nodeSize <= pos && isTarget(node)) {
+      above.unshift({ node, start });
+      return false;
+    }
+    return !node.isTextblock;
+  });
+  doc.nodesBetween(pos, Math.min(doc.content.size, pos + 6000), (node, start) => {
+    if (below.length >= after) return false;
+    if (start >= pos && isTarget(node)) {
+      below.push({ node, start });
+      return false;
+    }
+    return !node.isTextblock;
+  });
+  return { above: above.slice(0, before), below };
+}
+/** Where the first node that ends below a height of the viewport starts. */
+function nodeBelow(view: EditorView, y: number) {
+  let parent = view.state.doc,
+    inside = 0;
+  for (;;) {
+    const starts: number[] = [];
+    parent.forEach((_, offset) => starts.push(inside + offset));
+    // Children follow each other down the page, so their bottoms are sorted.
+    let low = 0,
+      high = starts.length;
+    while (low < high) {
+      const middle = (low + high) >> 1,
+        dom = view.nodeDOM(starts[middle]);
+      if (dom instanceof HTMLElement && dom.getBoundingClientRect().bottom > y) high = middle;
+      else low = middle + 1;
+    }
+    if (low === starts.length) return inside + parent.content.size;
+    const child = parent.child(low);
+    if (child.isTextblock || !child.childCount) return starts[low];
+    parent = child;
+    inside = starts[low] + 1;
+  }
+}
+/** The top of a block's text in the viewport; a figure's text is its caption. */
+function blockTop(view: EditorView, node: PMNode, start: number) {
+  try {
+    if (node.isTextblock) return view.coordsAtPos(start + 1).top;
+    const dom = view.nodeDOM(start);
+    if (!(dom instanceof HTMLElement)) return undefined;
+    const caption = dom.querySelector(".caption-input")?.getBoundingClientRect();
+    return caption?.height ? caption.top : dom.getBoundingClientRect().top;
+  } catch {
+    return undefined;
+  }
+}
 /**
- * Where the reader is in the editor. `cursor` prefers the selection; otherwise
- * the cursor counts only while it is on screen.
+ * The height of an editor's viewport that the preview matches, given where the
+ * cursor is: the cursor's own while it is well on screen, otherwise the nearest
+ * such height. Scrolling the cursor away thus moves the matched line to the
+ * edge it left through, and the preview moves with the editor without a step.
+ */
+export function syncLine(cursor: number | undefined) {
+  return cursor === undefined ? 0.3 : Math.max(0.05, Math.min(0.9, cursor));
+}
+/**
+ * Where the reader is in the editor: at the cursor while it is on the matched
+ * line (`cursor` says it just moved; otherwise the editor must have the
+ * focus), else at the blocks around that line.
  */
 export function editorAnchor(
   view: EditorView,
@@ -138,29 +216,34 @@ export function editorAnchor(
 ): SyncAnchor | null {
   const box = scroller.getBoundingClientRect();
   if (!box.height) return null;
-  const { doc, selection } = view.state;
-  let pos = selection.head,
-    top: number | undefined;
+  const { doc, selection } = view.state,
+    ratio = (top: number) => (top - box.top) / box.height;
+  let head: number | undefined;
   try {
-    const coords = view.coordsAtPos(pos);
-    if (coords.bottom >= box.top && coords.top <= box.bottom) top = coords.top;
+    head = ratio(view.coordsAtPos(selection.head).top);
   } catch {
-    /* A position without a DOM box; use the reading line. */
+    /* A position without a DOM box. */
   }
-  if (top === undefined || (!cursor && !view.hasFocus())) {
-    const content = view.dom.getBoundingClientRect(),
-      line = box.top + box.height * 0.3;
-    const hit = view.posAtCoords({ left: content.left + Math.min(80, content.width / 2), top: line });
-    if (!hit) return null;
-    pos = hit.pos;
-    top = line;
+  const line = syncLine(head);
+  if (line === head && (cursor || view.hasFocus())) return anchorAt(doc, selection.head, line);
+  // The blocks around the line, down to the second one that starts below it
+  // (cells of one table row start at the same height).
+  const y = box.top + box.height * line,
+    { above, below } = blocksAround(doc, nodeBelow(view, y), 2, 8),
+    points: SyncAnchor[] = [];
+  let under = 0;
+  for (const block of [...above, ...below]) {
+    if (under === 2) break;
+    const top = blockTop(view, block.node, block.start);
+    if (top === undefined) continue;
+    if (top > y) under++;
+    points.push(describe(doc, { ...block, cut: -1 }, ratio(top)));
   }
-  return anchorAt(doc, pos, (top - box.top) / box.height);
+  if (!points.length) return null;
+  return { ...points[0], line, around: points.slice(1) };
 }
-/** The anchor for a document position shown at `ratio` of the editor's height. */
-export function anchorAt(doc: PMNode, pos: number, ratio: number): SyncAnchor | null {
-  const block = blockAt(doc, pos);
-  if (!block) return null;
+/** A block as an anchor shown at `ratio` of the editor's height. */
+function describe(doc: PMNode, block: { node: PMNode; start: number; cut: number }, ratio: number): SyncAnchor {
   const { runs, run, offset } = blockRuns(block.node, block.cut);
   return {
     runs,
@@ -171,10 +254,16 @@ export function anchorAt(doc: PMNode, pos: number, ratio: number): SyncAnchor | 
     ratio,
   };
 }
+/** The anchor for a document position shown at `ratio` of the editor's height. */
+export function anchorAt(doc: PMNode, pos: number, ratio: number): SyncAnchor | null {
+  const block = blockAt(doc, pos);
+  return block ? describe(doc, block, ratio) : null;
+}
 
 /** The text a Markdown line prints; chips, math and commands end a run. */
 function markdownRuns(line: string) {
-  return line
+  // A table row prints its cells, the rule under its head row nothing.
+  return (/^\s*\|/.test(line) ? line.replace(/(?<!\\)\|/g, "\u0002") : line)
     .replace(/^\s*(?:#{1,6}\s+|>\s?|(?:[-*+]|\d+[.)])\s+)*/, "")
     .replace(/\s*\{[#.][^}]*\}/g, "")
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
@@ -184,38 +273,52 @@ function markdownRuns(line: string) {
     .replace(/[*_`[\]{}<>]/g, "")
     .split("\u0002")
     .map(normalize)
-    .filter((run) => run.length > 0);
+    .filter(worded);
 }
-/**
- * The anchor for a line of a Markdown source shown at `ratio` of the editor's
- * height; LaTeX blocks read as LaTeX, the front matter as nothing.
- */
-export function sourceAnchor(lines: string[], line: number, column: number, ratio: number): SyncAnchor | null {
-  const runsOf: string[][] = [];
+/** A Markdown source as the text each line prints. */
+export interface SourceText {
+  lines: string[];
+  runs: string[][];
+  /** Lines inside a fenced block, which read as LaTeX. */
+  raw: boolean[];
+}
+/** Reads a Markdown source: LaTeX blocks as LaTeX, the front matter as nothing. */
+export function readSource(lines: string[]): SourceText {
+  const runs: string[][] = [],
+    raw: boolean[] = [];
   let fence = "",
     yaml = lines[0] === "---";
   lines.forEach((text, i) => {
+    raw.push(false);
     if (yaml) {
-      runsOf.push([]);
+      runs.push([]);
       if (i > 0 && /^(---|\.\.\.)\s*$/.test(text)) yaml = false;
       return;
     }
     const f = /^\s*(`{3,}|~{3,})/.exec(text);
     if (f) {
       fence = fence ? (f[1][0] === fence[0] && f[1].length >= fence.length ? "" : fence) : f[1];
-      runsOf.push([]);
-    } else runsOf.push(fence ? latexRuns(text) : markdownRuns(text));
+      runs.push([]);
+    } else {
+      raw[i] = !!fence;
+      runs.push(fence ? latexRuns(text) : markdownRuns(text));
+    }
   });
-  const runs = runsOf[line] ?? [];
+  return { lines, runs, raw };
+}
+/** The anchor for a place in a source line shown at `ratio` of the editor's height. */
+export function sourceAnchor(source: SourceText, line: number, column: number, ratio: number): SyncAnchor | null {
+  const runs = source.runs[line] ?? [];
   if (!runs.length) return null;
-  const text = lines[line],
-    head = (fence ? latexRuns : markdownRuns)(text.slice(0, column));
+  const head = (source.raw[line] ? latexRuns : markdownRuns)(source.lines[line].slice(0, column));
   const before: string[] = [],
     after: string[] = [];
-  for (let i = line - 1; i >= 0 && before.length < 3; i--)
-    if (runsOf[i].length) before.push(runsOf[i][runsOf[i].length - 1]);
-  for (let i = line + 1; i < lines.length && after.length < 3; i++)
-    if (runsOf[i].length) after.push(runsOf[i][0]);
+  for (let i = line - 1; i >= 0 && before.length < 3; i--) {
+    const near = source.runs[i];
+    if (near.length) before.push(near[near.length - 1]);
+  }
+  for (let i = line + 1; i < source.lines.length && after.length < 3; i++)
+    if (source.runs[i].length) after.push(source.runs[i][0]);
   const run = Math.max(0, Math.min(runs.length - 1, head.length - 1));
   return {
     runs,
@@ -223,7 +326,7 @@ export function sourceAnchor(lines: string[], line: number, column: number, rati
     offset: head.length ? Math.min(head[head.length - 1].length, runs[run].length) : 0,
     before,
     after,
-    order: lines.length ? line / lines.length : 0,
+    order: source.lines.length ? line / source.lines.length : 0,
     ratio,
   };
 }

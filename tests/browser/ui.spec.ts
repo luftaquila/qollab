@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import sharp from "sharp";
 import { readFileSync } from "node:fs";
 import { login, call } from "./helpers";
@@ -1101,5 +1101,94 @@ test("web preview follows the cursor and retains a disabled preference", async (
   await follow.click();
   await editor.getByText("문단 060").click();
   await expect.poll(() => inView("문단 060")).toBe(true);
+  await context.close();
+});
+test("web preview keeps pace with a scrolling editor and never steps back", async ({
+  browser,
+}) => {
+  test.setTimeout(90000);
+  const context = await browser.newContext({
+    locale: "ko-KR",
+    viewport: { width: 1440, height: 900 },
+  });
+  const user = await login(context),
+    page = await context.newPage();
+  // Nested clauses that open with the same words, sentences that recur in
+  // every chapter and a raw table whose rows repeat.
+  const { id, file } = await project(
+    page,
+    user,
+    "Pace " + Date.now(),
+    readFileSync("tests/fixtures/sync-clauses.qmd", "utf8"),
+  );
+  await page.goto(`/projects/${id}/files/${file}`);
+  const preview = page.locator(".web-preview-scroll");
+  await expect(preview.getByText("Fx = 8.0 kN")).toBeAttached();
+  const top = (pane: Locator) => pane.evaluate((e) => e.scrollTop);
+  /** Wheels a pane step by step; how far the preview moved at each step. */
+  async function wheel(pane: Locator, delta: number, steps: number) {
+    const box = (await pane.boundingBox())!,
+      from = await top(pane),
+      moves: number[] = [];
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    let last = await top(preview);
+    for (let i = 0; i < steps; i++) {
+      await page.mouse.wheel(0, delta);
+      await page.evaluate(
+        () =>
+          new Promise((done) =>
+            requestAnimationFrame(() => requestAnimationFrame(done)),
+          ),
+      );
+      const now = await top(preview);
+      moves.push((now - last) * Math.sign(delta));
+      last = now;
+    }
+    expect(Math.abs((await top(pane)) - from)).toBeGreaterThan(
+      Math.abs(delta) * steps * 0.8,
+    );
+    return moves;
+  }
+  /** Always the editor's way, in steps of its own size, and most of the way. */
+  function paced(moves: number[], delta: number) {
+    expect(Math.min(...moves)).toBeGreaterThanOrEqual(-1);
+    expect(Math.max(...moves)).toBeLessThan(delta * 5);
+    expect(moves.reduce((sum, move) => sum + move, 0)).toBeGreaterThan(
+      delta * moves.length * 0.5,
+    );
+  }
+  const editor = page.locator(".editor-scroll");
+  paced(await wheel(editor, 50, 60), 50);
+  paced(await wheel(editor, -50, 60), 50);
+  // With the cursor on screen, then scrolled past it and back to it.
+  await page.locator(".ProseMirror").getByText("Fx = 1.0 kN").click();
+  paced(await wheel(editor, 50, 60), 50);
+  paced(await wheel(editor, -50, 60), 50);
+  // The two stay on the same text.
+  await editor.evaluate((e) => {
+    const line = [...e.querySelectorAll("p")].find((p) =>
+      p.textContent!.includes("Fx = 6.0 kN"),
+    )!;
+    e.scrollTop +=
+      line.getBoundingClientRect().top -
+      e.getBoundingClientRect().top -
+      e.clientHeight * 0.4;
+  });
+  await expect
+    .poll(async () => {
+      const line = await preview.getByText("Fx = 6.0 kN").boundingBox(),
+        view = (await preview.boundingBox())!;
+      return !!line && line.y > view.y && line.y < view.y + view.height;
+    })
+    .toBe(true);
+  // The Markdown source scrolls the preview the same way.
+  await editor.evaluate((e) => (e.scrollTop = 0));
+  await page.getByRole("button", { name: "원문 보기" }).click();
+  const source = page.locator(".cm-scroller");
+  await expect(source).toBeVisible();
+  // The preview falls in step with the other pane at its first move.
+  await wheel(source, 50, 1);
+  paced(await wheel(source, 50, 60), 50);
+  paced(await wheel(source, -50, 60), 50);
   await context.close();
 });

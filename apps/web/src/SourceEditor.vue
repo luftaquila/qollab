@@ -2,12 +2,12 @@
 import { ref, watch, onMounted, onBeforeUnmount } from "vue";
 import { basicSetup } from "codemirror";
 import { EditorView, keymap } from "@codemirror/view";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, type Text } from "@codemirror/state";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { yaml } from "@codemirror/lang-yaml";
 import { tags } from "@lezer/highlight";
-import { sourceAnchor, type SyncAnchor } from "./editor-sync";
+import { readSource, sourceAnchor, syncLine, type SourceText, type SyncAnchor } from "./editor-sync";
 import { renumberLists } from "./source-lists";
 const props = defineProps<{
   value: string;
@@ -56,10 +56,11 @@ const settings = (readonly: boolean) => [
   EditorState.readOnly.of(readonly),
   EditorView.editable.of(!readonly),
 ];
-// Where the reader is, for the PDF to follow (Markdown only): the cursor
-// while it is on screen, otherwise the line 30% down the editor.
+// Where the reader is, for the preview to follow (Markdown only): at the
+// cursor while it is on the matched line, else at the lines around that line.
 let syncFrame = 0,
-  syncCursor = false;
+  syncCursor = false,
+  read: { doc: Text; source: SourceText } | undefined;
 function scheduleSync(cursor: boolean) {
   syncCursor ||= cursor;
   if (syncFrame || props.language !== "markdown") return;
@@ -68,21 +69,43 @@ function scheduleSync(cursor: boolean) {
     const byCursor = syncCursor;
     syncCursor = false;
     if (!view) return;
-    const box = view.scrollDOM.getBoundingClientRect();
+    const editor = view,
+      box = editor.scrollDOM.getBoundingClientRect();
     if (!box.height) return;
-    let pos = view.state.selection.main.head,
-      top = view.coordsAtPos(pos)?.top;
-    if (top === undefined || top < box.top || top > box.bottom || (!byCursor && !view.hasFocus)) {
-      top = box.top + box.height * 0.3;
-      pos = view.lineBlockAtHeight(top - view.documentTop).from;
+    const { doc, selection } = editor.state,
+      head = selection.main.head;
+    if (read?.doc !== doc) read = { doc, source: readSource(doc.toJSON()) };
+    const source = read.source,
+      ratio = (top: number) => (top - box.top) / box.height,
+      // Off screen a line has no characters to measure, only its block.
+      lineTop = (pos: number) => editor.documentTop + editor.lineBlockAt(pos).top,
+      cursor = ratio(editor.coordsAtPos(head)?.top ?? lineTop(head)),
+      line = syncLine(cursor);
+    let anchor: SyncAnchor | null = null;
+    if (line === cursor && (byCursor || editor.hasFocus)) {
+      const at = doc.lineAt(head);
+      anchor = sourceAnchor(source, at.number - 1, head - at.from, line);
+    } else {
+      // The two nearest lines with text that start above the line and two
+      // below. Little of a raw block may print as written, so from inside
+      // one the nearest line of prose on each side is added: the preview then
+      // moves in proportion through what it cannot find.
+      const y = box.top + box.height * line,
+        at = doc.lineAt(editor.lineBlockAtHeight(y - editor.documentTop).from).number,
+        points: SyncAnchor[] = [];
+      for (const step of [-1, 1]) {
+        let found = 0,
+          prose = false;
+        for (let n = step < 0 ? at : at + 1; n >= 1 && n <= doc.lines && (found < 2 || !prose); n += step) {
+          if (!source.runs[n - 1].length || (found >= 2 && source.raw[n - 1])) continue;
+          const point = sourceAnchor(source, n - 1, 0, ratio(lineTop(doc.line(n).from)));
+          if (point) points.push(point);
+          found++;
+          prose ||= !source.raw[n - 1];
+        }
+      }
+      if (points.length) anchor = { ...points[0], line, around: points.slice(1) };
     }
-    const line = view.state.doc.lineAt(pos);
-    const anchor = sourceAnchor(
-      view.state.doc.toString().split("\n"),
-      line.number - 1,
-      pos - line.from,
-      (top - box.top) / box.height,
-    );
     if (anchor) emit("sync", anchor);
   });
 }
