@@ -16,9 +16,9 @@ import { promisify } from "node:util";
 import { zipSync } from "fflate";
 import { z } from "zod";
 import { config } from "./config.js";
-import { Fault, pool } from "./db.js";
+import { Fault, pool, transaction } from "./db.js";
 import { identity, mutation } from "./auth.js";
-import { access, observeEvents } from "./store.js";
+import { access, audit, events, observeEvents, writable } from "./store.js";
 import { content } from "./blobs.js";
 import type { Project } from "./model.js";
 import { renderDocument } from "../../web/src/web-document.js";
@@ -319,14 +319,38 @@ export async function websiteRoutes(app: FastifyInstance) {
   app.get("/api/projects/:pid/website", async (req) => {
     const user = await identity(req),
       id = idOf(req);
-    await access(pool, id, user.id);
+    const project = await access(pool, id, user.id);
     const site = (
       await pool.query(
         "SELECT revision,updated FROM websites WHERE project_id=$1",
         [id],
       )
     ).rows[0];
-    return { published: !!site, ...site, url: websiteBase(id) };
+    return {
+      published: !!site,
+      ...site,
+      url: websiteBase(id),
+      public: project.web_public === true,
+    };
+  });
+  // Access to the website, not content: no revision, history or rebuild.
+  app.patch("/api/projects/:pid/website", async (req) => {
+    const user = await mutation(req),
+      id = idOf(req),
+      b = z.object({ public: z.boolean() }).parse(req.body);
+    const changed = await transaction(async (db) => {
+      await writable(db);
+      const project = await access(db, id, user.id, "owner", true);
+      if (project.web_public === b.public) return false;
+      await db.query("UPDATE projects SET web_public=$2 WHERE id=$1", [
+        id,
+        b.public,
+      ]);
+      await audit(db, id, user.id, "website.access", { public: b.public });
+      return true;
+    });
+    if (changed) events(id, { type: "website" });
+    return { public: b.public };
   });
   app.post("/api/projects/:pid/website", async (req) => {
     const user = await mutation(req),
@@ -383,8 +407,11 @@ export async function websiteRoutes(app: FastifyInstance) {
     const pageRequest =
       !extname(path) || extname(path) === ".html" || path.endsWith("/");
     try {
-      const user = await identity(req);
-      await access(pool, id, user.id);
+      // Checked on every request, so turning it off closes open pages too.
+      const open = (
+        await pool.query("SELECT web_public FROM projects WHERE id=$1", [id])
+      ).rows[0]?.web_public;
+      if (!open) await access(pool, id, (await identity(req)).id);
     } catch (error) {
       if (!(error instanceof Fault)) throw error;
       if (error.status === 401 && pageRequest)

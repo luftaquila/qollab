@@ -687,6 +687,23 @@ async function changeRole(m: any, role: string | null, transfer = false) {
     await refresh();
   });
 }
+async function setWebPublic(value: boolean) {
+  if (
+    value &&
+    !(await askConfirm({
+      title: t("webAccess"),
+      message: t("webPublicConfirm"),
+      confirm: t("makePublic"),
+    }))
+  )
+    return;
+  await guarded(async () => {
+    await api(`/projects/${project.value.id}/website`, "PATCH", {
+      public: value,
+    });
+    await refresh();
+  });
+}
 async function reopen() {
   await guarded(async () => {
     savePending();
@@ -795,6 +812,7 @@ provide(workspaceKey, {
   invite,
   retryMemberMail,
   changeRole,
+  setWebPublic,
   scrollToHeading: (index: number) => editor.value?.scrollToHeading(index),
   frontMatter,
   frontMatterEditable: computed(

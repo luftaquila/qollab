@@ -304,6 +304,17 @@ const words = {
     "권한을 바꾸면 열려 있는 편집기가 다시 연결됩니다.",
     "Changing access reconnects open editors.",
   ],
+  webAccess: ["웹 문서 공개", "Web document access"],
+  webPublic: ["로그인 없이 누구나 읽기", "Anyone can read without signing in"],
+  webPublicHint: [
+    "켜면 웹 문서 주소를 아는 누구나 로그인하지 않고 읽을 수 있습니다. 끄면 이 프로젝트 멤버만 읽을 수 있습니다.",
+    "When on, anyone with the web document's address can read it without signing in. When off, only members of this project can.",
+  ],
+  webPublicConfirm: [
+    "웹 문서를 공개할까요? 주소를 아는 누구나 로그인하지 않고 읽을 수 있습니다.",
+    "Make the web document public? Anyone with its address can read it without signing in.",
+  ],
+  makePublic: ["공개", "Make public"],
   rawMode: ["복구 편집", "Recovery"],
   textMode: ["텍스트", "Text"],
   imageFile: ["이미지", "Image"],

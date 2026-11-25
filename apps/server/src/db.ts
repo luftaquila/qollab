@@ -37,6 +37,7 @@ INSERT INTO maintenance(singleton) VALUES(true) ON CONFLICT DO NOTHING;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS updated timestamptz;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS picture text;
 ALTER TABLE projects ALTER COLUMN updated SET DEFAULT now();
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS web_public boolean NOT NULL DEFAULT false;
 CREATE TABLE IF NOT EXISTS blobs(id text PRIMARY KEY,bytes bytea NOT NULL);
 `);
 }

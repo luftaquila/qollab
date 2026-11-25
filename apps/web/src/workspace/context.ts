@@ -36,6 +36,7 @@ export interface WorkspaceContext {
     role: string | null,
     transfer?: boolean,
   ) => Promise<void>;
+  setWebPublic: (value: boolean) => Promise<void>;
   scrollToHeading: (index: number) => void;
   /** Front matter of the open visual document (fences included), null if none. */
   frontMatter: Ref<string | null>;

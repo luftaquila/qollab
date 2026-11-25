@@ -46,4 +46,7 @@ export interface Project {
   revision: number;
   data: ProjectData;
   role?: Role;
+  /** The published website is readable without signing in. An access
+   * setting, like membership: outside the content, its history and archives. */
+  web_public?: boolean;
 }

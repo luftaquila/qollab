@@ -235,6 +235,115 @@ it("guards every hosted document resource, old asset and alias with current proj
     });
   }
 });
+it("serves a public website without a session until the owner makes it private", async () => {
+  const p = await project();
+  await pool.query("INSERT INTO members VALUES($1,'viewer','viewer')", [p.id]);
+  await pool.query("INSERT INTO websites(project_id,revision) VALUES($1,$2)", [
+    p.id,
+    p.revision,
+  ]);
+  const root = resolve(
+    config.data,
+    "websites-v5",
+    p.id,
+    String(p.revision),
+    "hosted/.vitepress/dist",
+  );
+  const paths = ["index.html", "site-version.json", "assets/search.js"];
+  for (const path of paths) {
+    const destination = resolve(root, path);
+    await mkdir(resolve(destination, ".."), { recursive: true });
+    await writeFile(destination, "public content");
+  }
+  const base = `/docs/p/${p.id}/`;
+  const seen: any[] = [];
+  const off = subscribe(p.id, (event) => seen.push(event));
+  try {
+    expect(
+      (await request("owner", `/projects/${p.id}/website`)).json(),
+    ).toMatchObject({ published: true, public: false });
+    expect((await app.inject(base)).statusCode).toBe(302);
+    // Only owners change access; non-members do not learn the project exists.
+    expect(
+      (
+        await request("viewer", `/projects/${p.id}/website`, "PATCH", {
+          public: true,
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await request("editor", `/projects/${p.id}/website`, "PATCH", {
+          public: true,
+        })
+      ).statusCode,
+    ).toBe(404);
+    const made = await request("owner", `/projects/${p.id}/website`, "PATCH", {
+      public: true,
+    });
+    expect(made.statusCode, made.body).toBe(200);
+    expect(made.json()).toEqual({ public: true });
+    // An access setting: no content revision, and members see it at once.
+    const after = (await request("owner", `/projects/${p.id}`)).json();
+    expect(after.web_public).toBe(true);
+    expect(after.revision).toBe(p.revision);
+    expect(seen).toContainEqual({ type: "website" });
+    expect(
+      (await request("viewer", `/projects/${p.id}/website`)).json().public,
+    ).toBe(true);
+    expect(
+      (
+        await pool.query(
+          "SELECT detail FROM audit WHERE project_id=$1 AND event='website.access'",
+          [p.id],
+        )
+      ).rows.map((r) => r.detail),
+    ).toEqual([{ public: true }]);
+    for (const path of paths) {
+      const anonymous = await app.inject(base + path);
+      expect(anonymous.statusCode, path).toBe(200);
+      expect(anonymous.body).toBe("public content");
+      expect(anonymous.headers["cache-control"]).toBe("private, no-store");
+      const outsider = await app.inject({
+        url: base + path,
+        headers: { cookie: "qollab=" + people.editor.raw },
+      });
+      expect(outsider.statusCode, path).toBe(200);
+    }
+    expect(
+      (
+        await request("owner", `/projects/${p.id}/website`, "PATCH", {
+          public: false,
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect((await app.inject(base)).statusCode).toBe(302);
+    expect((await app.inject(base + "site-version.json")).statusCode).toBe(401);
+    expect(
+      (
+        await app.inject({
+          url: base + "site-version.json",
+          headers: { cookie: "qollab=" + people.editor.raw },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await app.inject({
+          url: base + "site-version.json",
+          headers: { cookie: "qollab=" + people.viewer.raw },
+        })
+      ).statusCode,
+    ).toBe(200);
+  } finally {
+    off();
+    await pool.query("DELETE FROM websites WHERE project_id=$1", [p.id]);
+    await rm(resolve(config.data, "websites-v5", p.id), {
+      recursive: true,
+      force: true,
+    });
+  }
+});
 it("rejects existing guest cookies immediately when anonymous access is disabled", async () => {
   const previous = config.anonymous;
   try {

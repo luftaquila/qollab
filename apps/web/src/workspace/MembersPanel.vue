@@ -18,6 +18,18 @@ async function invite() {
     sending.value = false;
   }
 }
+const savingAccess = ref(false);
+async function setPublic(event: Event) {
+  const input = event.target as HTMLInputElement;
+  savingAccess.value = true;
+  try {
+    await ws.setWebPublic(input.checked);
+  } finally {
+    savingAccess.value = false;
+    // A declined or failed change leaves the box as it was.
+    input.checked = ws.project.value.web_public === true;
+  }
+}
 const manageable = (m: any) => ws.owner.value && m.id !== ws.user.id;
 function actions(m: any): MenuEntry[] {
   return [
@@ -149,6 +161,19 @@ function actions(m: any): MenuEntry[] {
       </li>
     </ul>
     <p v-if="ws.owner.value" class="field-hint">{{ t("roleChangeNote") }}</p>
+    <h3 class="panel-section-title">{{ t("webAccess") }}</h3>
+    <div class="check-field-wrap">
+      <label class="check-field">
+        <input
+          type="checkbox"
+          :checked="ws.project.value.web_public === true"
+          :disabled="!ws.owner.value || savingAccess"
+          @change="setPublic"
+        />
+        <span>{{ t("webPublic") }}</span>
+      </label>
+      <span class="field-hint">{{ t("webPublicHint") }}</span>
+    </div>
   </div>
 </template>
 <style>

@@ -82,3 +82,99 @@ test("project members can read publications and revocation removes an already-op
   await b.close();
   await anonymous.close();
 });
+test("owners make a publication public from the Share panel and can close it again", async ({
+  browser,
+}) => {
+  test.setTimeout(60000);
+  const a = await browser.newContext({ locale: "en-US" }),
+    b = await browser.newContext({ locale: "en-US" }),
+    anonymous = await browser.newContext({ locale: "en-US" });
+  const alice = await login(a),
+    bob = await login(b, 1);
+  const owner = await a.newPage(),
+    member = await b.newPage(),
+    reader = await anonymous.newPage();
+  const project = await call(owner, alice, "/projects", "POST", {
+    name: "Public publication",
+  });
+  let p = await call(owner, alice, `/projects/${project.id}`);
+  const file = p.data.files[0];
+  const raw = await call(
+    owner,
+    alice,
+    `/projects/${p.id}/files/${file.id}/raw`,
+    "POST",
+    { revision: p.revision },
+  );
+  const saved = await call(
+    owner,
+    alice,
+    `/projects/${p.id}/files/${file.id}/raw`,
+    "PUT",
+    {
+      revision: raw.revision,
+      epoch: raw.result.epoch,
+      rawVersion: raw.result.rawVersion,
+      source: "# Public chapter\n\nOpen unique content\n",
+      visual: true,
+    },
+  );
+  await call(owner, alice, `/projects/${p.id}/invites`, "POST", {
+    revision: saved.revision,
+    email: "bob@example.com",
+    role: "viewer",
+  });
+  const site = await call(
+    owner,
+    alice,
+    `/projects/${p.id}/website`,
+    "POST",
+    {},
+  );
+  const option = { name: "Anyone can read without signing in" };
+  await member.goto(`/projects/${p.id}`);
+  await member
+    .locator(".workspace-header")
+    .getByRole("button", { name: "Share" })
+    .click();
+  const memberBox = member.getByRole("checkbox", option);
+  await expect(memberBox).not.toBeChecked();
+  await expect(memberBox).toBeDisabled();
+  await owner.goto(`/projects/${p.id}`);
+  await owner
+    .locator(".workspace-header")
+    .getByRole("button", { name: "Share" })
+    .click();
+  const ownerBox = owner.getByRole("checkbox", option);
+  await ownerBox.click();
+  await owner
+    .getByRole("dialog")
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
+  await expect(ownerBox).not.toBeChecked();
+  expect((await call(owner, alice, `/projects/${p.id}/website`)).public).toBe(
+    false,
+  );
+  await ownerBox.click();
+  await owner
+    .getByRole("dialog")
+    .getByRole("button", { name: "Make public", exact: true })
+    .click();
+  await expect(ownerBox).toBeChecked();
+  await expect(memberBox).toBeChecked();
+  const opened = await reader.goto(site.url);
+  expect(opened?.status()).toBe(200);
+  await reader
+    .locator(".VPSidebar")
+    .getByRole("link", { name: "Public chapter", exact: true })
+    .click();
+  await expect(reader.locator(".vp-doc")).toContainText("Open unique content");
+  await ownerBox.click();
+  await expect(ownerBox).not.toBeChecked();
+  await expect(memberBox).not.toBeChecked();
+  await expect(reader).toHaveURL(/\/\?returnTo=/);
+  await expect(reader.locator("body")).not.toContainText("Open unique content");
+  await a.close();
+  await b.close();
+  await anonymous.close();
+});
