@@ -2,6 +2,7 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import sharp from "sharp";
 import { readFileSync } from "node:fs";
 import { login, call } from "./helpers";
+import { defaultNumbering } from "../../packages/codec/src/numbering";
 
 const paper = `---
 title: "Toolbar"
@@ -1190,5 +1191,69 @@ test("web preview keeps pace with a scrolling editor and never steps back", asyn
   await wheel(source, 50, 1);
   paced(await wheel(source, 50, 60), 50);
   paced(await wheel(source, -50, 60), 50);
+  await context.close();
+});
+test("web preview does not leave for text a numbered heading no longer prints", async ({
+  browser,
+}) => {
+  test.setTimeout(90000);
+  const context = await browser.newContext({
+    locale: "ko-KR",
+    viewport: { width: 1440, height: 900 },
+  });
+  const user = await login(context),
+    page = await context.newPage();
+  // Every clause heading reads 조항 and prints only its number; one sentence
+  // at the end of the document has the word.
+  const clauses = Array.from({ length: 60 }, (_, i) => {
+    const n = String(i + 1).padStart(3, "0");
+    return `#### 조항 {#clause-${n}}\n\n문단 ${n}: 참가 팀은 차량 검사 전에 ${n}번 서류를 제출해야 한다.\n`;
+  });
+  const { id, file } = await project(
+    page,
+    user,
+    "Hidden " + Date.now(),
+    `# 운영 {#part}\n\n## 일반 {#general}\n\n### 팀 {#team}\n\n${clauses.join("\n")}\n모든 체결구는 이 조항을 참조하는 규정에서 지정한 크기 이상이어야 한다.\n`,
+  );
+  const settings = defaultNumbering();
+  settings.headings.enabled = true;
+  settings.headings.levels[3].title = "{label}";
+  await call(page, user, `/projects/${id}/numbering`, "PATCH", {
+    expected: null,
+    numbering: settings,
+  });
+  await page.goto(`/projects/${id}/files/${file}`);
+  const editor = page.locator(".editor-scroll"),
+    preview = page.locator(".web-preview-scroll");
+  await expect(preview.getByText("문단 060")).toBeAttached();
+  await expect(preview.locator("h4", { hasText: "조항" })).toHaveCount(0);
+  const top = () => preview.evaluate((e) => e.scrollTop);
+  /** Wheels a pane down; the preview moves along in steps of its own size. */
+  async function wheel(pane: Locator) {
+    const box = (await pane.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    let last = await top();
+    for (let i = 0; i < 60; i++) {
+      await page.mouse.wheel(0, 50);
+      await page.evaluate(
+        () =>
+          new Promise((done) =>
+            requestAnimationFrame(() => requestAnimationFrame(done)),
+          ),
+      );
+      const now = await top();
+      expect(now - last).toBeGreaterThanOrEqual(-1);
+      expect(now - last).toBeLessThan(250);
+      last = now;
+    }
+    expect(last).toBeGreaterThan(1000);
+  }
+  await wheel(editor);
+  await editor.evaluate((e) => (e.scrollTop = 0));
+  await page.getByRole("button", { name: "원문 보기" }).click();
+  const source = page.locator(".cm-scroller");
+  await expect(source).toBeVisible();
+  await expect.poll(top).toBeLessThan(200);
+  await wheel(source);
   await context.close();
 });

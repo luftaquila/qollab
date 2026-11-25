@@ -15,6 +15,8 @@ export interface SyncAnchor {
   order: number;
   /** Height of the anchor in the editor's viewport (0–1, beyond it off screen). */
   ratio: number;
+  /** A heading is found among headings only: the numbering may print it without its title. */
+  heading: boolean;
   /**
    * While scrolling no single place is shown: `line` is the height of the
    * viewport to match and `around` the blocks next to this one, so the preview
@@ -252,6 +254,7 @@ function describe(doc: PMNode, block: { node: PMNode; start: number; cut: number
     ...neighbours(doc, block.start, block.start + block.node.nodeSize),
     order: doc.content.size ? block.start / doc.content.size : 0,
     ratio,
+    heading: block.node.type.name === "heading",
   };
 }
 /** The anchor for a document position shown at `ratio` of the editor's height. */
@@ -328,5 +331,6 @@ export function sourceAnchor(source: SourceText, line: number, column: number, r
     after,
     order: source.lines.length ? line / source.lines.length : 0,
     ratio,
+    heading: !source.raw[line] && /^\s{0,3}#{1,6}\s/.test(source.lines[line]),
   };
 }

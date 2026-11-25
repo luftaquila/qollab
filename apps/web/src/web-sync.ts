@@ -82,6 +82,7 @@ function locate(blocks: HTMLElement[], anchor: SyncAnchor, expected: number) {
   let places: { element: HTMLElement; block: number; index: number }[] = [],
     most = 0;
   blocks.forEach((element, block) => {
+    if (anchor.heading && !/^H[1-6]$/.test(element.tagName)) return;
     const text = textOf(element);
     // A sentence may recur in every clause, and being the whole of a block
     // proves little for a short text: what tells the places apart is how
